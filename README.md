@@ -32,10 +32,20 @@ Ensure you have the following Python packages installed:
 - **mplcursors**
 - **Requests**
 
-Install them using pip:
+Install them using pip or conda:
 
 ```bash
 pip install biopython matplotlib PyQt5 mplcursors requests
+```
+```bash
+conda install biopython matplotlib PyQt5 mplcursors requests
+```
+It is recommended to work in a separate conda environment.
+```bash
+conda create -n probe pyth0n=3.12
+```
+```bash
+conda activate probe
 ```
 ## Installation
 1. Clone or download the repository containing the probe.py script.
