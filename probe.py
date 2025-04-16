@@ -549,7 +549,7 @@ def import_pdb_sequence(file_name: str) -> str:
 class ProteinAnalyzerGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Protein Sequence Analyzer")
+        self.setWindowTitle("PROBE - PROtein analyzer and Bioinformatics Evaluator")
         self.resize(1200, 900)
         self.statusBar = QStatusBar()
         self.setStatusBar(self.statusBar)
@@ -768,7 +768,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.main_tabs.addTab(container, "Help")
         help_browser = QTextBrowser()
         help_browser.setHtml("""
-        <h1>Protein Sequence Analyzer - Help</h1>
+        <h1>PROBE - PROtein analyzer and Bioinformatics Evaluator</h1>
         <p>This software analyzes protein sequences and provides detailed reports, external UniProt annotation, and interactive graphs.</p>
         <h2>Features</h2>
         <ul>
