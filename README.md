@@ -1,51 +1,72 @@
-# PROBE
-PROBE – Protein Review &amp; Bioinformatics Evaluator
+# PROBE - PROtein analyzer and Bioinformatics Evaluator
 
-A professional-grade protein sequence analyzer with a graphical user interface (GUI) built using PyQt5 and Matplotlib. The software computes a wide range of protein properties, presents detailed reports in HTML tables, and displays interactive graphs. It also supports batch analysis of multi-FASTA files, theme customization, and dynamic settings updates.
+An advanced GUI-based protein sequence analyzer that integrates multiple analysis methods and interactive visualizations for both individual and batch protein sequence analyses. The application supports importing sequences via FASTA or PDB files, performing detailed biochemical analyses, integrating external UniProt annotations, and exporting comprehensive reports.
 
 ## Features
 
-- **Sequence Analysis:**
-  - Calculate amino acid composition, molecular weight, isoelectric point (pI), and molar extinction coefficient.
-  - Compute GRAVY (hydropathy) score, instability index, aromaticity, and secondary structure predictions.
-  - Predict net charge at pH 7.0 and a user-specified pH.
-  - Generate a hydrophobicity profile using a sliding-window algorithm (Kyte–Doolittle scale).
+- **Sequence Import:**  
+  Import protein sequences from FASTA and PDB files (extracts chain A by default).
 
-- **Reporting:**
-  - Detailed HTML-formatted reports presented as tables.
-  - A dedicated Annotation section (placeholder for future integration with external annotation services).
+- **Comprehensive Analysis:**  
+  Provides detailed biochemical properties including amino acid composition, molecular weight, isoelectric point, extinction coefficient, GRAVY score, instability index, aromaticity, secondary structure fractions, net charge (at customizable pH values), hydrophobicity profile, and placeholder predictions for solubility and disorder.
 
-- **Visualization:**
-  - Embedded graphs for:
-    - Amino acid composition (bar chart)
-    - Hydrophobicity profile (line chart)
-    - Net charge versus pH
-    - Bead models (colored by hydrophobicity and by charge)
-  - Adjustable label and tick fonts, plus configurable colormap.
-  - Navigation toolbars for zooming and panning on graphs.
+- **Interactive Graphs:**  
+  Visualizations include bar and pie charts for amino acid composition, line graphs for hydrophobicity profiles and net charge vs. pH, bead models for hydrophobicity and charge, and a radar chart comparing key properties. Graphs are enhanced with interactive tooltips using mplcursors.
 
-- **Batch Analysis:**
-  - Import and analyze multiple protein sequences from a multi-FASTA file.
-  - Summary table view with key properties for each sequence.
-  - Double-click table rows to view additional details.
+- **Batch Analysis:**  
+  Analyze multiple protein sequences simultaneously with CSV and JSON export options for the resulting summary data.
 
-- **Customization & Export:**
-  - Settings tab to adjust sliding window size, font sizes, colormap, theme (light/dark), and bead label display.
-  - Dynamic update of reports and graphs when settings are applied.
-  - Export reports as text and export a combined PDF report (including graphs) or view a print preview.
+- **Reporting and Exporting:**  
+  - Save reports as formatted text files.
+  - Export full analysis reports along with graphs to PDF.
+  - Save individual graph images and export all graphs in one operation.
 
-## Installation
+- **Customizable Settings:**  
+  Adjust parameters such as the sliding window size for hydrophobicity, font sizes for graph labels and ticks, colormap selections, and toggle between light and dark themes.
 
-### Prerequisites
+## Dependencies
 
-- Python 3.x  
-- [Biopython](https://biopython.org/)
-- [Matplotlib](https://matplotlib.org/)
-- [PyQt5](https://pypi.org/project/PyQt5/)
+Ensure you have the following Python packages installed:
 
-### Install Dependencies
+- **Biopython**
+- **Matplotlib**
+- **PyQt5**
+- **mplcursors**
+- **Requests**
 
-You can install the required packages using pip:
+Install them using pip:
 
 ```bash
-pip install biopython matplotlib PyQt5
+pip install biopython matplotlib PyQt5 mplcursors requests
+```
+## Installation
+
+1. Clone or download the repository containing the probe.py script.
+2. Make sure your Python environment meets the above dependencies.
+
+## Usage
+
+To run the application, simply execute the following command in your terminal:
+```bash
+python probe.py
+```
+Upon launching, the GUI will appear, offering tabs for individual sequence analysis, graphs, batch processing, settings, and help. Import your protein sequences via FASTA or PDB files and click Analyze to see the results.
+Code Structure
+
+The main application file containing all code, including:
+  Constants and Helper Functions: Validates and cleans sequences; calculates basic properties such as net charge and hydrophobicity.
+  AnalysisTools Class: Performs comprehensive protein analysis and integrates external annotations from UniProt.
+  GraphingTools Class: Generates interactive visualizations for protein properties.
+  ExportTools Class: Handles the export of text reports, PDFs, CSV, and JSON files.
+  FullReportDialog: A detailed report viewer for batch analysis.
+  GUI Setup: Uses PyQt5 to build a multi-tab interface for analysis, graphs, batch analysis, settings, and help.
+  PDB Import: Supports extracting sequence information from PDB files (chain A).
+  
+## License
+
+This project is released under the GNU General Public License. For more details, please refer to the license file accompanying this project.
+
+## Author and Contact
+
+Developed by Saumyak Mukherjee
+Contact: saumyak.mukherjee@biophys.mpg.de
