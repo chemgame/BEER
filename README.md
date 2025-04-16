@@ -3,7 +3,6 @@
 An advanced GUI-based protein sequence analyzer that integrates multiple analysis methods and interactive visualizations for both individual and batch protein sequence analyses. The application supports importing sequences via FASTA or PDB files, performing detailed biochemical analyses, integrating external UniProt annotations, and exporting comprehensive reports.
 
 ## Features
-
 - **Sequence Import:**  
   Import protein sequences from FASTA and PDB files (extracts chain A by default).
 
@@ -25,7 +24,6 @@ An advanced GUI-based protein sequence analyzer that integrates multiple analysi
   Adjust parameters such as the sliding window size for hydrophobicity, font sizes for graph labels and ticks, colormap selections, and toggle between light and dark themes.
 
 ## Dependencies
-
 Ensure you have the following Python packages installed:
 
 - **Biopython**
@@ -40,12 +38,10 @@ Install them using pip:
 pip install biopython matplotlib PyQt5 mplcursors requests
 ```
 ## Installation
-
 1. Clone or download the repository containing the probe.py script.
 2. Make sure your Python environment meets the above dependencies.
 
 ## Usage
-
 To run the application, simply execute the following command in your terminal:
 ```bash
 python probe.py
@@ -53,10 +49,8 @@ python probe.py
 Upon launching, the GUI will appear, offering tabs for individual sequence analysis, graphs, batch processing, settings, and help. Import your protein sequences via FASTA or PDB files (or copy-pasting the sequence) and click Analyze to see the results.
   
 ## License
-
 This project is released under the GNU General Public License. For more details, please refer to the license file accompanying this project.
 
 ## Author and Contact
-
-Developed by Saumyak Mukherjee
-Contact: saumyak.mukherjee@biophys.mpg.de
+- Developed by Saumyak Mukherjee
+- Contact: saumyak.mukherjee@biophys.mpg.de
