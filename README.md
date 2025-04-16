@@ -42,7 +42,7 @@ conda install biopython matplotlib PyQt5 mplcursors requests
 ```
 It is recommended to work in a separate conda environment.
 ```bash
-conda create -n probe pyth0n=3.12
+conda create -n probe python=3.12
 ```
 ```bash
 conda activate probe
