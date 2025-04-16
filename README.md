@@ -50,17 +50,18 @@ To run the application, simply execute the following command in your terminal:
 ```bash
 python probe.py
 ```
-Upon launching, the GUI will appear, offering tabs for individual sequence analysis, graphs, batch processing, settings, and help. Import your protein sequences via FASTA or PDB files and click Analyze to see the results.
-Code Structure
+Upon launching, the GUI will appear, offering tabs for individual sequence analysis, graphs, batch processing, settings, and help. Import your protein sequences via FASTA or PDB files (or copy-pasting the sequence) and click Analyze to see the results.
+
+### Code Structure
 
 The main application file containing all code, including:
-  Constants and Helper Functions: Validates and cleans sequences; calculates basic properties such as net charge and hydrophobicity.
-  AnalysisTools Class: Performs comprehensive protein analysis and integrates external annotations from UniProt.
-  GraphingTools Class: Generates interactive visualizations for protein properties.
-  ExportTools Class: Handles the export of text reports, PDFs, CSV, and JSON files.
-  FullReportDialog: A detailed report viewer for batch analysis.
-  GUI Setup: Uses PyQt5 to build a multi-tab interface for analysis, graphs, batch analysis, settings, and help.
-  PDB Import: Supports extracting sequence information from PDB files (chain A).
+  - Constants and Helper Functions: Validates and cleans sequences; calculates basic properties such as net charge and hydrophobicity.
+  - AnalysisTools Class: Performs comprehensive protein analysis and integrates external annotations from UniProt.
+  - GraphingTools Class: Generates interactive visualizations for protein properties.
+  - ExportTools Class: Handles the export of text reports, PDFs, CSV, and JSON files.
+  - FullReportDialog: A detailed report viewer for batch analysis.
+  - GUI Setup: Uses PyQt5 to build a multi-tab interface for analysis, graphs, batch analysis, settings, and help.
+  - PDB Import: Supports extracting sequence information from PDB files (chain A).
   
 ## License
 
