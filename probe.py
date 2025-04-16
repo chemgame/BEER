@@ -330,7 +330,7 @@ class GraphingTools:
         ax = fig.add_subplot(111)
         positions = list(range(1, len(seq)+1))
         hydrophobicities = [KYTE_DOOLITTLE[aa] for aa in seq]
-        sc = ax.scatter(positions, [1]*len(seq), c=hydrophobicities, cmap=cmap, s=200, edgecolors="k")
+        sc = ax.scatter(positions, [1]*len(seq), c=hydrophobicities, cmap=cmap, s=200, edgecolors="k", linewidths=0.2)
         cbar = fig.colorbar(sc, ax=ax, label="Hydrophobicity (Kyte-Doolittle)")
         cbar.ax.yaxis.label.set_fontsize(label_font)
         ax.set_xlabel("Residue Position", fontsize=label_font)
@@ -357,7 +357,7 @@ class GraphingTools:
                 colors.append("red")
             else:
                 colors.append("gray")
-        ax.scatter(positions, [1]*len(seq), c=colors, s=200, edgecolors="k")
+        ax.scatter(positions, [1]*len(seq), c=colors, s=200, edgecolors="k", linewidths=0.2)
         ax.set_xlabel("Residue Position", fontsize=label_font)
         ax.set_yticks([])
         ax.set_title("Bead Model: Charge", fontsize=label_font+2)
