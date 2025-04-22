@@ -1,19 +1,19 @@
-# PROBE - PROtein analyzer and Bioinformatics Evaluator
+# PROBE - PROtein analyzer and Bioinformatics Estimator
 
-An advanced GUI-based protein sequence analyzer that integrates multiple analysis methods and interactive visualizations for both individual and batch protein sequence analyses. The application supports importing sequences via FASTA or PDB files, performing detailed biochemical analyses, integrating external UniProt annotations, and exporting comprehensive reports.
+A GUI-based protein sequence analyzer that integrates multiple analysis methods and interactive visualizations for protein sequence analyses. The application supports importing sequences via FASTA or PDB files, performing detailed biochemical analyses, and exporting comprehensive reports.
 
 ## Features
 - **Sequence Import:**  
-  Import protein sequences from FASTA and PDB files (extracts chain A by default).
+  Import protein sequences from FASTA and PDB files. Supports multichain files.
 
 - **Comprehensive Analysis:**  
-  Provides detailed biochemical properties including amino acid composition, molecular weight, isoelectric point, extinction coefficient, GRAVY score, instability index, aromaticity, secondary structure fractions, net charge (at customizable pH values), hydrophobicity profile, and placeholder predictions for solubility and disorder.
+  Provides detailed biochemical properties including amino acid composition, molecular weight, isoelectric point, extinction coefficient, GRAVY score, instability index, aromaticity, net charge (at customizable pH values), and predictions for solubility.
 
 - **Interactive Graphs:**  
   Visualizations include bar and pie charts for amino acid composition, line graphs for hydrophobicity profiles and net charge vs. pH, bead models for hydrophobicity and charge, and a radar chart comparing key properties. Graphs are enhanced with interactive tooltips using mplcursors.
 
-- **Batch Analysis:**  
-  Analyze multiple protein sequences simultaneously with CSV and JSON export options for the resulting summary data.
+- **Multichain Analysis:**  
+  Information on multiple protein chains simultaneously with CSV and JSON export options for the resulting summary data.
 
 - **Reporting and Exporting:**  
   - Save reports as formatted text files.
@@ -21,7 +21,7 @@ An advanced GUI-based protein sequence analyzer that integrates multiple analysi
   - Save individual graph images and export all graphs in one operation.
 
 - **Customizable Settings:**  
-  Adjust parameters such as the sliding window size for hydrophobicity, font sizes for graph labels and ticks, colormap selections, and toggle between light and dark themes.
+  Adjust parameters and toggle between light and dark themes.
 
 ## Dependencies
 Ensure you have the following Python packages installed:
