@@ -1,6 +1,6 @@
-# PROBE - PROtein analyzer and Bioinformatics Estimator
+# PRISM - Protein Residue Informatics & Sequence Metrics
 
-A GUI-based protein sequence analyzer that integrates multiple analysis methods and interactive visualizations for protein sequence analyses. The application supports importing sequences via FASTA or PDB files, performing detailed biochemical analyses, and exporting comprehensive reports.
+A cross-platform GUI-based protein sequence analyzer that integrates multiple analysis methods and interactive visualizations for protein sequence analyses. The application supports importing sequences via FASTA or PDB files, performing detailed biochemical analyses, and exporting comprehensive reports.
 
 ## Features
 - **Sequence Import:**  
