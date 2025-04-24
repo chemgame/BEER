@@ -38,19 +38,19 @@ pip install biopython matplotlib PyQt5 mplcursors
 ```
 It is recommended to work in a separate conda environment.
 ```bash
-conda create -n probe python=3.12
+conda create -n prism python=3.12
 ```
 ```bash
-conda activate probe
+conda activate prism
 ```
 ## Installation
-1. Clone or download the repository containing the probe.py script.
+1. Clone or download the repository containing the prism.py script.
 2. Make sure your Python environment meets the above dependencies.
 
 ## Usage
 To run the application, simply execute the following command in your terminal:
 ```bash
-python probe.py
+python prism.py
 ```
 To use the code system-wide globally, make it executable (```chmod 777 prism.py```), put it is a directory (```prism```) and define the directory in your path (```export PATH="/path/to/prism:$PATH"```).
 
