@@ -32,13 +32,10 @@ Ensure you have the following Python packages installed:
 - **mplcursors**
 - **Requests**
 
-Install them using pip or conda:
+Install them using pip:
 
 ```bash
 pip install biopython matplotlib PyQt5 mplcursors requests
-```
-```bash
-conda install biopython matplotlib PyQt5 mplcursors requests
 ```
 It is recommended to work in a separate conda environment.
 ```bash
@@ -56,6 +53,8 @@ To run the application, simply execute the following command in your terminal:
 ```bash
 python probe.py
 ```
+To use the code system-wide globally, make it executable (```chmod 777 prism.py```), put it is a directory (```prism```) and define the directory in your path (```export PATH="/path/to/prism:$PATH"```).
+
 Upon launching, the GUI will appear, offering tabs for individual sequence analysis, graphs, batch processing, settings, and help. Import your protein sequences via FASTA or PDB files (or copy-pasting the sequence) and click Analyze to see the results.
   
 ## License
