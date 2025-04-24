@@ -105,7 +105,17 @@ def is_valid_protein(seq: str) -> bool:
 def calc_net_charge(seq: str, pH: float = 7.0) -> float:
     """Henderson–Hasselbalch net charge."""
     pKa_nterm = 9.69; pKa_cterm = 2.34
-    pKa_side = {'D':3.90,'E':4.07,'C':8.18,'Y':10.46,'H':6.04,'K':10.54,'R':12.48}
+
+    if hasattr(calc_net_charge, "pka_override") and calc_net_charge.pka_override:
+        p = calc_net_charge.pka_override
+        pKa_nterm, pKa_cterm = p['NTERM'], p['CTERM']
+        pKa_side = {'D':p['D'],'E':p['E'],'C':p['C'],'Y':p['Y'],
+                    'H':p['H'],'K':p['K'],'R':p['R']}
+    else:
+        pKa_nterm, pKa_cterm = 9.69, 2.34
+        pKa_side = {'D':3.90,'E':4.07,'C':8.18,'Y':10.46,'H':6.04,'K':10.54,'R':12.48}
+
+
     net = 1/(1+10**(pH-pKa_nterm)) - 1/(1+10**(pKa_cterm-pH))
     for aa in seq:
         if aa in ('D','E','C','Y'):
@@ -136,13 +146,21 @@ class AnalysisTools:
         aa_freq       = {aa:(count/seq_length*100) for aa,count in aa_counts.items()}
         mol_weight    = pa.molecular_weight()
         iso_point     = pa.isoelectric_point()
-        extinction    = pa.molar_extinction_coefficient()
         gravy         = pa.gravy()
         instability   = pa.instability_index()
         aromaticity   = pa.aromaticity()
         net_charge_7  = calc_net_charge(seq, 7.0)
         net_charge_pH = calc_net_charge(seq, pH_value)
         solubility    = AnalysisTools.predict_solubility(seq)
+        n_trp = seq.count("W")
+        n_tyr = seq.count("Y")
+        n_cys = seq.count("C")
+        use_reducing = getattr(AnalysisTools, "use_reducing", False)
+        if use_reducing:
+            n_cystine = 0          # all Cys remain reduced
+        else:
+            n_cystine = n_cys // 2 # every pair forms a disulphide
+        extinction = 5500*n_trp + 1490*n_tyr + 125*n_cystine        
 
         # Overview table with optional extra pH row
         extra_charge_row = (
@@ -413,7 +431,7 @@ def import_pdb_sequence(file_name: str) -> dict:
 class ProteinAnalyzerGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PROBE - PROtein analyzer and Bioinformatics Estimator")
+        self.setWindowTitle("PRISM - Protein Residue Informatics & Sequence Metrics")
         self.resize(1200, 900)
 
         # Default theme
@@ -566,6 +584,11 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.marker_size_input.setToolTip("Size of data markers in line and scatter graphs.")
         form.addRow("Marker Size:", self.marker_size_input)
 
+        self.pka_input = QLineEdit("")
+        self.pka_input.setPlaceholderText("Custom pKa (N-term,C-term,D,E,C,Y,H,K,R)")
+        self.pka_input.setToolTip("Leave blank for defaults. Provide nine comma-separated numbers.")
+        form.addRow("Override pKa list:", self.pka_input)
+
         # — Default Graph Format —
         self.graph_format_combo = QComboBox()
         self.graph_format_combo.addItems(["PNG", "SVG", "PDF"])
@@ -617,6 +640,11 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.grid_checkbox.setChecked(self.show_grid)
         form.addRow("", self.grid_checkbox)
 
+        self.reducing_checkbox = QCheckBox("Assume reducing conditions (Cys not in disulphide)")
+        self.reducing_checkbox.setToolTip("If checked, Cys residues are counted as free thiols \
+        rather than cystine when the 280-nm extinction coefficient is calculated.")
+        form.addRow("", self.reducing_checkbox)        
+
         layout.addLayout(form)
 
         # — Apply & Reset Buttons —
@@ -635,7 +663,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.main_tabs.addTab(container, "Help")
         b = QTextBrowser()
         b.setHtml("""
-        <h1>PROBE Help &amp; Definitions</h1>
+        <h1>PRISM Help &amp; Definitions</h1>
 
         <h2>Protein Sequence</h2>
         <p>Enter a single-letter amino acid sequence or import from FASTA/PDB.</p>
@@ -1056,12 +1084,29 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.show_grid   = self.grid_checkbox.isChecked()
         self.show_grid   = self.grid_checkbox.isChecked()
         self.default_graph_format = self.graph_format_combo.currentText()
+        self.use_reducing = self.reducing_checkbox.isChecked()
+        AnalysisTools.use_reducing = self.use_reducing
+        raw_pka = [p.strip() for p in self.pka_input.text().split(",") if p.strip()]
+        self.custom_pka = None
+        if len(raw_pka) == 9:
+            try:
+                vals = list(map(float, raw_pka))
+                self.custom_pka = {
+                    'NTERM': vals[0], 'CTERM': vals[1], 'D': vals[2], 'E': vals[3],
+                    'C': vals[4], 'Y': vals[5], 'H': vals[6], 'K': vals[7], 'R': vals[8]
+                }
+            except ValueError:
+                QMessageBox.warning(self, "pKa list",
+                                    "Custom pKa list could not be parsed – using defaults.")
+
+        calc_net_charge.pka_override = self.custom_pka
+
         self.enable_tooltips      = self.tooltips_checkbox.isChecked()
 
         if self.theme_toggle.isChecked():
-            self.setStyleSheet(dark)
+            self.setStyleSheet(DARK_THEME_CSS)
         else:
-            self.setStyleSheet(light)
+            self.setStyleSheet(LIGHT_THEME_CSS)
 
         # disable tooltips globally if needed
         if not self.enable_tooltips:
