@@ -50,7 +50,7 @@ export PATH="$HOME/bin:$PATH"
 
 ## License
 
-Released under the GNU General Public License v3. See the `LICENSE` file for details.
+Released under the GNU General Public License v2. See the `LICENSE` file for details.
 
 ## Author & Contact
 
