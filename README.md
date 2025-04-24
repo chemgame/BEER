@@ -30,12 +30,11 @@ Ensure you have the following Python packages installed:
 - **Matplotlib**
 - **PyQt5**
 - **mplcursors**
-- **Requests**
 
 Install them using pip:
 
 ```bash
-pip install biopython matplotlib PyQt5 mplcursors requests
+pip install biopython matplotlib PyQt5 mplcursors 
 ```
 It is recommended to work in a separate conda environment.
 ```bash
