@@ -1,64 +1,58 @@
-# PRISM - Protein Residue Informatics & Sequence Metrics
+# PRISM – Protein Residue Informatics & Sequence Metrics
 
-A cross-platform GUI-based protein sequence analyzer that integrates multiple analysis methods and interactive visualizations for protein sequence analyses. The application supports importing sequences via FASTA or PDB files, performing detailed biochemical analyses, and exporting comprehensive reports.
+A cross-platform desktop GUI for rapid physicochemical analysis of protein sequences. PRISM accepts FASTA or PDB inputs (including multichain files) or manual sequence entry and produces comprehensive biochemical profiles with interactive visualizations.
 
-## Features
-- **Sequence Import:**  
-  Import protein sequences from FASTA and PDB files. Supports multichain files.
+## Prerequisites
 
-- **Comprehensive Analysis:**  
-  Provides detailed biochemical properties including amino acid composition, molecular weight, isoelectric point, extinction coefficient, GRAVY score, instability index, aromaticity, net charge (at customizable pH values), and predictions for solubility.
-
-- **Interactive Graphs:**  
-  Visualizations include bar and pie charts for amino acid composition, line graphs for hydrophobicity profiles and net charge vs. pH, bead models for hydrophobicity and charge, and a radar chart comparing key properties. Graphs are enhanced with interactive tooltips using mplcursors.
-
-- **Multichain Analysis:**  
-  Information on multiple protein chains simultaneously with CSV and JSON export options for the resulting summary data.
-
-- **Reporting and Exporting:**  
-  - Save reports as formatted text files.
-  - Export full analysis reports along with graphs to PDF.
-  - Save individual graph images and export all graphs in one operation.
-
-- **Customizable Settings:**  
-  Adjust parameters and toggle between light and dark themes.
+- **Operating Systems:** Windows, macOS, Linux (tested on CentOS Stream 8 and macOS Sequoia 15.3.2)
+- **Python:** 3.11–3.12
 
 ## Dependencies
-Ensure you have the following Python packages installed:
 
-- **Biopython**
-- **Matplotlib**
-- **PyQt5**
-- **mplcursors**
+Install the required packages in a dedicated Conda environment:
 
-Install them using pip:
-
-```bash
-pip install biopython matplotlib PyQt5 mplcursors 
-```
-It is recommended to work in a separate conda environment.
 ```bash
 conda create -n prism python=3.12
-```
-```bash
 conda activate prism
+pip install biopython matplotlib pyqt5 mplcursors
 ```
-## Installation
-1. Clone or download the repository containing the prism.py script.
-2. Make sure your Python environment meets the above dependencies.
 
-## Usage
-To run the application, simply execute the following command in your terminal:
+## Getting Started
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/chemgame/PRISM.git
+   cd PRISM
+   ```
+2. Ensure your `prism` environment is active (see Dependencies).
+3. Run the application:
+   ```bash
+   python prism.py
+   ```
+
+To make the script executable and available system-wide:
+
 ```bash
-python prism.py
+chmod +x prism.py
+mkdir -p ~/bin
+mv prism.py ~/bin/prism
+export PATH="$HOME/bin:$PATH"
 ```
-To use the code system-wide globally, make it executable (```chmod 777 prism.py```), put it is a directory (```prism```) and define the directory in your path (```export PATH="/path/to/prism:$PATH"```).
 
-Upon launching, the GUI will appear, offering tabs for individual sequence analysis, graphs, batch processing, settings, and help. Import your protein sequences via FASTA or PDB files (or copy-pasting the sequence) and click Analyze to see the results.
-  
+## Features
+
+- **Sequence Import:** FASTA or PDB (multi-chain)
+- **Biochemical Analysis:** Amino acid composition, hydrophobicity profiles, net charge vs. pH (with pI), solubility prediction, molecular weight, extinction coefficient, GRAVY, instability index, aromaticity
+- **Interactive Graphs:** Bar & pie charts, sliding-window plots, bead models, radar charts (powered by `mplcursors`)
+- **Multichain Comparison:** Side-by-side CSV/JSON export of summary metrics
+- **Reporting:** Save text reports, export full PDF reports, and batch-export graphs in PNG/SVG/PDF
+- **Customizable Settings:** Adjustable pH/window size, theme toggle (light/dark), font sizes, colormaps, and override defaults (e.g., custom pKa lists)
+
 ## License
-This project is released under the GNU General Public License. For more details, please refer to the license file accompanying this project.
 
-## Author and Contact
-- Developed by Saumyak Mukherjee
-- Contact: saumyak.mukherjee@biophys.mpg.de
+Released under the GNU General Public License v3. See the `LICENSE` file for details.
+
+## Author & Contact
+
+Developed by Saumyak Mukherjee  
+Email: saumyak.mukherjee@biophys.mpg.de
