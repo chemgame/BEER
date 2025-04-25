@@ -1,6 +1,6 @@
-# PRISM – Protein Residue Informatics & Sequence Metrics
+# BEER – Biochemical Estimator & Explorer of Residues
 
-A cross-platform desktop GUI for rapid physicochemical analysis of protein sequences. PRISM accepts FASTA or PDB inputs (including multichain files) or manual sequence entry and produces comprehensive biochemical profiles with interactive visualizations.
+A cross-platform desktop GUI for rapid physicochemical analysis of protein sequences. ```BEER``` accepts FASTA or PDB inputs (including multichain files) or manual sequence entry and produces comprehensive biochemical profiles with interactive visualizations.
 
 ## Prerequisites
 
@@ -12,8 +12,8 @@ A cross-platform desktop GUI for rapid physicochemical analysis of protein seque
 Install the required packages in a dedicated Conda environment:
 
 ```bash
-conda create -n prism python=3.12
-conda activate prism
+conda create -n beer python=3.12
+conda activate beer
 pip install biopython matplotlib pyqt5 mplcursors
 ```
 
@@ -21,21 +21,21 @@ pip install biopython matplotlib pyqt5 mplcursors
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/chemgame/PRISM.git
-   cd PRISM
+   git clone https://github.com/chemgame/beer.git
+   cd beer
    ```
-2. Ensure your `prism` environment is active (see Dependencies).
+2. Ensure your `beer` environment is active (see Dependencies).
 3. Run the application:
    ```bash
-   python prism.py
+   python beer.py
    ```
 
 To make the script executable and available system-wide:
 
 ```bash
-chmod +x prism.py
+chmod +x beer.py
 mkdir -p ~/bin
-mv prism.py ~/bin/prism
+mv beer.py ~/bin
 export PATH="$HOME/bin:$PATH"
 ```
 
