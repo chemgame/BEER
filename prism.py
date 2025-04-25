@@ -256,8 +256,10 @@ class GraphingTools:
     def create_amino_acid_composition_pie_figure(aa_counts, label_font=14):
         fig = Figure(figsize=(5,4))
         ax  = fig.add_subplot(111)
+        cmap   = plt.get_cmap("tab20")
+        colors = [cmap(i) for i in range(len(aa_counts))]
         ax.pie(list(aa_counts.values()), labels=list(aa_counts.keys()),
-               autopct="%1.1f%%", startangle=140)
+               colors=colors, autopct="%1.1f%%", startangle=140)
         ax.set_title("AA Composition (Pie)", fontsize=label_font+2)
         mplcursors.cursor(ax)
         return fig
