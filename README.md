@@ -4,7 +4,7 @@ A cross-platform desktop GUI for rapid physicochemical analysis of protein seque
 
 ## Prerequisites
 
-- **Operating Systems:** Windows, macOS, Linux (tested on CentOS Stream 8 and macOS Sequoia 15.3.2)
+- **Operating Systems:** Windows, macOS, Linux (tested on CentOS Stream 8, macOS Sequoia 15.3.2., and Windows 11)
 - **Python:** 3.11–3.12
 
 ## Dependencies
