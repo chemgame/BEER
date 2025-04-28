@@ -1,6 +1,9 @@
 # BEER – Biochemical Estimator & Explorer of Residues
 
-A cross-platform desktop GUI for rapid physicochemical analysis of protein sequences. ```BEER``` accepts FASTA or PDB inputs (including multichain files) or manual sequence entry and produces comprehensive biochemical profiles with interactive visualizations.
+A cross-platform desktop GUI for rapid physicochemical analysis of protein sequences. ```BEER``` accepts FASTA or PDB inputs (including multichain files) or manual sequence entry and produces comprehensive biochemical profiles with interactive visualizations. This repository contains the main application `beer.py` and an example pdb file, `1GP2.pdb` along with the `README.md` and `LICENSE` files.
+
+## Reference
+Please cite *** if you use this application for your research.
 
 ## Prerequisites
 
@@ -16,6 +19,7 @@ conda create -n beer python=3.12
 conda activate beer
 pip install biopython matplotlib pyqt5 mplcursors
 ```
+Alternatively, you may also use a conda virtual environment.
 
 ## Getting Started
 
@@ -29,7 +33,6 @@ pip install biopython matplotlib pyqt5 mplcursors
    ```bash
    python beer.py
    ```
-
 To make the script executable and available system-wide:
 
 ```bash
