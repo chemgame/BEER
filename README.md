@@ -3,7 +3,8 @@
 A cross-platform desktop GUI for rapid physicochemical analysis of protein sequences. ```BEER``` accepts FASTA or PDB inputs (including multichain files) or manual sequence entry and produces comprehensive biochemical profiles with interactive visualizations. This repository contains the main application `beer.py` and an example pdb file, `1GP2.pdb` along with the `README.md` and `LICENSE` files.
 
 ## Reference
-Please cite *** if you use this application for your research.
+Please cite the following paper if you use this application for your research:
+Mukherjee, S. arXiv:2504.20561. DOI: [https://doi.org/10.48550/arXiv.2504.20561](https://arxiv.org/abs/2504.20561)
 
 ## Prerequisites
 
