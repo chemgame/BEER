@@ -75,9 +75,9 @@ STICKER_ALL           = STICKER_AROMATIC | STICKER_ELECTROSTATIC
 PRION_LIKE = set("NQSGY")
 
 REPORT_SECTIONS = [
-    "Overview",
     "Composition",
     "Properties",
+    "Hydrophobicity",
     "Charge",
     "Aromatic & \u03c0",
     "Low Complexity",
@@ -506,7 +506,6 @@ class AnalysisTools:
         aromaticity = pa.aromaticity()
         net_charge_7  = calc_net_charge(seq, 7.0, pka)
         net_charge_pH = calc_net_charge(seq, pH_value, pka)
-        solubility    = AnalysisTools.predict_solubility(seq)
 
         n_cystine  = 0 if use_reducing else seq.count("C") // 2
         extinction = 5500*seq.count("W") + 1490*seq.count("Y") + 125*n_cystine
@@ -571,22 +570,21 @@ class AnalysisTools:
         spacing         = sticker_spacing_stats(seq)
         _fmt_spacing    = lambda v: f"{v:.1f}" if v is not None else "N/A"
 
+        # --- Hydrophobicity features ---
+        hydro_vals    = [KYTE_DOOLITTLE[aa] for aa in seq]
+        avg_kd        = sum(hydro_vals) / seq_length
+        n_hydrophobic = sum(1 for v in hydro_vals if v > 0)
+        n_hydrophilic = sum(1 for v in hydro_vals if v < 0)
+        n_neutral_kd  = seq_length - n_hydrophobic - n_hydrophilic
+        pct_hydro     = n_hydrophobic / seq_length * 100
+        pct_hydrophil = n_hydrophilic / seq_length * 100
+
         # --- HTML sections (styled) ---
         _style = f"<style>{REPORT_CSS}</style>"
-        extra = (
+        extra_charge = (
             f"<tr><td>Net Charge (pH {pH_value:.1f})</td><td>{net_charge_pH:.2f}</td></tr>"
             if abs(pH_value - 7.0) >= 1e-6 else ""
         )
-        overview_html = _style + f"""
-        <h2>Overview</h2>
-        <table>
-          <tr><th>Property</th><th>Value</th></tr>
-          <tr><td>Sequence Length</td><td>{seq_length} aa</td></tr>
-          <tr><td>Net Charge (pH 7.0)</td><td>{net_charge_7:.2f}</td></tr>
-          {extra}
-          <tr><td>Solubility Prediction</td><td>{solubility}</td></tr>
-        </table>
-        """
 
         sorted_aas = sorted(aa_counts, key=lambda aa: aa_freq[aa], reverse=True)
         comp_html = _style + (
@@ -604,13 +602,39 @@ class AnalysisTools:
         <h2>Properties</h2>
         <table>
           <tr><th>Property</th><th>Value</th></tr>
+          <tr><td>Sequence Length</td><td>{seq_length} aa</td></tr>
           <tr><td>Molecular Weight</td><td>{mol_weight:.2f} Da</td></tr>
           <tr><td>Isoelectric Point (pI)</td><td>{iso_point:.2f}</td></tr>
+          <tr><td>Net Charge (pH 7.0)</td><td>{net_charge_7:.2f}</td></tr>
+          {extra_charge}
           <tr><td>Extinction Coeff. (280 nm)</td><td>{extinction} M&#8315;&#185;cm&#8315;&#185;</td></tr>
           <tr><td>GRAVY Score</td><td>{gravy:.3f}</td></tr>
           <tr><td>Instability Index</td><td>{instability:.2f}</td></tr>
           <tr><td>Aromaticity</td><td>{aromaticity:.3f}</td></tr>
         </table>
+        """
+
+        hydro_html = _style + f"""
+        <h2>Hydrophobicity</h2>
+        <table>
+          <tr><th>Property</th><th>Value</th></tr>
+          <tr><td>GRAVY Score (Kyte-Doolittle)</td><td>{gravy:.4f}</td></tr>
+          <tr><td>Average hydrophobicity per residue</td><td>{avg_kd:.4f}</td></tr>
+          <tr><td>Hydrophobic residues (KD &gt; 0)</td><td>{n_hydrophobic} ({pct_hydro:.1f}%)</td></tr>
+          <tr><td>Hydrophilic residues (KD &lt; 0)</td><td>{n_hydrophilic} ({pct_hydrophil:.1f}%)</td></tr>
+          <tr><td>Neutral residues (KD = 0)</td><td>{n_neutral_kd} ({n_neutral_kd/seq_length*100:.1f}%)</td></tr>
+        </table>
+        <h2>Kyte-Doolittle Values by Residue</h2>
+        <table>
+          <tr><th>Amino Acid</th><th>Count</th><th>KD Score</th><th>Contribution</th></tr>
+          {"".join(
+            f"<tr><td>{aa}</td><td>{aa_counts.get(aa,0)}</td>"
+            f"<td>{KYTE_DOOLITTLE[aa]:+.1f}</td>"
+            f"<td>{KYTE_DOOLITTLE[aa]*aa_counts.get(aa,0)/seq_length:+.4f}</td></tr>"
+            for aa in sorted(KYTE_DOOLITTLE, key=lambda x: KYTE_DOOLITTLE[x], reverse=True)
+          )}
+        </table>
+        <p class="note">GRAVY (Grand Average of Hydropathicity): positive = hydrophobic, negative = hydrophilic (Kyte &amp; Doolittle 1982)</p>
         """
 
         charge_html = _style + f"""
@@ -693,9 +717,9 @@ class AnalysisTools:
 
         return {
             "report_sections": {
-                "Overview":        overview_html,
                 "Composition":     comp_html,
                 "Properties":      bio_html,
+                "Hydrophobicity":  hydro_html,
                 "Charge":          charge_html,
                 "Aromatic & \u03c0": aromatic_html,
                 "Low Complexity":  lc_html,
@@ -719,10 +743,7 @@ class AnalysisTools:
             "aromaticity":    aromaticity,
         }
 
-    @staticmethod
-    def predict_solubility(seq: str) -> str:
-        avg_hydro = sum(KYTE_DOOLITTLE[aa] for aa in seq) / len(seq)
-        return "Likely soluble" if avg_hydro < 0.5 else "Low solubility predicted"
+    # predict_solubility removed – superseded by Hydrophobicity tab
 
 # --- Graphing ---
 
@@ -1140,14 +1161,16 @@ class GraphingTools:
 
 class ExportTools:
     @staticmethod
-    def _generate_full_html(analysis_data, graph_tabs, seq_name=""):
+    def _generate_full_html(analysis_data, seq_name=""):
+        """Generate HTML for the PDF report (text/tables only – graphs are saved separately)."""
         if not analysis_data or "report_sections" not in analysis_data:
             return "<p>No analysis data available.</p>"
 
         header_name = seq_name or "Protein Sequence"
-        seq_block = format_sequence_block(
-            analysis_data.get("seq", ""), name=seq_name
-        ).replace("\n", "<br>").replace(" ", "&nbsp;")
+        seq   = analysis_data.get("seq", "")
+        seq_block = format_sequence_block(seq, name=seq_name)
+        # Escape for HTML pre block
+        seq_block_html = seq_block.replace("&", "&amp;").replace("<", "&lt;")
 
         html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
@@ -1166,69 +1189,37 @@ class ExportTools:
     color: #1a1a2e;
     white-space: pre;
     margin-bottom: 14px;
+    overflow-x: auto;
 }}
-.graph-section {{ margin: 14px 0 24px 0; text-align: center; }}
-.graph-section img {{ max-width: 100%; height: auto; border: 1px solid #e8eaf0; border-radius: 4px; }}
 </style>
 </head><body>
 <h1>BEER Analysis Report</h1>
-<p style="color:#718096;font-size:10pt;">Sequence: <strong>{header_name}</strong>
-&nbsp;&bull;&nbsp; Length: <strong>{len(analysis_data.get("seq",""))} aa</strong></p>
+<p style="color:#718096;font-size:10pt;">
+  Sequence: <strong>{header_name}</strong>
+  &nbsp;&bull;&nbsp; Length: <strong>{len(seq)} aa</strong>
+</p>
 <h2 style="margin-top:16px;">Sequence</h2>
-<div class="seq-block">{seq_block}</div>
+<div class="seq-block">{seq_block_html}</div>
 <div class="page-break"></div>
 """
         for sec in REPORT_SECTIONS:
-            html += analysis_data["report_sections"].get(sec, "")
-
-        html += '<div class="page-break"></div><h1>Graphs</h1>\n'
-
-        for title, (tab, vbox) in graph_tabs.items():
-            for i in range(vbox.count()):
-                item = vbox.itemAt(i)
-                w    = item.widget() if item else None
-                if w and hasattr(w, "figure"):
-                    buf = BytesIO()
-                    w.figure.savefig(buf, format="png", dpi=200,
-                                     bbox_inches="tight",
-                                     facecolor="white")
-                    buf.seek(0)
-                    b64 = base64.b64encode(buf.read()).decode()
-                    html += (
-                        f'<h2>{title}</h2>'
-                        '<div class="graph-section">'
-                        f'<img src="data:image/png;base64,{b64}" />'
-                        "</div>"
-                        '<div class="page-break"></div>\n'
-                    )
-                    break
+            content = analysis_data["report_sections"].get(sec, "")
+            # Strip inline <style> blocks already embedded per-section to avoid duplication
+            import re as _re
+            content = _re.sub(r"<style>[^<]*</style>", "", content, flags=_re.DOTALL)
+            html += content + "\n"
 
         html += "</body></html>"
         return html
 
     @staticmethod
-    def export_report_text(analysis_data, file_name):
-        try:
-            with open(file_name, "w") as f:
-                for sec, content in analysis_data["report_sections"].items():
-                    text = content.replace("<br>", "\n")
-                    for tag in ("<h2>", "</h2>", "<table", "</table>", "<tr>", "</tr>"):
-                        text = text.replace(tag, "\n")
-                    text = text.replace("<th>", "").replace("</th>", "\t")
-                    text = text.replace("<td>", "").replace("</td>", "\t")
-                    f.write(f"==== {sec} ====\n{text}\n\n")
-            return True, f"Report saved to {file_name}"
-        except Exception as e:
-            return False, f"Save error: {e}"
-
-    @staticmethod
-    def export_pdf(analysis_data, graph_tabs, file_name, parent, seq_name=""):
+    def export_pdf(analysis_data, file_name, parent, seq_name=""):
         try:
             printer = QPrinter(QPrinter.HighResolution)
             printer.setOutputFormat(QPrinter.PdfFormat)
             printer.setOutputFileName(file_name)
             browser = QTextBrowser()
-            browser.setHtml(ExportTools._generate_full_html(analysis_data, graph_tabs, seq_name))
+            browser.setHtml(ExportTools._generate_full_html(analysis_data, seq_name))
             browser.document().print_(printer)
             QMessageBox.information(parent, "Success", f"PDF exported to {file_name}")
         except Exception as e:
@@ -1298,6 +1289,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.use_reducing        = False
         self.custom_pka          = None
         self.sequence_name       = ""   # display name for current sequence
+        self.app_font_size       = 12   # global UI font size (pt)
         self._tooltips: dict     = {}  # widget -> tooltip text
 
         self.check_dependencies()
@@ -1404,12 +1396,10 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.import_pdb_btn.clicked.connect(self.import_pdb)
         self.analyze_btn = QPushButton("  Analyze")
         self.analyze_btn.clicked.connect(self.on_analyze)
-        self.save_txt_btn = QPushButton("  Save Report")
-        self.save_txt_btn.clicked.connect(self.save_report)
         self.save_pdf_btn = QPushButton("  Export PDF")
         self.save_pdf_btn.clicked.connect(self.export_pdf)
         for w in (self.import_fasta_btn, self.import_pdb_btn, self.analyze_btn,
-                  self.save_txt_btn, self.save_pdf_btn):
+                  self.save_pdf_btn):
             w.setMinimumHeight(32)
             toolbar.addWidget(w)
         toolbar.addStretch()
@@ -1668,6 +1658,12 @@ class ProteinAnalyzerGUI(QMainWindow):
         form4.setVerticalSpacing(8)
         form4.setLabelAlignment(Qt.AlignRight)
         _section("Interface")
+        self.app_font_size_input = QLineEdit(str(self.app_font_size))
+        self.app_font_size_input.setPlaceholderText("e.g. 12")
+        self._set_tooltip(self.app_font_size_input,
+                          "Global application font size in points (requires Apply Settings).")
+        form4.addRow("UI Font Size (pt):", self.app_font_size_input)
+
         self.theme_toggle = QCheckBox("Dark Theme")
         self._set_tooltip(self.theme_toggle, "Toggle between light and dark application themes.")
         self.theme_toggle.stateChanged.connect(self.toggle_theme)
@@ -1868,27 +1864,99 @@ class ProteinAnalyzerGUI(QMainWindow):
         )
         self._replace_graph("Amino Acid Composition (Bar)", fig)
 
+    @staticmethod
+    def _parse_pasted_text(raw: str):
+        """Parse pasted text into a list of (id, sequence) pairs.
+
+        Accepts:
+        - FASTA format (lines starting with '>'):
+            >name
+            SEQUENCE...
+        - Multiple bare sequences on separate lines (each line = one sequence)
+        - A single sequence (no newlines / single line)
+
+        Returns list of (id, seq) tuples with only valid protein sequences.
+        """
+        raw = raw.strip()
+        if not raw:
+            return []
+
+        entries = []
+
+        if ">" in raw:
+            # FASTA format
+            current_id  = None
+            current_seq = []
+            for line in raw.splitlines():
+                line = line.strip()
+                if line.startswith(">"):
+                    if current_id is not None and current_seq:
+                        entries.append((current_id, "".join(current_seq).upper()))
+                    current_id  = line[1:].split()[0] or f"seq{len(entries)+1}"
+                    current_seq = []
+                elif line:
+                    current_seq.append(line.replace(" ", "").replace("\t", ""))
+            if current_id is not None and current_seq:
+                entries.append((current_id, "".join(current_seq).upper()))
+        else:
+            # One or more bare sequences, one per non-empty line
+            lines = [ln.strip().replace(" ", "").upper()
+                     for ln in raw.splitlines() if ln.strip()]
+            if len(lines) == 1:
+                entries = [("Sequence", lines[0])]
+            else:
+                for i, ln in enumerate(lines, 1):
+                    entries.append((f"Seq{i}", ln))
+
+        # Validate and filter
+        valid = [(rid, seq) for rid, seq in entries if seq and is_valid_protein(seq)]
+        return valid
+
     def on_analyze(self):
-        seq = clean_sequence(self.seq_text.toPlainText())
-        if not seq:
-            QMessageBox.warning(self, "Input", "Enter sequence.")
+        raw = self.seq_text.toPlainText()
+        if not raw.strip():
+            QMessageBox.warning(self, "Input", "Enter or paste a sequence.")
             return
-        if not is_valid_protein(seq):
-            QMessageBox.warning(self, "Input", "Invalid residues.")
-            return
+
         try:
             pH = float(self.ph_input.text())
         except ValueError:
             pH = 7.0
 
+        entries = self._parse_pasted_text(raw)
+        if not entries:
+            QMessageBox.warning(
+                self, "Invalid Input",
+                "No valid protein sequences found.\n"
+                "Ensure sequences contain only standard amino acid letters (ACDEFGHIKLMNPQRSTVWY)."
+            )
+            return
+
+        if len(entries) > 1:
+            # Multiple sequences → load as batch and show first
+            self._load_batch(entries)
+            if not self.sequence_name:
+                self.sequence_name = entries[0][0]
+            self.statusBar.showMessage(
+                f"Loaded {len(entries)} sequences into Multichain Analysis", 4000
+            )
+            QMessageBox.information(
+                self, "Batch Loaded",
+                f"{len(entries)} sequences detected and loaded.\n"
+                "Use the Multichain Analysis tab or the chain selector to navigate."
+            )
+            return
+
+        # Single sequence
+        seq = entries[0][1]
+        if not self.sequence_name:
+            self.sequence_name = entries[0][0]
+
         self.analysis_data = AnalysisTools.analyze_sequence(
             seq, pH, self.default_window_size, self.use_reducing, self.custom_pka
         )
-        # Default name when typing raw sequence
-        if not self.sequence_name:
-            self.sequence_name = "Sequence"
 
-        # Disable chain combo only when no batch is loaded
+        # Clear chain combo when manually typing
         if not self.batch_data:
             self.chain_combo.clear()
             self.chain_combo.setEnabled(False)
@@ -1996,15 +2064,6 @@ class ProteinAnalyzerGUI(QMainWindow):
 
     # --- Export ---
 
-    def save_report(self):
-        if not self.analysis_data:
-            QMessageBox.warning(self, "No Data", "Run analysis first.")
-            return
-        fn, _ = QFileDialog.getSaveFileName(self, "Save Report", "", "Text Files (*.txt)")
-        if fn:
-            ok, msg = ExportTools.export_report_text(self.analysis_data, fn)
-            QMessageBox.information(self, "Save", msg)
-
     def export_pdf(self):
         if not self.analysis_data:
             QMessageBox.warning(self, "No Data", "Run analysis first.")
@@ -2012,7 +2071,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         fn, _ = QFileDialog.getSaveFileName(self, "Export PDF", "", "PDF Files (*.pdf)")
         if fn:
             ExportTools.export_pdf(
-                self.analysis_data, self.graph_tabs, fn, self,
+                self.analysis_data, fn, self,
                 seq_name=self.sequence_name
             )
 
@@ -2136,6 +2195,19 @@ class ProteinAnalyzerGUI(QMainWindow):
         if name_override:
             self.sequence_name = name_override
 
+        # Global UI font size
+        try:
+            fs = int(self.app_font_size_input.text())
+            if 8 <= fs <= 24:
+                self.app_font_size = fs
+                app_inst = QApplication.instance()
+                if app_inst:
+                    f = app_inst.font()
+                    f.setPointSize(fs)
+                    app_inst.setFont(f)
+        except (ValueError, TypeError):
+            pass
+
         raw_pka = [p.strip() for p in self.pka_input.text().split(",") if p.strip()]
         self.custom_pka = None
         if len(raw_pka) == 9:
@@ -2177,6 +2249,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.tooltips_checkbox.setChecked(False)
         self.heading_checkbox.setChecked(True)
         self.grid_checkbox.setChecked(True)
+        self.app_font_size_input.setText("12")
         self.apply_settings()
 
     # --- Chain selection ---
