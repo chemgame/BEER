@@ -58,5 +58,5 @@ Released under the GNU General Public License v2. See the `LICENSE` file for det
 
 ## Author & Contact
 
-Developed by Saumyak Mukherjee  
+Developed by Saumyak Mukherjeewith help from LLMs
 Email: saumyak.mukherjee@biophys.mpg.de
