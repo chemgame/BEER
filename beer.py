@@ -8,6 +8,7 @@ Requirements:
 
 import sys, math, os, base64, json, csv, subprocess
 from io import BytesIO
+import numpy as np
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -59,7 +60,29 @@ RADAR_RANGES = {
     "Aromaticity": (0, 0.2),
 }
 
-REPORT_SECTIONS = ["Overview", "Composition", "Properties"]
+# Disorder/order residue classification (Uversky)
+DISORDER_PROMOTING = set("AEGKPQRS")
+ORDER_PROMOTING    = set("CFHILMVWY")
+
+# Sticker residue sets for phase separation analysis
+STICKER_AROMATIC      = set("FWY")
+STICKER_ELECTROSTATIC = set("KRDE")
+STICKER_ALL           = STICKER_AROMATIC | STICKER_ELECTROSTATIC
+
+# Prion-like domain composition residues (PLAAC/Lancaster)
+PRION_LIKE = set("NQSGY")
+
+REPORT_SECTIONS = [
+    "Overview",
+    "Composition",
+    "Properties",
+    "Charge",
+    "Aromatic & \u03c0",
+    "Low Complexity",
+    "Disorder",
+    "Repeat Motifs",
+    "Sticker & Spacer",
+]
 
 GRAPH_TITLES = [
     "Amino Acid Composition (Bar)",
@@ -69,6 +92,10 @@ GRAPH_TITLES = [
     "Bead Model (Hydrophobicity)",
     "Bead Model (Charge)",
     "Properties Radar Chart",
+    "Sticker Map",
+    "Local Charge Profile",
+    "Local Complexity",
+    "Cation\u2013\u03c0 Map",
 ]
 
 LIGHT_THEME_CSS = """
@@ -127,6 +154,137 @@ def sliding_window_hydrophobicity(seq: str, window_size: int = 9) -> list:
         for i in range(len(seq) - window_size + 1)
     ]
 
+def calc_shannon_entropy(seq: str) -> float:
+    """Sequence compositional entropy in bits. Max = log2(20) ≈ 4.32."""
+    n = len(seq)
+    counts = {}
+    for aa in seq:
+        counts[aa] = counts.get(aa, 0) + 1
+    return -sum((c/n) * math.log2(c/n) for c in counts.values())
+
+def sliding_window_ncpr(seq: str, window_size: int = 9) -> list:
+    """Net charge per residue in a sliding window (K,R positive; D,E negative)."""
+    pos = set("KR")
+    neg = set("DE")
+    if window_size > len(seq):
+        p = sum(1 for aa in seq if aa in pos)
+        n = sum(1 for aa in seq if aa in neg)
+        return [(p - n) / len(seq)]
+    return [
+        (sum(1 for aa in seq[i:i+window_size] if aa in pos) -
+         sum(1 for aa in seq[i:i+window_size] if aa in neg)) / window_size
+        for i in range(len(seq) - window_size + 1)
+    ]
+
+def sliding_window_entropy(seq: str, window_size: int = 9) -> list:
+    """Shannon entropy in a sliding window."""
+    if window_size > len(seq):
+        return [calc_shannon_entropy(seq)]
+    return [
+        calc_shannon_entropy(seq[i:i+window_size])
+        for i in range(len(seq) - window_size + 1)
+    ]
+
+def calc_kappa(seq: str) -> float:
+    """Charge patterning parameter (Das & Pappu 2013). Range [0, 1].
+    0 = well-mixed charges, 1 = fully segregated."""
+    pos_aa   = set("KR")
+    neg_aa   = set("DE")
+    blob_sz  = 5
+    pos_n    = sum(1 for aa in seq if aa in pos_aa)
+    neg_n    = sum(1 for aa in seq if aa in neg_aa)
+    if pos_n == 0 or neg_n == 0:
+        return 0.0
+    n_blobs = len(seq) // blob_sz
+    if n_blobs < 2:
+        return 0.0
+    fcr_pos = pos_n / len(seq)
+    fcr_neg = neg_n / len(seq)
+
+    def _delta(s):
+        nb = len(s) // blob_sz
+        if nb == 0:
+            return 0.0
+        total = 0.0
+        for i in range(nb):
+            bl = s[i*blob_sz:(i+1)*blob_sz]
+            fp = sum(1 for a in bl if a in pos_aa) / len(bl)
+            fn = sum(1 for a in bl if a in neg_aa) / len(bl)
+            total += (fp - fcr_pos)**2 + (fn - fcr_neg)**2
+        return total / nb
+
+    delta     = _delta(seq)
+    neutral_n = len(seq) - pos_n - neg_n
+    seg1      = 'K'*pos_n + 'D'*neg_n + 'G'*neutral_n
+    seg2      = 'D'*neg_n + 'K'*pos_n + 'G'*neutral_n
+    delta_max = max(_delta(seg1), _delta(seg2))
+    return 0.0 if delta_max == 0 else min(1.0, delta / delta_max)
+
+def calc_omega(seq: str) -> float:
+    """Patterning of sticker residues (FWYKRDE) vs spacers (Das et al. 2015).
+    Range [0, 1]. 0 = evenly distributed, 1 = fully clustered."""
+    blob_sz     = 5
+    sticker_n   = sum(1 for aa in seq if aa in STICKER_ALL)
+    if sticker_n == 0 or sticker_n == len(seq):
+        return 0.0
+    n_blobs = len(seq) // blob_sz
+    if n_blobs < 2:
+        return 0.0
+    f_stick = sticker_n / len(seq)
+
+    def _delta(s):
+        nb = len(s) // blob_sz
+        if nb == 0:
+            return 0.0
+        total = 0.0
+        for i in range(nb):
+            bl  = s[i*blob_sz:(i+1)*blob_sz]
+            fs  = sum(1 for a in bl if a in STICKER_ALL) / len(bl)
+            total += (fs - f_stick)**2
+        return total / nb
+
+    delta     = _delta(seq)
+    spacer_n  = len(seq) - sticker_n
+    seg1      = 'F'*sticker_n + 'G'*spacer_n
+    seg2      = 'G'*spacer_n  + 'F'*sticker_n
+    delta_max = max(_delta(seg1), _delta(seg2))
+    return 0.0 if delta_max == 0 else min(1.0, delta / delta_max)
+
+def count_pairs(seq: str, set_a: set, set_b: set, window: int = 4) -> int:
+    """Count unique (i,j) residue pairs where i in set_a, j in set_b, |i-j| <= window."""
+    n      = len(seq)
+    pairs  = set()
+    for i in range(n):
+        if seq[i] in set_a:
+            for j in range(max(0, i-window), min(n, i+window+1)):
+                if j != i and seq[j] in set_b:
+                    pairs.add((min(i, j), max(i, j)))
+    return len(pairs)
+
+def fraction_low_complexity(seq: str, window_size: int = 12,
+                            threshold: float = 2.0) -> float:
+    """Fraction of residues covered by at least one window with entropy < threshold."""
+    if len(seq) < window_size:
+        return 1.0 if calc_shannon_entropy(seq) < threshold else 0.0
+    covered = [False] * len(seq)
+    for i in range(len(seq) - window_size + 1):
+        if calc_shannon_entropy(seq[i:i+window_size]) < threshold:
+            for j in range(i, i+window_size):
+                covered[j] = True
+    return sum(covered) / len(seq)
+
+def sticker_spacing_stats(seq: str) -> dict:
+    """Return mean/min/max residue spacing between consecutive sticker residues."""
+    positions = [i for i, aa in enumerate(seq) if aa in STICKER_ALL]
+    if len(positions) < 2:
+        return {"mean": None, "min": None, "max": None}
+    gaps = [positions[i+1] - positions[i] for i in range(len(positions)-1)]
+    return {
+        "mean": sum(gaps) / len(gaps),
+        "min":  min(gaps),
+        "max":  max(gaps),
+    }
+
 # --- Analysis ---
 
 class AnalysisTools:
@@ -149,6 +307,67 @@ class AnalysisTools:
         n_cystine  = 0 if use_reducing else seq.count("C") // 2
         extinction = 5500*seq.count("W") + 1490*seq.count("Y") + 125*n_cystine
 
+        # --- Charge features ---
+        pos_n   = sum(aa_counts.get(k, 0) for k in "KR")
+        neg_n   = sum(aa_counts.get(k, 0) for k in "DE")
+        fcr     = (pos_n + neg_n) / seq_length
+        ncpr    = (pos_n - neg_n) / seq_length
+        kappa   = calc_kappa(seq)
+        ch_asym = (pos_n / neg_n) if neg_n > 0 else float('inf')
+
+        kappa_interp = (
+            "well-mixed"        if kappa < 0.2 else
+            "moderately patterned" if kappa < 0.5 else
+            "strongly segregated"
+        )
+
+        # --- Aromatic & π features ---
+        n_tyr  = aa_counts.get("Y", 0)
+        n_phe  = aa_counts.get("F", 0)
+        n_trp  = aa_counts.get("W", 0)
+        arom_n = n_tyr + n_phe + n_trp
+        arom_f = arom_n / seq_length
+        cation_pi_n = count_pairs(seq, set("KR"), STICKER_AROMATIC, window=4)
+        pi_pi_n     = count_pairs(seq, STICKER_AROMATIC, STICKER_AROMATIC, window=4)
+
+        # --- Low complexity features ---
+        entropy      = calc_shannon_entropy(seq)
+        entropy_norm = entropy / math.log2(20)
+        unique_aa    = sum(1 for v in aa_counts.values() if v > 0)
+        prion_score  = sum(aa_counts.get(k, 0) for k in PRION_LIKE) / seq_length
+        lc_frac      = fraction_low_complexity(seq, window_size=12, threshold=2.0)
+
+        # --- Disorder features ---
+        disorder_f   = sum(aa_counts.get(k, 0) for k in DISORDER_PROMOTING) / seq_length
+        order_f      = sum(aa_counts.get(k, 0) for k in ORDER_PROMOTING) / seq_length
+        aliphatic_idx = (
+            aa_counts.get("A", 0)
+            + 2.9 * aa_counts.get("V", 0)
+            + 3.9 * (aa_counts.get("I", 0) + aa_counts.get("L", 0))
+        ) / seq_length * 100
+        omega = calc_omega(seq)
+        omega_interp = (
+            "evenly distributed" if omega < 0.2 else
+            "moderately clustered" if omega < 0.5 else
+            "strongly clustered"
+        )
+
+        # --- Repeat motifs ---
+        rgg_n  = seq.count("RGG")
+        fg_n   = seq.count("FG")
+        yg_n   = seq.count("YG") + seq.count("GY")
+        sr_n   = seq.count("SR") + seq.count("RS")
+        qn_n   = seq.count("QN") + seq.count("NQ")
+
+        # --- Sticker & spacer ---
+        sticker_arom_n  = arom_n
+        sticker_elec_n  = sum(aa_counts.get(k, 0) for k in "KRDE")
+        sticker_total_n = sum(1 for aa in seq if aa in STICKER_ALL)
+        sticker_frac    = sticker_total_n / seq_length
+        spacing         = sticker_spacing_stats(seq)
+        _fmt_spacing    = lambda v: f"{v:.1f}" if v is not None else "N/A"
+
+        # --- HTML sections ---
         extra = (
             f"<tr><td>Net Charge (pH {pH_value:.1f})</td><td>{net_charge_pH:.2f}</td></tr>"
             if abs(pH_value - 7.0) >= 1e-6 else ""
@@ -182,31 +401,117 @@ class AnalysisTools:
         <table border="1" cellpadding="5">
           <tr><td>Mol. Weight</td><td>{mol_weight:.2f} Da</td></tr>
           <tr><td>Isoelectric Point</td><td>{iso_point:.2f}</td></tr>
-          <tr><td>Extinction Coeff.</td><td>{extinction} M⁻¹cm⁻¹</td></tr>
+          <tr><td>Extinction Coeff.</td><td>{extinction} M&#8315;&#185;cm&#8315;&#185;</td></tr>
           <tr><td>GRAVY</td><td>{gravy:.3f}</td></tr>
           <tr><td>Instability</td><td>{instability:.2f}</td></tr>
           <tr><td>Aromaticity</td><td>{aromaticity:.3f}</td></tr>
         </table>
         """
 
+        charge_html = f"""
+        <h2>Charge</h2>
+        <table border="1" cellpadding="5">
+          <tr><th>Property</th><th>Value</th></tr>
+          <tr><td>Positive residues (K, R)</td><td>{pos_n}</td></tr>
+          <tr><td>Negative residues (D, E)</td><td>{neg_n}</td></tr>
+          <tr><td>FCR (fraction charged)</td><td>{fcr:.3f}</td></tr>
+          <tr><td>NCPR (net charge/residue)</td><td>{ncpr:+.3f}</td></tr>
+          <tr><td>Charge asymmetry (pos/neg)</td><td>{"%.2f" % ch_asym if neg_n > 0 else "&#8734; (no neg.)"}</td></tr>
+          <tr><td>Kappa (&kappa;)</td><td>{kappa:.3f} &mdash; {kappa_interp}</td></tr>
+        </table>
+        <p><small>&kappa; range: 0 = well-mixed, 1 = fully segregated (Das &amp; Pappu 2013)</small></p>
+        """
+
+        aromatic_html = f"""
+        <h2>Aromatic &amp; &pi;-Interactions</h2>
+        <table border="1" cellpadding="5">
+          <tr><th>Property</th><th>Value</th></tr>
+          <tr><td>Aromatic fraction (F+W+Y)</td><td>{arom_f:.3f} ({arom_n} residues)</td></tr>
+          <tr><td>Tyr (Y)</td><td>{n_tyr} ({n_tyr/seq_length*100:.1f}%)</td></tr>
+          <tr><td>Phe (F)</td><td>{n_phe} ({n_phe/seq_length*100:.1f}%)</td></tr>
+          <tr><td>Trp (W)</td><td>{n_trp} ({n_trp/seq_length*100:.1f}%)</td></tr>
+          <tr><td>Cation&ndash;&pi; pairs (K/R &harr; F/W/Y, &plusmn;4)</td><td>{cation_pi_n}</td></tr>
+          <tr><td>&pi;&ndash;&pi; pairs (F/W/Y &harr; F/W/Y, &plusmn;4)</td><td>{pi_pi_n}</td></tr>
+        </table>
+        """
+
+        lc_html = f"""
+        <h2>Low Complexity</h2>
+        <table border="1" cellpadding="5">
+          <tr><th>Property</th><th>Value</th></tr>
+          <tr><td>Shannon entropy</td><td>{entropy:.3f} bits (max 4.32)</td></tr>
+          <tr><td>Normalized entropy</td><td>{entropy_norm:.3f}</td></tr>
+          <tr><td>Unique amino acids</td><td>{unique_aa} / 20</td></tr>
+          <tr><td>Prion-like score (N,Q,S,G,Y)</td><td>{prion_score:.3f}</td></tr>
+          <tr><td>LC fraction (w=12, H&lt;2.0 bits)</td><td>{lc_frac:.3f}</td></tr>
+        </table>
+        <p><small>LC = low complexity window. Prion-like score = fraction of N,Q,S,G,Y (Lancaster &amp; Bhatt).</small></p>
+        """
+
+        disorder_html = f"""
+        <h2>Disorder &amp; Flexibility</h2>
+        <table border="1" cellpadding="5">
+          <tr><th>Property</th><th>Value</th></tr>
+          <tr><td>Disorder-promoting fraction (A,E,G,K,P,Q,R,S)</td><td>{disorder_f:.3f}</td></tr>
+          <tr><td>Order-promoting fraction (C,F,H,I,L,M,V,W,Y)</td><td>{order_f:.3f}</td></tr>
+          <tr><td>Aliphatic index</td><td>{aliphatic_idx:.1f}</td></tr>
+          <tr><td>Omega (&Omega;)</td><td>{omega:.3f} &mdash; {omega_interp}</td></tr>
+        </table>
+        <p><small>Disorder/order classification: Uversky. Aliphatic index: Ikai 1980. &Omega; range: 0 = even, 1 = clustered (Das et al. 2015).</small></p>
+        """
+
+        repeats_html = f"""
+        <h2>Repeat Motifs</h2>
+        <table border="1" cellpadding="5">
+          <tr><th>Motif</th><th>Count</th></tr>
+          <tr><td>RGG</td><td>{rgg_n}</td></tr>
+          <tr><td>FG</td><td>{fg_n}</td></tr>
+          <tr><td>YG + GY</td><td>{yg_n}</td></tr>
+          <tr><td>SR + RS</td><td>{sr_n}</td></tr>
+          <tr><td>QN + NQ</td><td>{qn_n}</td></tr>
+        </table>
+        """
+
+        sticker_html = f"""
+        <h2>Sticker &amp; Spacer</h2>
+        <table border="1" cellpadding="5">
+          <tr><th>Property</th><th>Value</th></tr>
+          <tr><td>Total stickers (F,W,Y,K,R,D,E)</td><td>{sticker_total_n} ({sticker_frac*100:.1f}%)</td></tr>
+          <tr><td>Aromatic stickers (F,W,Y)</td><td>{sticker_arom_n}</td></tr>
+          <tr><td>Electrostatic stickers (K,R,D,E)</td><td>{sticker_elec_n}</td></tr>
+          <tr><td>Mean sticker spacing</td><td>{_fmt_spacing(spacing["mean"])} residues</td></tr>
+          <tr><td>Min sticker spacing</td><td>{_fmt_spacing(spacing["min"])} residues</td></tr>
+          <tr><td>Max sticker spacing</td><td>{_fmt_spacing(spacing["max"])} residues</td></tr>
+        </table>
+        <p><small>Sticker-and-spacer model: Mittag &amp; Pappu. Stickers mediate specific interactions; spacers provide valency.</small></p>
+        """
+
         return {
             "report_sections": {
-                "Overview": overview_html,
-                "Composition": comp_html,
-                "Properties": bio_html,
+                "Overview":        overview_html,
+                "Composition":     comp_html,
+                "Properties":      bio_html,
+                "Charge":          charge_html,
+                "Aromatic & \u03c0": aromatic_html,
+                "Low Complexity":  lc_html,
+                "Disorder":        disorder_html,
+                "Repeat Motifs":   repeats_html,
+                "Sticker & Spacer": sticker_html,
             },
-            "aa_counts":    aa_counts,
-            "aa_freq":      aa_freq,
-            "hydro_profile": sliding_window_hydrophobicity(seq, window_size),
-            "window_size":  window_size,
-            "seq":          seq,
-            "mol_weight":   mol_weight,
-            "iso_point":    iso_point,
-            "net_charge_7": net_charge_7,
-            "extinction":   extinction,
-            "gravy":        gravy,
-            "instability":  instability,
-            "aromaticity":  aromaticity,
+            "aa_counts":      aa_counts,
+            "aa_freq":        aa_freq,
+            "hydro_profile":  sliding_window_hydrophobicity(seq, window_size),
+            "ncpr_profile":   sliding_window_ncpr(seq, window_size),
+            "entropy_profile": sliding_window_entropy(seq, window_size),
+            "window_size":    window_size,
+            "seq":            seq,
+            "mol_weight":     mol_weight,
+            "iso_point":      iso_point,
+            "net_charge_7":   net_charge_7,
+            "extinction":     extinction,
+            "gravy":          gravy,
+            "instability":    instability,
+            "aromaticity":    aromaticity,
         }
 
     @staticmethod
@@ -331,6 +636,94 @@ class GraphingTools:
         ax.set_xticklabels(props, fontsize=label_font-2)
         ax.set_title("Radar Chart", fontsize=label_font+2)
         mplcursors.cursor(ax)
+        return fig
+
+    @staticmethod
+    def create_sticker_map(seq, show_labels, label_font=14, tick_font=12):
+        fig  = Figure(figsize=(min(12, 0.25*len(seq)), 2))
+        ax   = fig.add_subplot(111)
+        xs   = list(range(1, len(seq)+1))
+        cols = []
+        for aa in seq:
+            if aa in STICKER_AROMATIC:
+                cols.append("gold")
+            elif aa in "KR":
+                cols.append("royalblue")
+            elif aa in "DE":
+                cols.append("tomato")
+            else:
+                cols.append("lightgray")
+        ax.scatter(xs, [1]*len(seq), c=cols, s=200)
+        ax.legend(handles=[
+            Patch(color="gold",      label="Aromatic (F,W,Y)"),
+            Patch(color="royalblue", label="Basic (K,R)"),
+            Patch(color="tomato",    label="Acidic (D,E)"),
+            Patch(color="lightgray", label="Spacer"),
+        ], loc="upper right", fontsize=label_font-4)
+        ax.set_yticks([])
+        ax.set_xlabel("Residue", fontsize=label_font)
+        ax.set_title("Sticker Map", fontsize=label_font+2)
+        ax.tick_params(labelsize=tick_font)
+        if show_labels and len(seq) <= 50:
+            for i, aa in enumerate(seq):
+                ax.text(xs[i], 1, aa, ha="center", va="center", fontsize=label_font-2)
+        mplcursors.cursor(ax)
+        return fig
+
+    @staticmethod
+    def create_local_charge_figure(ncpr_profile, window_size, label_font=14, tick_font=12):
+        fig = Figure(figsize=(5, 4))
+        ax  = fig.add_subplot(111)
+        xs  = range(1, len(ncpr_profile)+1)
+        ax.plot(xs, ncpr_profile, marker="o")
+        ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
+        ax.set_xlabel("Window Start", fontsize=label_font)
+        ax.set_ylabel("NCPR", fontsize=label_font)
+        ax.set_title(f"Local Charge Profile (w={window_size})", fontsize=label_font+2)
+        ax.tick_params(labelsize=tick_font)
+        ax.grid(True)
+        mplcursors.cursor(ax)
+        return fig
+
+    @staticmethod
+    def create_local_complexity_figure(entropy_profile, window_size, label_font=14, tick_font=12):
+        fig = Figure(figsize=(5, 4))
+        ax  = fig.add_subplot(111)
+        xs  = range(1, len(entropy_profile)+1)
+        ax.plot(xs, entropy_profile, marker="o")
+        ax.axhline(2.0, color="red", linewidth=0.8, linestyle="--", label="LC threshold (2.0 bits)")
+        ax.set_xlabel("Window Start", fontsize=label_font)
+        ax.set_ylabel("Shannon Entropy (bits)", fontsize=label_font)
+        ax.set_title(f"Local Complexity (w={window_size})", fontsize=label_font+2)
+        ax.tick_params(labelsize=tick_font)
+        ax.legend(fontsize=label_font-4)
+        ax.grid(True)
+        mplcursors.cursor(ax)
+        return fig
+
+    @staticmethod
+    def create_cation_pi_map(seq, label_font=14, tick_font=12):
+        n       = len(seq)
+        window  = 8
+        mat     = np.zeros((n, n))
+        arom    = STICKER_AROMATIC
+        basic   = set("KR")
+        for i in range(n):
+            if seq[i] in basic or seq[i] in arom:
+                for j in range(max(0, i-window), min(n, i+window+1)):
+                    if j != i:
+                        is_cp = (seq[i] in basic and seq[j] in arom) or \
+                                (seq[i] in arom  and seq[j] in basic)
+                        if is_cp:
+                            mat[i, j] = 1.0 / abs(i - j)
+        fig = Figure(figsize=(5, 4))
+        ax  = fig.add_subplot(111)
+        im  = ax.imshow(mat, cmap="YlOrRd", aspect="auto", origin="upper")
+        fig.colorbar(im, ax=ax, label="Proximity (1/distance)")
+        ax.set_xlabel("Residue position", fontsize=label_font)
+        ax.set_ylabel("Residue position", fontsize=label_font)
+        ax.set_title("Cation\u2013\u03c0 Proximity Map", fontsize=label_font+2)
+        ax.tick_params(labelsize=tick_font)
         return fig
 
 # --- Export ---
@@ -770,13 +1163,63 @@ class ProteinAnalyzerGUI(QMainWindow):
           <li><b>Aromaticity:</b> Fraction of F, W, Y residues.</li>
         </ul>
 
+        <h2>Charge</h2>
+        <ul>
+          <li><b>FCR:</b> Fraction of charged residues (K,R,D,E).</li>
+          <li><b>NCPR:</b> Net charge per residue = (K+R &minus; D+E) / length.</li>
+          <li><b>Kappa (&kappa;):</b> Charge patterning, 0 = well-mixed, 1 = fully segregated (Das &amp; Pappu 2013).</li>
+          <li><b>Charge asymmetry:</b> Ratio of positive to negative residues.</li>
+        </ul>
+
+        <h2>Aromatic &amp; &pi;</h2>
+        <ul>
+          <li><b>Aromatic fraction:</b> (F+W+Y)/length &mdash; &pi;&ndash;&pi; stacking drives many condensates.</li>
+          <li><b>Cation&ndash;&pi; pairs:</b> K/R within &plusmn;4 positions of F/W/Y.</li>
+          <li><b>&pi;&ndash;&pi; pairs:</b> F/W/Y within &plusmn;4 positions of another F/W/Y.</li>
+        </ul>
+
+        <h2>Low Complexity</h2>
+        <ul>
+          <li><b>Shannon entropy:</b> Compositional complexity in bits; max = log&#8322;(20) &asymp; 4.32.</li>
+          <li><b>Prion-like score:</b> Fraction of N,Q,S,G,Y &mdash; enriched in yeast prion domains (PLAAC).</li>
+          <li><b>LC fraction:</b> Fraction of sequence covered by windows with entropy &lt; 2.0 bits.</li>
+        </ul>
+
+        <h2>Disorder</h2>
+        <ul>
+          <li><b>Disorder-promoting fraction:</b> A,E,G,K,P,Q,R,S (Uversky classification).</li>
+          <li><b>Order-promoting fraction:</b> C,F,H,I,L,M,V,W,Y.</li>
+          <li><b>Aliphatic index:</b> (A + 2.9V + 3.9(I+L)) / length &times; 100 (Ikai 1980).</li>
+          <li><b>Omega (&Omega;):</b> Patterning of sticker residues; 0 = even, 1 = clustered (Das et al. 2015).</li>
+        </ul>
+
+        <h2>Repeat Motifs</h2>
+        <ul>
+          <li><b>RGG:</b> Arg-Gly-Gly &mdash; major driver in FUS, hnRNP family.</li>
+          <li><b>FG:</b> Phe-Gly &mdash; hallmark of nucleoporin IDRs.</li>
+          <li><b>YG/GY:</b> Tyr-Gly variants.</li>
+          <li><b>SR/RS:</b> Ser-Arg &mdash; splicing factor signature.</li>
+          <li><b>QN/NQ:</b> Gln-Asn &mdash; yeast prion signature.</li>
+        </ul>
+
+        <h2>Sticker &amp; Spacer</h2>
+        <ul>
+          <li><b>Stickers:</b> F,W,Y,K,R,D,E &mdash; residues mediating specific interactions.</li>
+          <li><b>Spacers:</b> all other residues providing chain flexibility and valency.</li>
+          <li><b>Spacing stats:</b> Mean/min/max gap between consecutive stickers (Mittag &amp; Pappu).</li>
+        </ul>
+
         <h2>Graphs</h2>
         <ul>
           <li><b>Bar/Pie Charts:</b> Amino acid composition.</li>
-          <li><b>Hydrophobicity Profile:</b> Sliding-window average.</li>
+          <li><b>Hydrophobicity Profile:</b> Sliding-window Kyte-Doolittle average.</li>
           <li><b>Net Charge vs pH:</b> Charge curve from pH 0 to 14.</li>
           <li><b>Bead Models:</b> Per-residue hydrophobicity or charge.</li>
           <li><b>Radar Chart:</b> Normalized physiochemical properties.</li>
+          <li><b>Sticker Map:</b> Per-residue sticker identity (aromatic/basic/acidic/spacer).</li>
+          <li><b>Local Charge Profile:</b> Sliding-window NCPR showing charge block structure.</li>
+          <li><b>Local Complexity:</b> Sliding-window Shannon entropy; red dashed line = LC threshold.</li>
+          <li><b>Cation&ndash;&pi; Map:</b> Proximity heat map of K/R vs F/W/Y pairs along the sequence.</li>
         </ul>
 
         <h2>Batch Analysis</h2>
@@ -903,10 +1346,24 @@ class ProteinAnalyzerGUI(QMainWindow):
                 tick_font=self.tick_font_size),
             "Properties Radar Chart": GraphingTools.create_radar_chart_figure(
                 self.analysis_data, label_font=self.label_font_size),
+            "Sticker Map": GraphingTools.create_sticker_map(
+                seq, self.show_bead_labels,
+                label_font=self.label_font_size, tick_font=self.tick_font_size),
+            "Local Charge Profile": GraphingTools.create_local_charge_figure(
+                self.analysis_data["ncpr_profile"], self.analysis_data["window_size"],
+                label_font=self.label_font_size, tick_font=self.tick_font_size),
+            "Local Complexity": GraphingTools.create_local_complexity_figure(
+                self.analysis_data["entropy_profile"], self.analysis_data["window_size"],
+                label_font=self.label_font_size, tick_font=self.tick_font_size),
+            "Cation\u2013\u03c0 Map": GraphingTools.create_cation_pi_map(
+                seq, label_font=self.label_font_size, tick_font=self.tick_font_size),
         }
 
         # Apply styling to line/bar graphs
-        styled = {"Amino Acid Composition (Bar)", "Hydrophobicity Profile", "Net Charge vs pH"}
+        styled = {
+            "Amino Acid Composition (Bar)", "Hydrophobicity Profile",
+            "Net Charge vs pH", "Local Charge Profile", "Local Complexity",
+        }
         for title, fig in figs.items():
             if title in styled:
                 ax = fig.axes[0]
