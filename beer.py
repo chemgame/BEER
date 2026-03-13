@@ -113,6 +113,37 @@ STICKER_ALL           = STICKER_AROMATIC | STICKER_ELECTROSTATIC
 # Prion-like domain composition residues (PLAAC/Lancaster)
 PRION_LIKE = set("NQSGY")
 
+# LARKS (Low-complexity Aromatic-Rich Kinked Segments) residues
+LARKS_AROMATIC = set("FWY")
+LARKS_LC       = set("GASTNQ")  # low-complexity residues for LARKS windows
+
+# Coiled-coil heptad periodicity (Lupas/Berger matrix — simplified mean propensity)
+COILED_COIL_PROPENSITY = {
+    'A': 1.29, 'R': 0.96, 'N': 0.90, 'D': 0.72, 'C': 0.77,
+    'Q': 1.23, 'E': 1.44, 'G': 0.56, 'H': 0.92, 'I': 0.98,
+    'L': 1.36, 'K': 1.17, 'M': 1.16, 'F': 0.73, 'P': 0.40,
+    'S': 0.82, 'T': 0.89, 'W': 0.72, 'Y': 0.70, 'V': 1.09,
+}
+
+# Linear motif regex library (name, pattern, description)
+LINEAR_MOTIFS = [
+    ("NLS (basic)", r"[KR]{3,}|[KR]{2}.{1,3}[KR]{2,}", "Nuclear localisation signal (basic cluster)"),
+    ("NES (hydrophobic)", r"L.{2,3}[LIVMF].{2,3}[LIVMF].{1}[LIVMF]", "Nuclear export signal (leucine-rich)"),
+    ("PPII / PxxP", r"P.{1,2}P", "SH3-binding proline-rich motif (PxxP)"),
+    ("14-3-3 (mode 1)", r"R.{2}[ST]", "14-3-3 binding: RSxS/RSxT consensus"),
+    ("RGG box", r"RGG", "RGG repeat — RNA-binding / LLPS driver"),
+    ("FG repeat", r"FG|GF", "Phe-Gly nucleoporin repeat"),
+    ("KFERQ (autophagy)", r"[KQRE][LVIF][DEQ][EQ][RQKIVLF]", "Chaperone-mediated autophagy targeting (KFERQ-like)"),
+    ("ER retention (KDEL)", r"KDEL|HDEL|RDEL", "ER retention signal"),
+    ("RxxS/T (PKA)", r"R.{1,2}[ST]", "PKA consensus phosphorylation site (RxxS/T)"),
+    ("SxIP (EB1)", r"[ST].IP", "Microtubule plus-end tracking via EB1"),
+    ("WW domain ligand", r"PP.Y|P.{1,2}P", "WW-domain binding (PPxY / PxxP)"),
+    ("Caspase-3 cleavage", r"DEVD|DMQD|DEVD", "Caspase-3/7 cleavage site (DxxD)"),
+    ("Glycosylation (N-linked)", r"N[^P][ST]", "N-linked glycosylation sequon (NxS/T, x≠P)"),
+    ("SUMOylation", r"[VILMF]K.E", "SUMOylation consensus (ΨKxE)"),
+    ("Phospho (CK2)", r"[ST].{2}[DE]", "CK2 phosphorylation consensus (S/TxxE/D)"),
+]
+
 # Chou-Fasman helix and sheet propensities (Chou & Fasman 1978)
 CHOU_FASMAN_HELIX = {
     'A': 1.42, 'R': 0.98, 'N': 0.67, 'D': 1.01, 'C': 0.70,
@@ -161,6 +192,8 @@ REPORT_SECTIONS = [
     "Repeat Motifs",
     "Sticker & Spacer",
     "TM Helices",
+    "Phase Separation",
+    "Linear Motifs",
 ]
 
 GRAPH_TITLES = [
@@ -184,6 +217,9 @@ GRAPH_TITLES = [
     "pLDDT Profile",
     "Distance Map",
     "Domain Architecture",
+    "Uversky Phase Plot",
+    "Coiled-Coil Profile",
+    "Saturation Mutagenesis",
 ]
 
 # Graph categories for the tree browser (order matters; every GRAPH_TITLES entry must appear here)
@@ -197,6 +233,7 @@ GRAPH_CATEGORIES = [
         "Local Charge Profile",
         "Local Complexity",
         "Disorder Profile",
+        "Coiled-Coil Profile",
         "Linear Sequence Map",
         "Secondary Structure",
     ]),
@@ -212,6 +249,10 @@ GRAPH_CATEGORIES = [
         "Sticker Map",
         "Helical Wheel",
         "TM Topology",
+    ]),
+    ("Phase Separation / IDP", [
+        "Uversky Phase Plot",
+        "Saturation Mutagenesis",
     ]),
     ("AlphaFold / Structural", [
         "pLDDT Profile",
@@ -811,6 +852,170 @@ def extract_plddt_from_pdb(pdb_str: str) -> list:
     return scores
 
 
+def detect_larks(seq: str, window: int = 7, min_arom: int = 1,
+                 min_lc_frac: float = 0.50, max_entropy: float = 1.8) -> list:
+    """Detect LARKS (Low-complexity Aromatic-Rich Kinked Segments).
+
+    A LARKS is a short window (6–8 residues) that:
+      • Contains ≥ 1 aromatic residue (F/W/Y)
+      • Has ≥ 50 % low-complexity residues (G/A/S/T/N/Q)
+      • Has Shannon entropy < 1.8 bits
+
+    Returns list of dicts: {start, end, seq, n_arom, lc_frac, entropy}
+    """
+    n = len(seq)
+    hits = []
+    seen = set()
+    for i in range(n - window + 1):
+        w = seq[i:i + window]
+        n_arom = sum(1 for aa in w if aa in LARKS_AROMATIC)
+        if n_arom < min_arom:
+            continue
+        lc_frac = sum(1 for aa in w if aa in LARKS_LC) / window
+        if lc_frac < min_lc_frac:
+            continue
+        # Shannon entropy of window
+        from collections import Counter
+        cnt = Counter(w)
+        H = -sum((v / window) * math.log2(v / window) for v in cnt.values())
+        if H >= max_entropy:
+            continue
+        # Merge overlapping hits
+        span = (i, i + window - 1)
+        overlap = False
+        for prev in hits:
+            if prev["start"] <= span[1] and span[0] <= prev["end"]:
+                overlap = True
+                break
+        if not overlap:
+            hits.append({"start": i, "end": i + window - 1,
+                         "seq": w, "n_arom": n_arom,
+                         "lc_frac": round(lc_frac, 3),
+                         "entropy": round(H, 3)})
+    return hits
+
+
+def calc_llps_score(seq: str, fcr: float, ncpr: float, arom_f: float,
+                    prion_score: float, omega: float, disorder_f: float,
+                    larks: list) -> dict:
+    """Compute a composite LLPS propensity score (0–1).
+
+    Weighted combination of sequence features associated with
+    liquid-liquid phase separation:
+      w1=0.25  Aromatic fraction (pi–pi driving force)
+      w2=0.20  Prion-like score (compositional complexity)
+      w3=0.15  Disorder-promoting fraction
+      w4=0.15  FCR (charge fraction — enables electrostatic valency)
+      w5=0.15  Omega (sticker clustering)
+      w6=0.10  |NCPR| penalty (high asymmetry suppresses LLPS)
+      w7=0.15  LARKS density (per-100-aa)
+    """
+    n = len(seq)
+    # Normalise each feature to [0,1]
+    arom_norm    = min(arom_f / 0.15, 1.0)           # 15 % arom → full score
+    prion_norm   = min(prion_score / 0.40, 1.0)       # 40 % prion-like → full
+    disord_norm  = min(disorder_f / 0.60, 1.0)        # 60 % disorder → full
+    fcr_norm     = min(fcr / 0.30, 1.0)               # 30 % charged → full
+    omega_norm   = omega                               # already 0–1
+    ncpr_penalty = min(abs(ncpr) / 0.30, 1.0)         # high |NCPR| → penalty
+    larks_norm   = min(len(larks) / (n / 100.0) / 5.0, 1.0)  # 5 LARKS/100aa → full
+
+    score = (
+        0.25 * arom_norm
+        + 0.20 * prion_norm
+        + 0.15 * disord_norm
+        + 0.15 * fcr_norm
+        + 0.15 * omega_norm
+        + 0.10 * larks_norm
+        - 0.10 * ncpr_penalty   # penalise strongly asymmetric charge
+    )
+    score = max(0.0, min(1.0, score))
+
+    if score >= 0.55:
+        verdict = "High LLPS propensity"
+    elif score >= 0.30:
+        verdict = "Moderate LLPS propensity"
+    else:
+        verdict = "Low LLPS propensity"
+
+    return {
+        "score": round(score, 3),
+        "verdict": verdict,
+        "components": {
+            "Aromatic fraction": round(arom_norm, 3),
+            "Prion-like score": round(prion_norm, 3),
+            "Disorder fraction": round(disord_norm, 3),
+            "FCR": round(fcr_norm, 3),
+            "Omega (sticker clustering)": round(omega_norm, 3),
+            "LARKS density": round(larks_norm, 3),
+            "|NCPR| penalty": round(ncpr_penalty, 3),
+        },
+    }
+
+
+def predict_coiled_coil(seq: str, window: int = 28) -> list:
+    """Heptad-periodicity coiled-coil scoring (Lupas-inspired).
+
+    Uses a 28-residue (4-heptad) sliding window with position-weighted
+    propensity scores for the a/d positions of the heptad (which are the
+    hydrophobic core positions).
+
+    Returns list of per-residue scores (0 = no coiled-coil propensity).
+    """
+    n = len(seq)
+    scores = [0.0] * n
+    if n < window:
+        return scores
+
+    # Heptad positions: a=0, b=1, c=2, d=3, e=4, f=5, g=6
+    # Weight positions a and d (0, 3) most heavily
+    pos_weights = [0.20, 0.05, 0.05, 0.20, 0.10, 0.10, 0.10,
+                   0.20, 0.05, 0.05, 0.20, 0.10, 0.10, 0.10,
+                   0.20, 0.05, 0.05, 0.20, 0.10, 0.10, 0.10,
+                   0.20, 0.05, 0.05, 0.20, 0.10, 0.10, 0.10]
+
+    win_scores = []
+    for i in range(n - window + 1):
+        w = seq[i:i + window]
+        s = sum(COILED_COIL_PROPENSITY.get(aa, 1.0) * pw
+                for aa, pw in zip(w, pos_weights))
+        win_scores.append(s)
+
+    # Distribute window scores to residues
+    counts = [0] * n
+    for i, ws in enumerate(win_scores):
+        for r in range(i, i + window):
+            scores[r] += ws
+            counts[r] += 1
+    for i in range(n):
+        if counts[i] > 0:
+            scores[i] = scores[i] / counts[i]
+
+    # Normalise to 0–1 range (typical score ~0.9 for real coiled coils)
+    mx = max(scores) if max(scores) > 0 else 1.0
+    scores = [s / mx for s in scores]
+    return scores
+
+
+def scan_linear_motifs(seq: str) -> list:
+    """Scan sequence against the built-in LINEAR_MOTIFS library.
+
+    Returns list of dicts: {name, description, start, end, match}
+    """
+    hits = []
+    for name, pattern, description in LINEAR_MOTIFS:
+        for m in re.finditer(pattern, seq):
+            hits.append({
+                "name": name,
+                "description": description,
+                "start": m.start(),
+                "end": m.end() - 1,
+                "match": m.group(),
+            })
+    hits.sort(key=lambda h: h["start"])
+    return hits
+
+
 # --- Analysis ---
 
 class AnalysisTools:
@@ -1088,6 +1293,82 @@ class AnalysisTools:
         <p class="note">Chou-Fasman: P &gt; 1.0 = propensity for helix/sheet. Disorder: IUPred-inspired per-residue score (0=ordered, 1=disordered).</p>
         """
 
+        # --- LARKS & LLPS ---
+        larks = detect_larks(seq)
+        llps  = calc_llps_score(seq, fcr, ncpr, arom_f, prion_score, omega, disorder_f, larks)
+        larks_rows = "".join(
+            f"<tr><td>{h['start']+1}–{h['end']+1}</td><td>{h['seq']}</td>"
+            f"<td>{h['n_arom']}</td><td>{h['lc_frac']:.2f}</td><td>{h['entropy']:.2f}</td></tr>"
+            for h in larks
+        ) or "<tr><td colspan='5'><em>No LARKS detected</em></td></tr>"
+        comp_rows = "".join(
+            f"<tr><td>{k}</td><td>{v:.3f}</td></tr>"
+            for k, v in llps["components"].items()
+        )
+        verdict_color = (
+            "#16a34a" if "High" in llps["verdict"] else
+            "#ca8a04" if "Moderate" in llps["verdict"] else
+            "#dc2626"
+        )
+        phase_html = _style + f"""
+        <h2>Phase Separation Propensity</h2>
+        <table>
+          <tr><th>Property</th><th>Value</th></tr>
+          <tr><td><b>Composite LLPS Score</b></td>
+              <td><b style="color:{verdict_color};">{llps['score']:.3f} — {llps['verdict']}</b></td></tr>
+        </table>
+        <h3>Score Components</h3>
+        <table>
+          <tr><th>Component (normalised)</th><th>Value</th></tr>
+          {comp_rows}
+        </table>
+        <h3>LARKS (Low-complexity Aromatic-Rich Kinked Segments)</h3>
+        <table>
+          <tr><th>Position</th><th>Sequence</th><th>Aromatics</th><th>LC Frac</th><th>Entropy (bits)</th></tr>
+          {larks_rows}
+        </table>
+        <p class="note">LLPS score: weighted combination of aromatic fraction, prion-like score,
+        disorder fraction, FCR, Omega, LARKS density, and |NCPR| penalty.
+        LARKS: 7-residue windows with ≥1 aromatic, ≥50% LC residues, entropy &lt;1.8 bits (Hughes et al. 2018).</p>
+        """
+
+        # --- Coiled-coil prediction ---
+        cc_profile = predict_coiled_coil(seq)
+        cc_threshold = 0.50
+        cc_regions = []
+        i = 0
+        while i < seq_length:
+            if cc_profile[i] >= cc_threshold:
+                j = i
+                while j < seq_length and cc_profile[j] >= cc_threshold:
+                    j += 1
+                if j - i >= 7:
+                    cc_regions.append((i + 1, j))
+                i = j
+            else:
+                i += 1
+        n_cc_res = sum(e - s + 1 for s, e in cc_regions)
+        cc_frac  = n_cc_res / seq_length
+
+        # --- Linear motif scan ---
+        motifs = scan_linear_motifs(seq)
+        motif_rows = "".join(
+            f"<tr><td>{m['name']}</td><td>{m['start']+1}–{m['end']+1}</td>"
+            f"<td><tt>{m['match']}</tt></td><td>{m['description']}</td></tr>"
+            for m in motifs
+        ) or "<tr><td colspan='4'><em>No motifs found</em></td></tr>"
+        motifs_html = _style + f"""
+        <h2>Linear Motif Scan</h2>
+        <p>Scanned against {len(LINEAR_MOTIFS)} built-in motif patterns.</p>
+        <table>
+          <tr><th>Motif</th><th>Position</th><th>Match</th><th>Description</th></tr>
+          {motif_rows}
+        </table>
+        <p class="note">Pattern library includes NLS, NES, PxxP, 14-3-3, RGG, FG, KFERQ, KDEL,
+        N-glycosylation, SUMOylation, CK2 phosphorylation, caspase cleavage, WW-domain, SxIP, PKA sites.
+        Matches are regex-based and require experimental validation.</p>
+        """
+
         return {
             "report_sections": {
                 "Composition":        comp_html,
@@ -1101,6 +1382,8 @@ class AnalysisTools:
                 "Repeat Motifs":      repeats_html,
                 "Sticker & Spacer":   sticker_html,
                 "TM Helices":         tm_html,
+                "Phase Separation":   phase_html,
+                "Linear Motifs":      motifs_html,
             },
             "tm_helices":      tm_helices,
             "aa_counts":       aa_counts,
@@ -1122,6 +1405,14 @@ class AnalysisTools:
             "aromaticity":     aromaticity,
             "fcr":             fcr,
             "ncpr":            ncpr,
+            "arom_f":          arom_f,
+            "prion_score":     prion_score,
+            "omega":           omega,
+            "disorder_f":      disorder_f,
+            "larks":           larks,
+            "llps":            llps,
+            "cc_profile":      cc_profile,
+            "motifs":          motifs,
         }
 
 # --- Graphing ---
@@ -2045,6 +2336,184 @@ class GraphingTools:
                       fontsize=max(6, tick_font - 4), framealpha=0.85,
                       edgecolor="#d0d4e0", loc="upper right",
                       ncol=max(1, len(legend_patches) // 6))
+        fig.tight_layout(pad=1.5)
+        return fig
+
+    @staticmethod
+    def create_uversky_phase_plot(seq: str, label_font=14, tick_font=12):
+        """Uversky charge-hydrophobicity phase diagram.
+
+        The sequence is plotted as a single point in the
+        mean |net charge| vs mean hydrophobicity space.
+        Phase boundary from Uversky et al. 2000:
+          <H> = 2.785 * <|R|> + 0.446
+        Region above boundary → IDP/disordered
+        Region below boundary → compact/folded
+        """
+        n = len(seq)
+        if n == 0:
+            fig = Figure(figsize=(6, 5), dpi=120)
+            return fig
+
+        pos_n = sum(1 for aa in seq if aa in "KR")
+        neg_n = sum(1 for aa in seq if aa in "DE")
+        mean_charge = abs(pos_n - neg_n) / n
+        mean_hydro  = sum(KYTE_DOOLITTLE.get(aa, 0.0) for aa in seq) / n
+        # Normalise hydrophobicity to 0–1 scale (KD range: -4.5 to 4.5)
+        h_norm = (mean_hydro + 4.5) / 9.0
+
+        fig = Figure(figsize=(6, 5), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        ax.set_facecolor("#fafbff")
+
+        # Draw phase boundary line: H_norm = 2.785 * |R| + 0.446
+        r_vals = np.linspace(0, 0.5, 200)
+        h_boundary = 2.785 * r_vals + 0.446
+        # Clip to [0, 1]
+        h_boundary = np.clip(h_boundary, 0, 1)
+        ax.plot(r_vals, h_boundary, color="#374151", linewidth=1.8,
+                linestyle="--", label="Uversky boundary", zorder=3)
+
+        # Shade regions
+        ax.fill_between(r_vals, h_boundary, 1.0, alpha=0.10,
+                        color="#4361ee", label="Ordered / compact")
+        ax.fill_between(r_vals, 0, h_boundary, alpha=0.10,
+                        color="#f72585", label="Disordered / IDP")
+
+        # Annotate regions
+        ax.text(0.05, 0.75, "Ordered / Folded", fontsize=tick_font - 3,
+                color="#4361ee", alpha=0.8, style="italic")
+        ax.text(0.25, 0.15, "Disordered / IDP", fontsize=tick_font - 3,
+                color="#f72585", alpha=0.8, style="italic")
+
+        # Plot the sequence point
+        region = "IDP" if h_norm < (2.785 * mean_charge + 0.446) else "Ordered"
+        pt_color = "#f72585" if region == "IDP" else "#4361ee"
+        ax.scatter([mean_charge], [h_norm], color=pt_color, s=120, zorder=5,
+                   edgecolors="white", linewidths=1.2)
+        ax.annotate(f"  ({mean_charge:.3f}, {h_norm:.3f})\n  → {region}",
+                    xy=(mean_charge, h_norm),
+                    fontsize=tick_font - 3, color=pt_color,
+                    xytext=(mean_charge + 0.02, h_norm + 0.04))
+
+        _pub_style_ax(ax,
+                      title="Uversky Charge–Hydrophobicity Phase Plot",
+                      xlabel="Mean |Net Charge| per residue",
+                      ylabel="Mean Hydrophobicity (normalised 0–1)",
+                      grid=True, title_size=label_font + 1,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        ax.set_xlim(0, 0.5)
+        ax.set_ylim(0, 1.0)
+        ax.legend(fontsize=tick_font - 3, framealpha=0.85,
+                  edgecolor="#d0d4e0", loc="upper right")
+        fig.tight_layout(pad=1.5)
+        return fig
+
+    @staticmethod
+    def create_coiled_coil_profile(cc_profile: list, label_font=14, tick_font=12):
+        """Per-residue coiled-coil propensity profile."""
+        n  = len(cc_profile)
+        xs = list(range(1, n + 1))
+
+        fig = Figure(figsize=(9, 4), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        ax.set_facecolor("#fafbff")
+
+        ax.plot(xs, cc_profile, color=_ACCENT, linewidth=1.4, zorder=3)
+        ax.fill_between(xs, cc_profile, 0.5,
+                        where=[v > 0.5 for v in cc_profile],
+                        alpha=0.22, color=_ACCENT, zorder=2,
+                        label="Coiled-coil region (>0.50)")
+        ax.axhline(0.5, color="#374151", linestyle="--", linewidth=0.9,
+                   alpha=0.7, label="Threshold 0.50", zorder=4)
+        _pub_style_ax(ax,
+                      title="Coiled-Coil Propensity Profile",
+                      xlabel="Residue Position",
+                      ylabel="Coiled-Coil Score",
+                      grid=True, title_size=label_font + 1,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        ax.set_ylim(0, 1.05)
+        ax.legend(fontsize=tick_font - 3, framealpha=0.85,
+                  edgecolor="#d0d4e0", loc="upper right")
+        fig.tight_layout(pad=1.5)
+        mplcursors.cursor(ax)
+        return fig
+
+    @staticmethod
+    def create_saturation_mutagenesis_figure(seq: str, label_font=14, tick_font=12):
+        """In silico saturation mutagenesis heatmap.
+
+        For every position and every amino acid substitution, computes a
+        combined perturbation score:
+            Δscore = |ΔGRAVY| + |ΔNCPR|
+        where ΔGRAVY and ΔNCPR are the changes in global GRAVY and NCPR
+        relative to the wild-type sequence.
+
+        The heatmap rows = 20 amino acids (sorted by hydrophobicity),
+        columns = sequence positions.  Wild-type residue cells are marked
+        with a dot.
+        """
+        n   = len(seq)
+        if n == 0 or n > 500:
+            # Too long for a meaningful dense heatmap — return placeholder
+            fig = Figure(figsize=(9, 5), dpi=120)
+            ax  = fig.add_subplot(111)
+            ax.text(0.5, 0.5,
+                    "Sequence too long for saturation mutagenesis\n(limit: 500 aa)",
+                    ha="center", va="center", transform=ax.transAxes,
+                    fontsize=label_font - 2, color="#718096")
+            ax.set_axis_off()
+            return fig
+
+        AAS_BY_HYDRO = list("RNDQEKSHPYTGACMWFLIV")  # approx. hydrophobicity order (polar→hydrophobic)
+        wt_gravy = sum(KYTE_DOOLITTLE.get(aa, 0.0) for aa in seq) / n
+        pos_n    = sum(1 for aa in seq if aa in "KR")
+        neg_n    = sum(1 for aa in seq if aa in "DE")
+        wt_ncpr  = (pos_n - neg_n) / n
+
+        mat = np.zeros((20, n), dtype=float)
+        for col_i, pos in enumerate(range(n)):
+            wt_aa = seq[pos]
+            wt_kd = KYTE_DOOLITTLE.get(wt_aa, 0.0)
+            wt_is_pos = 1 if wt_aa in "KR" else 0
+            wt_is_neg = 1 if wt_aa in "DE" else 0
+            for row_i, mut_aa in enumerate(AAS_BY_HYDRO):
+                if mut_aa == wt_aa:
+                    mat[row_i, col_i] = 0.0
+                    continue
+                mut_kd  = KYTE_DOOLITTLE.get(mut_aa, 0.0)
+                delta_gravy = (mut_kd - wt_kd) / n
+                mut_is_pos  = 1 if mut_aa in "KR" else 0
+                mut_is_neg  = 1 if mut_aa in "DE" else 0
+                delta_ncpr  = ((mut_is_pos - wt_is_pos) - (mut_is_neg - wt_is_neg)) / n
+                mat[row_i, col_i] = abs(delta_gravy) + abs(delta_ncpr)
+
+        fig = Figure(figsize=(max(9, n * 0.08 + 1), 5.5), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+
+        im = ax.imshow(mat, aspect="auto", cmap="hot_r", origin="upper",
+                       interpolation="nearest",
+                       vmin=0, vmax=np.percentile(mat[mat > 0], 95) if mat.max() > 0 else 1)
+        cbar = fig.colorbar(im, ax=ax, shrink=0.85, aspect=20, pad=0.02)
+        cbar.set_label("|ΔGRAVY| + |ΔNCPR|", fontsize=tick_font - 1, color="#4a5568")
+        cbar.ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
+
+        # Mark wild-type positions with a small dot
+        for col_i, wt_aa in enumerate(seq):
+            if wt_aa in AAS_BY_HYDRO:
+                row_i = AAS_BY_HYDRO.index(wt_aa)
+                ax.plot(col_i, row_i, "w.", markersize=3, alpha=0.8)
+
+        ax.set_yticks(range(20))
+        ax.set_yticklabels(AAS_BY_HYDRO, fontsize=max(6, tick_font - 4))
+        ax.set_xlabel("Residue Position", fontsize=label_font - 1, color="#4a5568")
+        ax.set_ylabel("Substitution", fontsize=label_font - 1, color="#4a5568")
+        ax.set_title("Saturation Mutagenesis  (|ΔGRAVY| + |ΔNCPR|)",
+                     fontsize=label_font, fontweight="bold", color="#1a1a2e", pad=8)
+        ax.tick_params(axis="x", labelsize=tick_font - 2)
         fig.tight_layout(pad=1.5)
         return fig
 
@@ -3235,8 +3704,9 @@ window.addEventListener("load", init);
   <li><b>Import FASTA</b> — load a .fa / .fasta file (single or multi-sequence).</li>
   <li><b>Import PDB</b> — extract sequence(s) from a local PDB file.</li>
   <li><b>Fetch</b> — enter a <b>UniProt ID</b> (e.g. <tt>P04637</tt>) or a <b>PDB ID</b> (e.g. <tt>1ABC</tt>) and click <b>Fetch</b>.
-    UniProt IDs also enable the <b>Fetch AlphaFold</b> and <b>Fetch Pfam</b> buttons.
-    PDB IDs retrieve the sequence from RCSB; AlphaFold/Pfam are not available for PDB IDs.</li>
+    UniProt IDs automatically set the accession for <b>Fetch AlphaFold</b> and <b>Fetch Pfam</b>.
+    PDB IDs retrieve the sequence from RCSB; clicking Fetch AlphaFold or Fetch Pfam afterwards
+    will prompt you to enter a UniProt accession.</li>
 </ul>
 <h2>Navigation</h2>
 <p>Use the <b>left sidebar</b> to switch between sections. Keyboard shortcuts:</p>
@@ -3304,6 +3774,10 @@ The per-residue disorder score is an IUPred-inspired propensity (0 = ordered, 1 
 <h2>Sticker &amp; Spacer</h2>
 <p>Stickers = F, W, Y, K, R, D, E — residues mediating specific interactions.
 Spacers = all others. Mean/min/max gaps between consecutive stickers (Mittag &amp; Pappu model).</p>
+<h2>Phase Separation</h2>
+<p>Composite LLPS score (0–1) combining aromatic fraction, prion-like score, disorder fraction, FCR, Omega, LARKS density, and |NCPR| penalty. LARKS are short amyloid-like segments associated with condensate formation (see <b>Phase Separation</b> help page for details).</p>
+<h2>Linear Motifs</h2>
+<p>Regex scan against 15 built-in functional short linear motif patterns (SLiMs): NLS, NES, PxxP, 14-3-3, RGG, FG, KFERQ, KDEL, PKA, SxIP, WW ligand, caspase-3, N-glycosylation, SUMOylation, CK2 sites. All matches require experimental validation.</p>
 """),
             ("Transmembrane Helices", """
 <h1>Transmembrane Helix Prediction</h1>
@@ -3451,6 +3925,75 @@ to a chosen directory in the format configured in Settings.</p>
   <li><b>Domain Architecture</b> — multi-track: Pfam domains, Disorder, Low Complexity, TM Helices.
       Always shown after analysis; Pfam track appears after Fetch Pfam.</li>
 </ul>
+<h2>Phase Separation / IDP</h2>
+<ul>
+  <li><b>Uversky Phase Plot</b> — mean |net charge| vs mean normalised hydrophobicity; Uversky boundary line separates IDP from ordered proteins.</li>
+  <li><b>Coiled-Coil Profile</b> — per-residue heptad-periodicity score; fill above 0.50 = predicted coiled-coil region.</li>
+  <li><b>Saturation Mutagenesis</b> — 20×n heatmap of |ΔGRAVY| + |ΔNCPR| for all single-residue substitutions; white dot = wild type. Available for sequences ≤500 aa.</li>
+</ul>
+"""),
+            ("Phase Separation", """
+<h1>Phase Separation &amp; IDP Analysis</h1>
+<h2>Composite LLPS Score</h2>
+<p>A weighted combination of seven sequence features predicting liquid-liquid phase separation (LLPS) propensity (score 0–1):</p>
+<table>
+  <tr><th>Feature</th><th>Weight</th><th>Rationale</th></tr>
+  <tr><td>Aromatic fraction (F+W+Y)</td><td>0.25</td><td>π–π stacking is the primary LLPS driving force</td></tr>
+  <tr><td>Prion-like score (N,Q,S,G,Y)</td><td>0.20</td><td>Prion-like domains enrich most condensates</td></tr>
+  <tr><td>Disorder fraction</td><td>0.15</td><td>Intrinsic disorder enables multivalent contacts</td></tr>
+  <tr><td>FCR</td><td>0.15</td><td>Charged residues provide electrostatic valency</td></tr>
+  <tr><td>Omega (sticker clustering)</td><td>0.15</td><td>Clustered stickers lower saturation concentration</td></tr>
+  <tr><td>LARKS density</td><td>0.10</td><td>Short amyloid-like segments stabilise condensates</td></tr>
+  <tr><td>|NCPR| penalty</td><td>−0.10</td><td>Strongly asymmetric charge suppresses LLPS</td></tr>
+</table>
+<p>Score &ge;0.55 = High · 0.30–0.55 = Moderate · &lt;0.30 = Low</p>
+<h2>LARKS Detection</h2>
+<p>LARKS (Low-complexity Aromatic-Rich Kinked Segments) are short amyloid-like segments
+found in many IDP condensates (e.g. FUS, hnRNPA1). A 7-residue window qualifies as a LARKS if:</p>
+<ul>
+  <li>≥ 1 aromatic residue (F/W/Y)</li>
+  <li>≥ 50% low-complexity residues (G/A/S/T/N/Q)</li>
+  <li>Shannon entropy &lt; 1.8 bits</li>
+</ul>
+<p class="note">Reference: Hughes et al. (2018) <i>Science</i> 359, 698–701.</p>
+<h2>Uversky Phase Plot</h2>
+<p>The sequence is plotted in mean |net charge| vs normalised mean hydrophobicity space.
+The dashed boundary (Uversky 2000) separates compact/ordered proteins (above line) from IDPs (below line):</p>
+<pre>&lt;H&gt; = 2.785 × &lt;|R|&gt; + 0.446</pre>
+<p class="note">Reference: Uversky, Gillespie &amp; Fink (2000) <i>Proteins</i> 41, 415–427.</p>
+<h2>Coiled-Coil Prediction</h2>
+<p>Heptad-periodicity scoring using a 28-residue (4-heptad) sliding window. Positions a and d (hydrophobic core)
+are weighted most heavily. The per-residue score is normalised to 0–1; regions above 0.50 are predicted
+coiled-coil segments. Requires ≥7 consecutive residues above threshold.</p>
+<h2>Saturation Mutagenesis Heatmap</h2>
+<p>Every residue is mutated to all 20 amino acids in silico. Heatmap colour encodes |ΔGRAVY| + |ΔNCPR|.
+Hot spots mark positions where substitutions most strongly perturb global properties.
+Wild-type residues shown as white dots. Available for sequences ≤ 500 aa.</p>
+"""),
+            ("Linear Motifs", """
+<h1>Linear Motif Scanner</h1>
+<p>Sequence is scanned against a built-in library of 15 functional short linear motifs (SLiMs)
+using regular-expression matching.</p>
+<table>
+  <tr><th>Motif Class</th><th>Biological Role</th></tr>
+  <tr><td>NLS (basic)</td><td>Nuclear import</td></tr>
+  <tr><td>NES (hydrophobic)</td><td>Nuclear export (CRM1)</td></tr>
+  <tr><td>PxxP / PPII</td><td>SH3 domain binding</td></tr>
+  <tr><td>14-3-3 (mode 1)</td><td>Phosphoserine binding</td></tr>
+  <tr><td>RGG box</td><td>RNA binding / LLPS driver</td></tr>
+  <tr><td>FG repeat</td><td>Nucleoporin IDR signature</td></tr>
+  <tr><td>KFERQ-like</td><td>Chaperone-mediated autophagy</td></tr>
+  <tr><td>KDEL/HDEL/RDEL</td><td>ER retention signal</td></tr>
+  <tr><td>RxxS/T (PKA)</td><td>PKA phosphorylation consensus</td></tr>
+  <tr><td>SxIP</td><td>EB1-dependent microtubule tracking</td></tr>
+  <tr><td>WW domain ligand</td><td>PPxY / PxxP interaction</td></tr>
+  <tr><td>Caspase-3 site</td><td>Apoptotic cleavage (DEVD)</td></tr>
+  <tr><td>N-glycosylation</td><td>NxS/T sequon (x≠P)</td></tr>
+  <tr><td>SUMOylation</td><td>ΨKxE consensus</td></tr>
+  <tr><td>CK2 site</td><td>Casein kinase II (S/TxxE/D)</td></tr>
+</table>
+<p class="note">All motifs are regex-based consensus patterns and require experimental validation.
+For comprehensive SLiM prediction use ELM (elm.eu.org) or SLiMFinder.</p>
 """),
             ("Multichain & Compare", """
 <h1>Multichain Analysis</h1>
@@ -3829,6 +4372,15 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             seq, self.analysis_data.get("tm_helices", []),
             label_font=lf, tick_font=tf)
 
+        # Phase separation / IDP graphs
+        figs["Uversky Phase Plot"] = GraphingTools.create_uversky_phase_plot(
+            seq, label_font=lf, tick_font=tf)
+        if self.analysis_data.get("cc_profile"):
+            figs["Coiled-Coil Profile"] = GraphingTools.create_coiled_coil_profile(
+                self.analysis_data["cc_profile"], label_font=lf, tick_font=tf)
+        figs["Saturation Mutagenesis"] = GraphingTools.create_saturation_mutagenesis_figure(
+            seq, label_font=lf, tick_font=tf)
+
         # Structure-dependent graphs (only when AlphaFold data is loaded)
         if self.alphafold_data:
             if self.alphafold_data.get("plddt"):
@@ -4155,6 +4707,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.seq_text.setPlainText(seq)
         self.sequence_name = name
         self.history_combo.setCurrentIndex(0)
+        self.on_analyze()
 
     # --- Accession fetch ---
 
@@ -4184,10 +4737,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         rid, seq = entries[0]
         self.seq_text.setPlainText(seq)
         self.sequence_name = rid
-        # Store accession; AlphaFold/Pfam only available for UniProt IDs
+        # Store accession; AlphaFold/Pfam need a UniProt ID
         self.current_accession = acc if not is_pdb else ""
-        self.fetch_af_btn.setEnabled(not is_pdb)
-        self.fetch_pfam_btn.setEnabled(not is_pdb)
+        self.fetch_af_btn.setEnabled(True)
+        self.fetch_pfam_btn.setEnabled(True)
         self.accession_input.clear()
         src = "PDB" if is_pdb else "UniProt"
         self.statusBar.showMessage(f"Fetched {rid} from {src}  ({len(seq)} aa)", 3000)
@@ -4204,8 +4757,15 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def fetch_alphafold(self):
         acc = self.current_accession
         if not acc:
-            QMessageBox.warning(self, "AlphaFold", "Fetch a UniProt accession first.")
-            return
+            from PyQt5.QtWidgets import QInputDialog
+            acc, ok = QInputDialog.getText(
+                self, "AlphaFold — UniProt ID Required",
+                "Enter a UniProt accession (e.g. P04637):"
+            )
+            if not ok or not acc.strip():
+                return
+            acc = acc.strip()
+            self.current_accession = acc
         if self._alphafold_worker and self._alphafold_worker.isRunning():
             return
         self.fetch_af_btn.setEnabled(False)
@@ -4243,8 +4803,15 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def fetch_pfam(self):
         acc = self.current_accession
         if not acc:
-            QMessageBox.warning(self, "Pfam", "Fetch a UniProt accession first.")
-            return
+            from PyQt5.QtWidgets import QInputDialog
+            acc, ok = QInputDialog.getText(
+                self, "Pfam — UniProt ID Required",
+                "Enter a UniProt accession (e.g. P04637):"
+            )
+            if not ok or not acc.strip():
+                return
+            acc = acc.strip()
+            self.current_accession = acc
         if self._pfam_worker and self._pfam_worker.isRunning():
             return
         self.fetch_pfam_btn.setEnabled(False)
