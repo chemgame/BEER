@@ -7,7 +7,7 @@ Requirements:
 """
 
 import sys, math, os, base64, json, csv, subprocess, re
-from io import BytesIO
+from io import BytesIO, StringIO
 import urllib.request
 import numpy as np
 
@@ -23,12 +23,17 @@ from PyQt5.QtGui import QFont, QKeySequence
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import QShortcut
 from PyQt5.QtPrintSupport import QPrinter
+try:
+    from PyQt5.QtWebEngineWidgets import QWebEngineView
+    _WEBENGINE_AVAILABLE = True
+except ImportError:
+    _WEBENGINE_AVAILABLE = False
 
 import matplotlib
 matplotlib.use("Qt5Agg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT
-from matplotlib.patches import Patch
+from matplotlib.patches import Patch, Rectangle
 import matplotlib.pyplot as plt
 plt.style.use("default")
 import mplcursors
@@ -124,6 +129,7 @@ REPORT_SECTIONS = [
     "Secondary Structure",
     "Repeat Motifs",
     "Sticker & Spacer",
+    "TM Helices",
 ]
 
 GRAPH_TITLES = [
@@ -144,6 +150,10 @@ GRAPH_TITLES = [
     "Charge Decoration",
     "Linear Sequence Map",
     "Disorder Profile",
+    "TM Topology",
+    "pLDDT Profile",
+    "Distance Map",
+    "Domain Architecture",
 ]
 
 LIGHT_THEME_CSS = """
@@ -560,6 +570,81 @@ def calc_disorder_profile(seq: str, window: int = 9) -> list:
     return smoothed
 
 
+# --- Transmembrane / structural helpers ---
+
+def predict_tm_helices(seq: str, window: int = 19, threshold: float = 1.6,
+                       min_len: int = 15, max_len: int = 35) -> list:
+    """Predict TM helices using Kyte-Doolittle sliding window (TMHMM-heuristic).
+    Returns list of dicts: {start(0-based), end(0-based inclusive), score, orientation}."""
+    n    = len(seq)
+    half = window // 2
+    scores = [
+        sum(KYTE_DOOLITTLE[seq[j]] for j in range(max(0, i - half), min(n, i + half + 1)))
+        / (min(n, i + half + 1) - max(0, i - half))
+        for i in range(n)
+    ]
+    helices = []
+    i = 0
+    while i < n:
+        if scores[i] >= threshold:
+            j = i
+            while j < n and scores[j] >= threshold:
+                j += 1
+            span = j - i
+            if min_len <= span <= max_len:
+                helices.append({
+                    "start": i, "end": j - 1,
+                    "score": round(sum(scores[i:j]) / span, 3),
+                })
+            i = j
+        else:
+            i += 1
+    # Inside-positive rule (von Heijne): cytoplasmic loops are K/R-enriched
+    pos   = set("KR")
+    flank = 15
+    for h in helices:
+        s, e  = h["start"], h["end"]
+        n_pos = sum(1 for aa in seq[max(0, s - flank):s] if aa in pos)
+        c_pos = sum(1 for aa in seq[e + 1:min(n, e + 1 + flank)] if aa in pos)
+        h["orientation"] = "out\u2192in" if c_pos >= n_pos else "in\u2192out"
+    return helices
+
+
+def compute_ca_distance_matrix(pdb_str: str) -> np.ndarray:
+    """Return symmetric Cα pairwise distance matrix (Å) from a PDB string."""
+    parser = PDBParser(QUIET=True)
+    struct = parser.get_structure("af", StringIO(pdb_str))
+    coords = []
+    for model in struct:
+        for chain in model:
+            for res in chain:
+                if is_aa(res, standard=True) and res.has_id("CA"):
+                    coords.append(res["CA"].get_vector().get_array())
+        break
+    if not coords:
+        return np.array([])
+    ca   = np.array(coords, dtype=float)
+    diff = ca[:, np.newaxis, :] - ca[np.newaxis, :, :]
+    return np.sqrt((diff ** 2).sum(axis=-1))
+
+
+def extract_plddt_from_pdb(pdb_str: str) -> list:
+    """Extract per-residue pLDDT scores (stored in B-factor column) from AlphaFold PDB."""
+    parser = PDBParser(QUIET=True)
+    struct = parser.get_structure("af", StringIO(pdb_str))
+    scores = []
+    for model in struct:
+        for chain in model:
+            for res in chain:
+                if is_aa(res, standard=True):
+                    for atom in res:
+                        if atom.get_name() == "CA":
+                            scores.append(atom.get_bfactor())
+                            break
+        break
+    return scores
+
+
 # --- Analysis ---
 
 class AnalysisTools:
@@ -786,6 +871,31 @@ class AnalysisTools:
         <p class="note">Sticker-and-spacer model: Mittag &amp; Pappu</p>
         """
 
+        # --- Transmembrane helix prediction ---
+        tm_helices   = predict_tm_helices(seq)
+        n_tm         = len(tm_helices)
+        tm_rows = "".join(
+            f"<tr><td>{i}</td><td>{h['start']+1}</td><td>{h['end']+1}</td>"
+            f"<td>{h['end']-h['start']+1}</td><td>{h['score']:.3f}</td>"
+            f"<td>{h['orientation']}</td></tr>"
+            for i, h in enumerate(tm_helices, 1)
+        )
+        tm_body = (
+            tm_rows
+            if tm_helices
+            else "<tr><td colspan='6'><em>No TM helices predicted</em></td></tr>"
+        )
+        tm_html = _style + f"""
+        <h2>Transmembrane Helices</h2>
+        <table>
+          <tr><th>#</th><th>Start</th><th>End</th>
+              <th>Length</th><th>Avg KD Score</th><th>Orientation</th></tr>
+          {tm_body}
+        </table>
+        <p class="note">Kyte-Doolittle sliding window (w=19, threshold=1.6).
+        Orientation by inside-positive rule (von Heijne): out&rarr;in = N-term extracellular.</p>
+        """
+
         # --- Chou-Fasman secondary structure propensity ---
         cf_helix_arr, cf_sheet_arr = calc_chou_fasman_profile(seq)
         mean_helix = sum(cf_helix_arr) / seq_length
@@ -824,7 +934,9 @@ class AnalysisTools:
                 "Secondary Structure": ss_html,
                 "Repeat Motifs":      repeats_html,
                 "Sticker & Spacer":   sticker_html,
+                "TM Helices":         tm_html,
             },
+            "tm_helices":      tm_helices,
             "aa_counts":       aa_counts,
             "aa_freq":         aa_freq,
             "hydro_profile":   sliding_window_hydrophobicity(seq, window_size),
@@ -1488,6 +1600,168 @@ class GraphingTools:
         return fig
 
 
+    @staticmethod
+    def create_tm_topology_figure(seq: str, helices: list, label_font=14, tick_font=12):
+        """Simplified transmembrane topology diagram (snake-plot style)."""
+        n   = len(seq)
+        fig = Figure(figsize=(max(9, n * 0.06), 4.5), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        ax.set_facecolor("#fafbff")
+        # Membrane band
+        ax.axhspan(-0.5, 0.5, alpha=0.12, color="#f59e0b")
+        ax.text(2, 0.65,  "Extracellular", fontsize=tick_font - 2, color="#6b7280", style="italic")
+        ax.text(2, -0.85, "Cytoplasmic",   fontsize=tick_font - 2, color="#6b7280", style="italic")
+        # Draw backbone segments and TM rectangles
+        side     = 1   # +1 = extracellular, -1 = cytoplasmic
+        prev_end = 0
+        for h in helices:
+            s, e = h["start"], h["end"]
+            y    = side * 1.15
+            if s > prev_end:
+                ax.plot([prev_end + 1, s], [y, y],
+                        color="#4361ee", linewidth=1.8, solid_capstyle="round", zorder=3)
+            rect = Rectangle((s + 1, -0.5), e - s, 1.0,
+                              color="#4361ee", alpha=0.75, zorder=4, linewidth=0)
+            ax.add_patch(rect)
+            mid = (s + e) / 2 + 1
+            ax.text(mid, 0, f"{s+1}–{e+1}",
+                    ha="center", va="center",
+                    fontsize=max(5, tick_font - 5), color="white", fontweight="bold", zorder=5)
+            side     = -side
+            prev_end = e
+        # Final loop
+        y = side * 1.15
+        ax.plot([prev_end + 1, n], [y, y],
+                color="#4361ee", linewidth=1.8, solid_capstyle="round", zorder=3)
+        _pub_style_ax(ax,
+                      title=f"TM Topology  ({len(helices)} predicted helix/es)",
+                      xlabel="Residue Position", ylabel="",
+                      grid=False, title_size=label_font + 1,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        ax.set_xlim(0, n + 2)
+        ax.set_ylim(-1.6, 1.8)
+        ax.set_yticks([])
+        ax.legend(handles=[Patch(color="#f59e0b", alpha=0.3, label="Membrane"),
+                            Patch(color="#4361ee", alpha=0.75, label="TM helix")],
+                  fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0",
+                  loc="upper right")
+        fig.tight_layout(pad=1.5)
+        return fig
+
+    @staticmethod
+    def create_plddt_figure(plddt: list, label_font=14, tick_font=12):
+        """Per-residue AlphaFold pLDDT confidence score with coloured confidence zones."""
+        import matplotlib.colors as mcolors
+        n   = len(plddt)
+        xs  = list(range(1, n + 1))
+        fig = Figure(figsize=(9, 4), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        # Confidence zone bands
+        ax.axhspan(90, 100, alpha=0.07, color="#0053D6")
+        ax.axhspan(70,  90, alpha=0.07, color="#65CBF3")
+        ax.axhspan(50,  70, alpha=0.07, color="#FFDB13")
+        ax.axhspan( 0,  50, alpha=0.07, color="#FF7D45")
+        cmap = plt.get_cmap("RdYlBu")
+        norm = mcolors.Normalize(vmin=0, vmax=100)
+        for i in range(n - 1):
+            ax.plot([xs[i], xs[i + 1]], [plddt[i], plddt[i + 1]],
+                    color=cmap(norm((plddt[i] + plddt[i + 1]) / 2)),
+                    linewidth=1.8, zorder=4, solid_capstyle="round")
+        for thresh, col, lbl in [
+            (90, "#0053D6", ">90 Very high"),
+            (70, "#65CBF3", "70–90 Confident"),
+            (50, "#FFDB13", "50–70 Low"),
+        ]:
+            ax.axhline(thresh, color=col, linewidth=0.8, linestyle="--", alpha=0.8)
+        _pub_style_ax(ax,
+                      title="AlphaFold pLDDT Confidence",
+                      xlabel="Residue Position", ylabel="pLDDT Score",
+                      grid=False, title_size=label_font + 1,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        ax.set_ylim(0, 100)
+        ax.set_xlim(1, n)
+        ax.legend(handles=[
+            Patch(color="#0053D6", alpha=0.5, label=">90  Very high"),
+            Patch(color="#65CBF3", alpha=0.5, label="70–90  Confident"),
+            Patch(color="#FFDB13", alpha=0.5, label="50–70  Low"),
+            Patch(color="#FF7D45", alpha=0.5, label="<50  Very low"),
+        ], fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0", loc="lower right")
+        fig.tight_layout(pad=1.5)
+        mplcursors.cursor(ax)
+        return fig
+
+    @staticmethod
+    def create_distance_map_figure(dist_matrix: np.ndarray, label_font=14, tick_font=12):
+        """Cα pairwise distance heatmap from AlphaFold structure.
+        Cells ≤8 Å are highlighted as contacts."""
+        n   = dist_matrix.shape[0]
+        fig = Figure(figsize=(6.5, 5.5), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        ax.set_facecolor("#fafbff")
+        im   = ax.imshow(dist_matrix, cmap="viridis_r", aspect="auto",
+                         origin="upper", interpolation="nearest",
+                         vmin=0, vmax=min(40, dist_matrix.max()))
+        cbar = fig.colorbar(im, ax=ax, shrink=0.85, aspect=20, pad=0.02)
+        cbar.set_label("Cα distance (Å)", fontsize=tick_font - 1, color="#4a5568")
+        cbar.ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
+        # Overlay 8 Å contact threshold as a contour
+        ax.contour(dist_matrix, levels=[8.0], colors=["#f72585"],
+                   linewidths=[0.6], alpha=0.7)
+        _pub_style_ax(ax,
+                      title=f"Cα Distance Map  ({n} residues)  — pink contour = 8 Å contact",
+                      xlabel="Residue Position", ylabel="Residue Position",
+                      grid=False, title_size=label_font,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        fig.tight_layout(pad=1.5)
+        return fig
+
+    @staticmethod
+    def create_domain_architecture_figure(seq_len: int, domains: list,
+                                          label_font=14, tick_font=12):
+        """Linear domain architecture ruler from Pfam/InterPro annotations."""
+        fig = Figure(figsize=(9, max(2.5, 1.0 + len(domains) * 0.5)), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        ax.set_facecolor("#fafbff")
+        # Backbone
+        ax.plot([1, seq_len], [0, 0], color="#94a3b8", linewidth=3,
+                solid_capstyle="round", zorder=2)
+        ax.text(1,        0.18, "N", ha="center", fontsize=tick_font - 2, color="#4a5568")
+        ax.text(seq_len, 0.18, "C", ha="center", fontsize=tick_font - 2, color="#4a5568")
+        for i, dom in enumerate(domains):
+            col  = _PALETTE[i % len(_PALETTE)]
+            s, e = dom["start"], dom["end"]
+            rect = Rectangle((s, -0.25), e - s, 0.5,
+                              color=col, alpha=0.85, zorder=4, linewidth=0)
+            ax.add_patch(rect)
+            mid = (s + e) / 2
+            ax.text(mid, 0, dom["name"][:14],
+                    ha="center", va="center",
+                    fontsize=max(5, tick_font - 5), color="white",
+                    fontweight="bold", zorder=5)
+        _pub_style_ax(ax,
+                      title="Domain Architecture (Pfam/InterPro)",
+                      xlabel="Residue Position", ylabel="",
+                      grid=False, title_size=label_font + 1,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        ax.set_xlim(0, seq_len + 5)
+        ax.set_ylim(-0.6, 0.6)
+        ax.set_yticks([])
+        if domains:
+            ax.legend(
+                handles=[Patch(color=_PALETTE[i % len(_PALETTE)], label=d["name"])
+                         for i, d in enumerate(domains)],
+                fontsize=max(6, tick_font - 4), framealpha=0.85,
+                edgecolor="#d0d4e0", loc="upper right",
+                ncol=max(1, len(domains) // 6)
+            )
+        fig.tight_layout(pad=1.5)
+        return fig
+
+
 # --- Export ---
 
 class ExportTools:
@@ -1616,6 +1890,130 @@ class AnalysisWorker(QThread):
             self.error.emit(str(exc))
 
 
+# --- AlphaFold worker ---
+
+class AlphaFoldWorker(QThread):
+    """Fetch AlphaFold predicted structure for a UniProt accession.
+    Emits finished(dict) with keys: pdb_str, plddt, dist_matrix, accession."""
+    finished = pyqtSignal(dict)
+    error    = pyqtSignal(str)
+    progress = pyqtSignal(str)
+
+    def __init__(self, accession: str):
+        super().__init__()
+        self.accession = accession.strip().upper()
+
+    def run(self):
+        try:
+            self.progress.emit(f"Querying AlphaFold for {self.accession}…")
+            meta_url = f"https://alphafold.ebi.ac.uk/api/prediction/{self.accession}"
+            req = urllib.request.Request(meta_url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                meta = json.loads(r.read().decode())
+            if not meta:
+                self.error.emit(f"No AlphaFold prediction found for {self.accession}.")
+                return
+            pdb_url = meta[0]["pdbUrl"]
+            self.progress.emit("Downloading PDB structure…")
+            with urllib.request.urlopen(pdb_url, timeout=60) as r:
+                pdb_str = r.read().decode()
+            self.progress.emit("Extracting pLDDT and distance matrix…")
+            plddt       = extract_plddt_from_pdb(pdb_str)
+            dist_matrix = compute_ca_distance_matrix(pdb_str)
+            self.finished.emit({
+                "pdb_str":     pdb_str,
+                "plddt":       plddt,
+                "dist_matrix": dist_matrix,
+                "accession":   self.accession,
+            })
+        except Exception as exc:
+            self.error.emit(f"AlphaFold fetch failed: {exc}")
+
+
+# --- Pfam worker ---
+
+class PfamWorker(QThread):
+    """Fetch Pfam domain annotations for a UniProt accession via InterPro REST API."""
+    finished = pyqtSignal(list)
+    error    = pyqtSignal(str)
+
+    def __init__(self, accession: str):
+        super().__init__()
+        self.accession = accession.strip().upper()
+
+    def run(self):
+        try:
+            url = (
+                f"https://www.ebi.ac.uk/interpro/api/entry/pfam"
+                f"/protein/uniprot/{self.accession}/?page_size=100"
+            )
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = json.loads(r.read().decode())
+            domains = []
+            for result in data.get("results", []):
+                meta = result.get("metadata", {})
+                raw_name = meta.get("name", meta.get("accession", "Unknown"))
+                name = raw_name.get("name", raw_name) if isinstance(raw_name, dict) else raw_name
+                acc  = meta.get("accession", "")
+                for prot in result.get("proteins", []):
+                    for loc in prot.get("entry_protein_locations", []):
+                        for frag in loc.get("fragments", []):
+                            domains.append({
+                                "name":      name,
+                                "accession": acc,
+                                "start":     frag["start"],
+                                "end":       frag["end"],
+                            })
+            domains.sort(key=lambda d: d["start"])
+            self.finished.emit(domains)
+        except Exception as exc:
+            self.error.emit(f"Pfam fetch failed: {exc}")
+
+
+# --- BLAST worker ---
+
+class BlastWorker(QThread):
+    """Run NCBI blastp and return top hits. Can take 1-3 minutes."""
+    finished = pyqtSignal(list)
+    error    = pyqtSignal(str)
+    progress = pyqtSignal(str)
+
+    def __init__(self, seq: str, database: str = "nr", hitlist_size: int = 20):
+        super().__init__()
+        self.seq          = seq
+        self.database     = database
+        self.hitlist_size = hitlist_size
+
+    def run(self):
+        try:
+            from Bio.Blast import NCBIWWW, NCBIXML
+            self.progress.emit("Submitting BLAST search (this may take 1–3 min)…")
+            result_handle = NCBIWWW.qblast(
+                "blastp", self.database, self.seq,
+                hitlist_size=self.hitlist_size,
+            )
+            self.progress.emit("Parsing BLAST results…")
+            blast_record = NCBIXML.read(result_handle)
+            hits = []
+            for aln in blast_record.alignments[:self.hitlist_size]:
+                hsp = aln.hsps[0]
+                hits.append({
+                    "accession": aln.accession,
+                    "title":     aln.title[:100],
+                    "length":    aln.length,
+                    "score":     hsp.score,
+                    "e_value":   hsp.expect,
+                    "identity":  hsp.identities / hsp.align_length * 100,
+                    "subject":   hsp.sbjct.replace("-", ""),
+                })
+            self.finished.emit(hits)
+        except ImportError:
+            self.error.emit("Bio.Blast not available — install biopython.")
+        except Exception as exc:
+            self.error.emit(f"BLAST failed: {exc}")
+
+
 # --- Mutation dialog ---
 
 class MutationDialog(QDialog):
@@ -1694,11 +2092,21 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._analysis_worker    = None
         self._history: list      = []   # list of (name, seq)
 
+        # --- New state for AlphaFold / Pfam / BLAST ---
+        self.current_accession   = ""   # last successfully fetched UniProt accession
+        self.alphafold_data      = None # dict: pdb_str, plddt, dist_matrix, accession
+        self.pfam_domains        = []   # list of domain dicts from Pfam
+        self._alphafold_worker   = None
+        self._pfam_worker        = None
+        self._blast_worker       = None
+
         self.check_dependencies()
         self.main_tabs = QTabWidget()
         self.setCentralWidget(self.main_tabs)
         self.init_analysis_tab()
         self.init_graphs_tab()
+        self.init_structure_tab()
+        self.init_blast_tab()
         self.init_batch_tab()
         self.init_comparison_tab()
         self.init_settings_tab()
@@ -1828,6 +2236,21 @@ class ProteinAnalyzerGUI(QMainWindow):
         fetch_btn.setMinimumHeight(28)
         fetch_btn.clicked.connect(self.fetch_accession)
         tb2.addWidget(fetch_btn)
+        tb2.addSpacing(16)
+        self.fetch_af_btn = QPushButton("Fetch AlphaFold")
+        self.fetch_af_btn.setMinimumHeight(28)
+        self.fetch_af_btn.setEnabled(False)
+        self.fetch_af_btn.clicked.connect(self.fetch_alphafold)
+        self._set_tooltip(self.fetch_af_btn,
+                          "Fetch AlphaFold predicted structure (requires a UniProt accession).")
+        tb2.addWidget(self.fetch_af_btn)
+        self.fetch_pfam_btn = QPushButton("Fetch Pfam")
+        self.fetch_pfam_btn.setMinimumHeight(28)
+        self.fetch_pfam_btn.setEnabled(False)
+        self.fetch_pfam_btn.clicked.connect(self.fetch_pfam)
+        self._set_tooltip(self.fetch_pfam_btn,
+                          "Fetch Pfam domain annotations from InterPro (requires a UniProt accession).")
+        tb2.addWidget(self.fetch_pfam_btn)
         tb2.addSpacing(20)
         tb2.addWidget(QLabel("History:"))
         self.history_combo = QComboBox()
@@ -1967,6 +2390,175 @@ class ProteinAnalyzerGUI(QMainWindow):
         save_all.setMinimumHeight(30)
         save_all.clicked.connect(self.save_all_graphs)
         layout.addWidget(save_all, alignment=Qt.AlignRight)
+
+    def init_structure_tab(self):
+        """Tab for 3D AlphaFold structure viewer and pLDDT info."""
+        container = QWidget()
+        layout    = QVBoxLayout(container)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        self.main_tabs.addTab(container, "Structure")
+
+        info_row = QHBoxLayout()
+        self.af_status_lbl = QLabel("No structure loaded.  Use 'Fetch AlphaFold' after fetching a UniProt accession.")
+        self.af_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
+        info_row.addWidget(self.af_status_lbl, 1)
+        self.save_pdb_btn = QPushButton("Save PDB")
+        self.save_pdb_btn.setEnabled(False)
+        self.save_pdb_btn.clicked.connect(self._save_pdb)
+        info_row.addWidget(self.save_pdb_btn)
+        layout.addLayout(info_row)
+
+        if _WEBENGINE_AVAILABLE:
+            self.structure_viewer = QWebEngineView()
+            self.structure_viewer.setMinimumHeight(500)
+            layout.addWidget(self.structure_viewer, 1)
+            # Colour-mode buttons
+            btn_row = QHBoxLayout()
+            for label, js in [
+                ("Color: pLDDT",       "colorByPLDDT()"),
+                ("Color: Residue Type","colorByResidue()"),
+                ("Color: Chain",       "colorByChain()"),
+                ("Cartoon / Sphere",   "toggleStyle()"),
+            ]:
+                b = QPushButton(label)
+                b.setMinimumHeight(28)
+                b.clicked.connect(lambda _, call=js: self.structure_viewer.page().runJavaScript(call))
+                btn_row.addWidget(b)
+            btn_row.addStretch()
+            layout.addLayout(btn_row)
+        else:
+            msg = QLabel(
+                "PyQtWebEngine is not installed.\n"
+                "Install it with:  pip install PyQtWebEngine\n\n"
+                "You can still save the PDB file and open it in PyMOL, UCSF ChimeraX, or 3Dmol.csb.pitt.edu."
+            )
+            msg.setAlignment(Qt.AlignCenter)
+            msg.setStyleSheet("color:#718096; font-size:11pt;")
+            layout.addWidget(msg, 1)
+            self.structure_viewer = None
+
+    _3DMOL_HTML = """<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  html, body {{ margin:0; padding:0; overflow:hidden; background:#1a1a2e; width:100%; height:100%; }}
+  #vp {{ width:100%; height:100vh; position:relative; }}
+</style>
+</head><body>
+<div id="vp"></div>
+<script src="https://3dmol.org/build/3Dmol-min.js"></script>
+<script>
+var viewer = null;
+var pdbData = {pdb_json};
+var cartoonMode = true;
+
+function init() {{
+    viewer = $3Dmol.createViewer("vp", {{backgroundColor:"#1a1a2e", antialias:true}});
+    viewer.addModel(pdbData, "pdb");
+    colorByPLDDT();
+    viewer.zoomTo();
+    viewer.render();
+}}
+
+function colorByPLDDT() {{
+    if (!viewer) return;
+    viewer.setStyle({{}}, {{cartoon:{{colorscheme:{{prop:"b",gradient:"rwb",min:0,max:100}}}}}});
+    viewer.render();
+}}
+
+function colorByResidue() {{
+    if (!viewer) return;
+    viewer.setStyle({{}}, {{cartoon:{{colorscheme:"amino"}}}});
+    viewer.render();
+}}
+
+function colorByChain() {{
+    if (!viewer) return;
+    viewer.setStyle({{}}, {{cartoon:{{colorscheme:"chain"}}}});
+    viewer.render();
+}}
+
+function toggleStyle() {{
+    if (!viewer) return;
+    cartoonMode = !cartoonMode;
+    var scheme = {{prop:"b",gradient:"rwb",min:0,max:100}};
+    if (cartoonMode) {{
+        viewer.setStyle({{}}, {{cartoon:{{colorscheme:scheme}}}});
+    }} else {{
+        viewer.setStyle({{}}, {{sphere:{{colorscheme:scheme,radius:0.5}}}});
+    }}
+    viewer.render();
+}}
+
+window.addEventListener("load", init);
+</script>
+</body></html>"""
+
+    def _load_structure_viewer(self, pdb_str: str):
+        """Load PDB string into the 3D viewer widget."""
+        if not _WEBENGINE_AVAILABLE or self.structure_viewer is None:
+            return
+        pdb_json = json.dumps(pdb_str)
+        html     = self._3DMOL_HTML.format(pdb_json=pdb_json)
+        self.structure_viewer.setHtml(html)
+
+    def _save_pdb(self):
+        if not self.alphafold_data:
+            return
+        fn, _ = QFileDialog.getSaveFileName(self, "Save PDB", "", "PDB Files (*.pdb)")
+        if fn:
+            if not fn.lower().endswith(".pdb"):
+                fn += ".pdb"
+            try:
+                with open(fn, "w") as f:
+                    f.write(self.alphafold_data["pdb_str"])
+                self.statusBar.showMessage(f"PDB saved: {fn}", 3000)
+            except OSError as e:
+                QMessageBox.critical(self, "Save Failed", str(e))
+
+    def init_blast_tab(self):
+        """Tab for NCBI BLAST search of the current sequence."""
+        container = QWidget()
+        layout    = QVBoxLayout(container)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        self.main_tabs.addTab(container, "BLAST")
+
+        ctrl_row = QHBoxLayout()
+        ctrl_row.addWidget(QLabel("Database:"))
+        self.blast_db_combo = QComboBox()
+        self.blast_db_combo.addItems(["nr", "swissprot", "pdb", "refseq_protein"])
+        self.blast_db_combo.setMaximumWidth(140)
+        ctrl_row.addWidget(self.blast_db_combo)
+        ctrl_row.addSpacing(12)
+        ctrl_row.addWidget(QLabel("Max hits:"))
+        self.blast_hits_spin = QSpinBox()
+        self.blast_hits_spin.setRange(5, 100)
+        self.blast_hits_spin.setValue(20)
+        self.blast_hits_spin.setMaximumWidth(70)
+        ctrl_row.addWidget(self.blast_hits_spin)
+        ctrl_row.addSpacing(12)
+        self.blast_run_btn = QPushButton("BLAST Current Sequence")
+        self.blast_run_btn.setMinimumHeight(30)
+        self.blast_run_btn.clicked.connect(self.run_blast)
+        ctrl_row.addWidget(self.blast_run_btn)
+        ctrl_row.addStretch()
+        layout.addLayout(ctrl_row)
+
+        self.blast_status_lbl = QLabel("Ready.  Run analysis first, then click 'BLAST Current Sequence'.")
+        self.blast_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
+        layout.addWidget(self.blast_status_lbl)
+
+        self.blast_table = QTableWidget()
+        self.blast_table.setAlternatingRowColors(True)
+        self.blast_table.setColumnCount(7)
+        self.blast_table.setHorizontalHeaderLabels(
+            ["Accession", "Description", "Length", "Score", "E-value", "% Identity", "Load"]
+        )
+        self.blast_table.horizontalHeader().setStretchLastSection(False)
+        self.blast_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.blast_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        layout.addWidget(self.blast_table, 1)
 
     def init_comparison_tab(self):
         container = QWidget()
@@ -2594,6 +3186,26 @@ class ProteinAnalyzerGUI(QMainWindow):
                 self.analysis_data["disorder_scores"], label_font=lf, tick_font=tf),
         }
 
+        # TM Topology is always available after analysis
+        figs["TM Topology"] = GraphingTools.create_tm_topology_figure(
+            seq, self.analysis_data.get("tm_helices", []),
+            label_font=lf, tick_font=tf)
+
+        # Structure-dependent graphs (only when AlphaFold data is loaded)
+        if self.alphafold_data:
+            if self.alphafold_data.get("plddt"):
+                figs["pLDDT Profile"] = GraphingTools.create_plddt_figure(
+                    self.alphafold_data["plddt"], label_font=lf, tick_font=tf)
+            dm = self.alphafold_data.get("dist_matrix")
+            if dm is not None and dm.size > 0:
+                figs["Distance Map"] = GraphingTools.create_distance_map_figure(
+                    dm, label_font=lf, tick_font=tf)
+
+        # Domain architecture (only when Pfam data is loaded)
+        if self.pfam_domains:
+            figs["Domain Architecture"] = GraphingTools.create_domain_architecture_figure(
+                len(seq), self.pfam_domains, label_font=lf, tick_font=tf)
+
         # Apply global heading/grid/colour overrides
         for title, fig in figs.items():
             if fig.axes:
@@ -2904,8 +3516,140 @@ class ProteinAnalyzerGUI(QMainWindow):
         rid, seq = entries[0]
         self.seq_text.setPlainText(seq)
         self.sequence_name = rid
+        # Store the raw accession for AlphaFold / Pfam lookups
+        self.current_accession = acc
+        self.fetch_af_btn.setEnabled(True)
+        self.fetch_pfam_btn.setEnabled(True)
         self.accession_input.clear()
         self.statusBar.showMessage(f"Fetched {rid}  ({len(seq)} aa)", 3000)
+
+    # --- AlphaFold ---
+
+    def fetch_alphafold(self):
+        acc = self.current_accession
+        if not acc:
+            QMessageBox.warning(self, "AlphaFold", "Fetch a UniProt accession first.")
+            return
+        if self._alphafold_worker and self._alphafold_worker.isRunning():
+            return
+        self.fetch_af_btn.setEnabled(False)
+        self._alphafold_worker = AlphaFoldWorker(acc)
+        self._alphafold_worker.progress.connect(
+            lambda msg: self.statusBar.showMessage(msg))
+        self._alphafold_worker.finished.connect(self._on_alphafold_finished)
+        self._alphafold_worker.error.connect(self._on_alphafold_error)
+        self._alphafold_worker.start()
+
+    def _on_alphafold_finished(self, data: dict):
+        self.alphafold_data = data
+        self.fetch_af_btn.setEnabled(True)
+        self.save_pdb_btn.setEnabled(True)
+        n_res = len(data.get("plddt", []))
+        mean_plddt = (sum(data["plddt"]) / n_res) if n_res else 0
+        self.af_status_lbl.setText(
+            f"Loaded AlphaFold structure for {data['accession']}  "
+            f"({n_res} residues, mean pLDDT = {mean_plddt:.1f})"
+        )
+        self.af_status_lbl.setStyleSheet("color:#43aa8b; font-weight:600;")
+        self._load_structure_viewer(data["pdb_str"])
+        if self.analysis_data:
+            self.update_graph_tabs()
+        self.statusBar.showMessage(
+            f"AlphaFold structure loaded  ({data['accession']})", 4000)
+
+    def _on_alphafold_error(self, msg: str):
+        self.fetch_af_btn.setEnabled(True)
+        self.statusBar.showMessage("AlphaFold fetch failed", 3000)
+        QMessageBox.warning(self, "AlphaFold Error", msg)
+
+    # --- Pfam ---
+
+    def fetch_pfam(self):
+        acc = self.current_accession
+        if not acc:
+            QMessageBox.warning(self, "Pfam", "Fetch a UniProt accession first.")
+            return
+        if self._pfam_worker and self._pfam_worker.isRunning():
+            return
+        self.fetch_pfam_btn.setEnabled(False)
+        self.statusBar.showMessage(f"Fetching Pfam domains for {acc}…")
+        self._pfam_worker = PfamWorker(acc)
+        self._pfam_worker.finished.connect(self._on_pfam_finished)
+        self._pfam_worker.error.connect(self._on_pfam_error)
+        self._pfam_worker.start()
+
+    def _on_pfam_finished(self, domains: list):
+        self.pfam_domains = domains
+        self.fetch_pfam_btn.setEnabled(True)
+        if not domains:
+            self.statusBar.showMessage("No Pfam domains found.", 3000)
+            QMessageBox.information(self, "Pfam", "No Pfam domain annotations found.")
+            return
+        if self.analysis_data:
+            self.update_graph_tabs()
+        self.statusBar.showMessage(
+            f"Loaded {len(domains)} Pfam domain(s).", 4000)
+
+    def _on_pfam_error(self, msg: str):
+        self.fetch_pfam_btn.setEnabled(True)
+        self.statusBar.showMessage("Pfam fetch failed", 3000)
+        QMessageBox.warning(self, "Pfam Error", msg)
+
+    # --- BLAST ---
+
+    def run_blast(self):
+        if not self.analysis_data:
+            QMessageBox.warning(self, "BLAST", "Run analysis first.")
+            return
+        if self._blast_worker and self._blast_worker.isRunning():
+            QMessageBox.information(self, "BLAST", "A BLAST search is already running.")
+            return
+        seq = self.analysis_data["seq"]
+        db  = self.blast_db_combo.currentText()
+        n   = self.blast_hits_spin.value()
+        self.blast_run_btn.setEnabled(False)
+        self.blast_table.setRowCount(0)
+        self._blast_worker = BlastWorker(seq, database=db, hitlist_size=n)
+        self._blast_worker.progress.connect(
+            lambda msg: self.blast_status_lbl.setText(msg))
+        self._blast_worker.finished.connect(self._on_blast_finished)
+        self._blast_worker.error.connect(self._on_blast_error)
+        self._blast_worker.start()
+
+    def _on_blast_finished(self, hits: list):
+        self.blast_run_btn.setEnabled(True)
+        self.blast_status_lbl.setText(f"{len(hits)} hit(s) returned.")
+        self.blast_table.setRowCount(0)
+        for hit in hits:
+            row = self.blast_table.rowCount()
+            self.blast_table.insertRow(row)
+            self.blast_table.setItem(row, 0, QTableWidgetItem(hit["accession"]))
+            self.blast_table.setItem(row, 1, QTableWidgetItem(hit["title"][:80]))
+            self.blast_table.setItem(row, 2, QTableWidgetItem(str(hit["length"])))
+            self.blast_table.setItem(row, 3, QTableWidgetItem(f"{hit['score']:.0f}"))
+            self.blast_table.setItem(row, 4, QTableWidgetItem(f"{hit['e_value']:.2e}"))
+            self.blast_table.setItem(row, 5, QTableWidgetItem(f"{hit['identity']:.1f}%"))
+            load_btn = QPushButton("Load")
+            load_btn.clicked.connect(
+                lambda _, h=hit: self._load_blast_hit(h))
+            self.blast_table.setCellWidget(row, 6, load_btn)
+        self.blast_table.resizeColumnsToContents()
+        self.statusBar.showMessage(f"BLAST complete — {len(hits)} hits", 4000)
+
+    def _on_blast_error(self, msg: str):
+        self.blast_run_btn.setEnabled(True)
+        self.blast_status_lbl.setText(f"Error: {msg}")
+        QMessageBox.warning(self, "BLAST Error", msg)
+
+    def _load_blast_hit(self, hit: dict):
+        seq = hit.get("subject", "")
+        if not seq or not is_valid_protein(seq):
+            QMessageBox.warning(self, "Load Hit", "Subject sequence is not a valid protein.")
+            return
+        self.seq_text.setPlainText(seq)
+        self.sequence_name = hit["accession"]
+        self.main_tabs.setCurrentIndex(0)
+        self.on_analyze()
 
     # --- Mutation tool ---
 
@@ -3075,6 +3819,11 @@ class ProteinAnalyzerGUI(QMainWindow):
                 if result != 0:
                     QMessageBox.warning(self, "Install Failed",
                                         "Some packages could not be installed.")
+        if not _WEBENGINE_AVAILABLE:
+            self.statusBar.showMessage(
+                "Tip: install PyQtWebEngine (pip install PyQtWebEngine) for the 3D structure viewer.",
+                8000
+            )
 
 
 def main():
