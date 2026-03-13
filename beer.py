@@ -62,14 +62,44 @@ DEFAULT_PKA = {
     'H': 6.04, 'K': 10.54, 'R': 12.48
 }
 
-# Normalization ranges for radar chart; adjust for atypical proteins
-RADAR_RANGES = {
-    "Mol Weight":  (5000, 150000),
-    "pI":          (4, 11),
-    "GRAVY":       (-2.5, 2.5),
-    "Instability": (20, 80),
-    "Aromaticity": (0, 0.2),
+# Named colours for the Settings colour picker (name → hex)
+NAMED_COLORS = {
+    "Royal Blue":   "#4361ee",
+    "Magenta":      "#f72585",
+    "Emerald":      "#43aa8b",
+    "Purple":       "#7209b7",
+    "Tangerine":    "#f3722c",
+    "Steel Blue":   "#277da1",
+    "Cyan Green":   "#06d6a0",
+    "Slate":        "#2d3748",
+    "Coral":        "#ff6b6b",
+    "Gold":         "#f59e0b",
+    "Teal":         "#0d9488",
+    "Crimson":      "#dc2626",
+    "Indigo":       "#4f46e5",
+    "Sky Blue":     "#0ea5e9",
+    "Forest Green": "#16a34a",
+    "Olive":        "#84cc16",
+    "Rose":         "#f43f5e",
+    "Violet":       "#8b5cf6",
+    "Navy":         "#1e40af",
+    "Ochre":        "#ca8a04",
+    "Charcoal":     "#374151",
+    "Salmon":       "#fb923c",
+    "Mint":         "#34d399",
+    "Lavender":     "#a78bfa",
 }
+
+# Colormaps available in Settings
+NAMED_COLORMAPS = [
+    "coolwarm", "RdBu", "RdYlBu", "RdYlGn", "Spectral",
+    "viridis", "plasma", "inferno", "magma", "cividis", "turbo",
+    "PiYG", "PRGn", "BrBG", "puOr",
+    "Blues", "Reds", "Greens", "Purples", "Oranges",
+    "YlOrRd", "YlGnBu", "GnBu", "OrRd",
+    "hot", "copper", "cool", "autumn", "winter", "spring", "summer",
+    "twilight", "twilight_shifted", "hsv",
+]
 
 # Disorder/order residue classification (Uversky)
 DISORDER_PROMOTING = set("AEGKPQRS")
@@ -140,7 +170,6 @@ GRAPH_TITLES = [
     "Net Charge vs pH",
     "Bead Model (Hydrophobicity)",
     "Bead Model (Charge)",
-    "Properties Radar Chart",
     "Sticker Map",
     "Local Charge Profile",
     "Local Complexity",
@@ -181,7 +210,6 @@ GRAPH_CATEGORIES = [
         "Bead Model (Hydrophobicity)",
         "Bead Model (Charge)",
         "Sticker Map",
-        "Properties Radar Chart",
         "Helical Wheel",
         "TM Topology",
     ]),
@@ -683,39 +711,67 @@ def calc_disorder_profile(seq: str, window: int = 9) -> list:
 # --- Transmembrane / structural helpers ---
 
 def predict_tm_helices(seq: str, window: int = 19, threshold: float = 1.6,
-                       min_len: int = 15, max_len: int = 35) -> list:
-    """Predict TM helices using Kyte-Doolittle sliding window (TMHMM-heuristic).
-    Returns list of dicts: {start(0-based), end(0-based inclusive), score, orientation}."""
-    n    = len(seq)
-    half = window // 2
-    scores = [
-        sum(KYTE_DOOLITTLE[seq[j]] for j in range(max(0, i - half), min(n, i + half + 1)))
-        / (min(n, i + half + 1) - max(0, i - half))
-        for i in range(n)
+                       min_len: int = 17, max_len: int = 25) -> list:
+    """Predict TM helices via Kyte-Doolittle sliding window.
+
+    Algorithm:
+    1. Compute per-window KD average (only full-length windows; no partial edges).
+    2. Mark every residue covered by at least one above-threshold window as TM.
+    3. Collect contiguous marked regions; keep those within [min_len, max_len].
+       Overlong regions are split by finding the single highest-scoring window.
+    4. Assign topology using the inside-positive rule (von Heijne):
+       the side flanking with more K/R is cytoplasmic.
+
+    Returns list of dicts: {start (0-based), end (0-based inclusive), score, orientation}.
+    """
+    n = len(seq)
+    if n < window:
+        return []
+
+    # Step 1 — per-window average KD (strictly full windows only)
+    win_scores = [
+        sum(KYTE_DOOLITTLE.get(seq[j], 0.0) for j in range(i, i + window)) / window
+        for i in range(n - window + 1)
     ]
+
+    # Step 2 — per-residue TM mask: residue r is TM if any window covering it scores ≥ threshold
+    tm_mask = [False] * n
+    for i, score in enumerate(win_scores):
+        if score >= threshold:
+            for r in range(i, i + window):
+                tm_mask[r] = True
+
+    # Step 3 — collect contiguous TM regions
     helices = []
     i = 0
     while i < n:
-        if scores[i] >= threshold:
+        if tm_mask[i]:
             j = i
-            while j < n and scores[j] >= threshold:
+            while j < n and tm_mask[j]:
                 j += 1
             span = j - i
             if min_len <= span <= max_len:
-                helices.append({
-                    "start": i, "end": j - 1,
-                    "score": round(sum(scores[i:j]) / span, 3),
-                })
+                seg_score = sum(KYTE_DOOLITTLE.get(seq[r], 0.0) for r in range(i, j)) / span
+                helices.append({"start": i, "end": j - 1, "score": round(seg_score, 3)})
+            elif span > max_len:
+                # Too long — pick the best single window inside the region
+                best_i = max(range(i, j - window + 1),
+                             key=lambda k: win_scores[k] if k < len(win_scores) else -999)
+                best_s = win_scores[best_i] if best_i < len(win_scores) else 0.0
+                helices.append({"start": best_i, "end": best_i + window - 1,
+                                 "score": round(best_s, 3)})
             i = j
         else:
             i += 1
-    # Inside-positive rule (von Heijne): cytoplasmic loops are K/R-enriched
+
+    # Step 4 — inside-positive rule (von Heijne)
     pos   = set("KR")
     flank = 15
     for h in helices:
         s, e  = h["start"], h["end"]
         n_pos = sum(1 for aa in seq[max(0, s - flank):s] if aa in pos)
         c_pos = sum(1 for aa in seq[e + 1:min(n, e + 1 + flank)] if aa in pos)
+        # More K/R on C-terminal side → C-term is cytoplasmic → N-term is extracellular → out→in
         h["orientation"] = "out\u2192in" if c_pos >= n_pos else "in\u2192out"
     return helices
 
@@ -1068,8 +1124,6 @@ class AnalysisTools:
             "ncpr":            ncpr,
         }
 
-    # predict_solubility removed – superseded by Hydrophobicity tab
-
 # --- Graphing ---
 
 # Colour palette for publication-quality graphs
@@ -1304,37 +1358,6 @@ class GraphingTools:
         return fig
 
     @staticmethod
-    def create_radar_chart_figure(data, label_font=14):
-        props  = list(RADAR_RANGES.keys())
-        vals   = [data["mol_weight"], data["iso_point"], data["gravy"],
-                  data["instability"], data["aromaticity"]]
-        norm   = []
-        for p, v in zip(props, vals):
-            mn, mx = RADAR_RANGES[p]
-            norm.append(max(0, min(1, (v - mn) / (mx - mn))))
-        norm   += norm[:1]
-        angles  = [n/len(props)*2*math.pi for n in range(len(props))] + [0]
-        fig = Figure(figsize=(5.5, 5), dpi=120)
-        fig.set_facecolor("#ffffff")
-        ax  = fig.add_subplot(111, polar=True)
-        ax.set_facecolor("#fafbff")
-        ax.plot(angles, norm, color=_ACCENT, linewidth=2.0, zorder=4)
-        ax.fill(angles, norm, color=_ACCENT, alpha=0.22, zorder=3)
-        ax.set_xticks(angles[:-1])
-        ax.set_xticklabels(props, fontsize=label_font-3, color="#2d3748")
-        ax.set_yticks([0.25, 0.5, 0.75, 1.0])
-        ax.set_yticklabels(["25%", "50%", "75%", "100%"],
-                            fontsize=label_font-5, color="#718096")
-        ax.tick_params(pad=6)
-        ax.set_title("Properties Radar Chart", fontsize=label_font,
-                     fontweight="bold", color="#1a1a2e", pad=14)
-        ax.grid(color="#c8cdd8", linewidth=0.6, linestyle="--")
-        ax.spines["polar"].set_color("#d0d4e0")
-        fig.tight_layout(pad=2.0)
-        mplcursors.cursor(ax)
-        return fig
-
-    @staticmethod
     def create_sticker_map(seq, show_labels, label_font=14, tick_font=12):
         n    = len(seq)
         w    = max(10, min(20, 0.28 * n))
@@ -1526,30 +1549,43 @@ class GraphingTools:
 
     @staticmethod
     def create_secondary_structure(cf_helix, cf_sheet, label_font=14, tick_font=12):
-        """Chou-Fasman per-residue helix and sheet propensity."""
+        """Chou-Fasman helix (top) and sheet (bottom) propensity — two stacked subplots."""
         n  = len(cf_helix)
         xs = list(range(1, n + 1))
-        fig = Figure(figsize=(9, 4), dpi=120)
+        fig = Figure(figsize=(9, 6), dpi=120)
         fig.set_facecolor("#ffffff")
-        ax  = fig.add_subplot(111)
-        ax.plot(xs, cf_helix, color="#4361ee", linewidth=1.6, label="Helix P\u03b1", zorder=4)
-        ax.plot(xs, cf_sheet, color="#f72585", linewidth=1.6, label="Sheet P\u03b2", zorder=4)
-        ax.fill_between(xs, cf_helix, 1.0,
-                        where=[v > 1.0 for v in cf_helix],
-                        alpha=0.20, color="#4361ee", interpolate=True)
-        ax.fill_between(xs, cf_sheet, 1.0,
-                        where=[v > 1.0 for v in cf_sheet],
-                        alpha=0.20, color="#f72585", interpolate=True)
-        ax.axhline(1.0, color="#888", linewidth=0.8, linestyle="--",
-                   label="Neutral (1.0)", zorder=3)
-        _pub_style_ax(ax,
-                      title="Secondary Structure Propensity (Chou-Fasman)",
-                      xlabel="Residue Position", ylabel="Propensity",
-                      grid=True, title_size=label_font + 1,
-                      label_size=label_font - 1, tick_size=tick_font - 1)
-        ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")
-        fig.tight_layout(pad=1.5)
-        mplcursors.cursor(ax)
+        fig.suptitle("Secondary Structure Propensity", fontsize=label_font,
+                     fontweight="bold", color="#1a1a2e", y=0.98)
+        ax1, ax2 = fig.subplots(2, 1, sharex=True)
+        fig.subplots_adjust(hspace=0.35, left=0.10, right=0.97, top=0.92, bottom=0.10)
+
+        for ax, vals, col, ylabel in [
+            (ax1, cf_helix, "#4361ee", "Helix P\u03b1"),
+            (ax2, cf_sheet, "#f72585", "Sheet P\u03b2"),
+        ]:
+            ax.set_facecolor("#fafbff")
+            ax.plot(xs, vals, color=col, linewidth=1.6, zorder=4)
+            ax.fill_between(xs, vals, 1.0,
+                            where=[v > 1.0 for v in vals],
+                            alpha=0.22, color=col, interpolate=True,
+                            label="Above neutral")
+            ax.fill_between(xs, vals, 1.0,
+                            where=[v <= 1.0 for v in vals],
+                            alpha=0.08, color=col, interpolate=True)
+            ax.axhline(1.0, color="#888", linewidth=0.9, linestyle="--",
+                       zorder=3, label="Neutral (1.0)")
+            _pub_style_ax(ax, ylabel=ylabel, grid=True,
+                          label_size=label_font - 2, tick_size=tick_font - 2)
+            ylo = min(min(vals) - 0.05, 0.45)
+            yhi = max(max(vals) + 0.05, 1.75)
+            ax.set_ylim(ylo, yhi)
+            ax.legend(fontsize=tick_font - 3, framealpha=0.85,
+                      edgecolor="#d0d4e0", loc="upper right")
+
+        ax2.set_xlabel("Residue Position", fontsize=label_font - 2,
+                       labelpad=4, color="#2d3748")
+        mplcursors.cursor(ax1)
+        mplcursors.cursor(ax2)
         return fig
 
     @staticmethod
@@ -1873,71 +1909,68 @@ class GraphingTools:
                                           label_font=14, tick_font=12):
         """Multi-track domain architecture figure.
 
-        Tracks (top→bottom):
-          • Pfam/InterPro domains  (shown if *domains* is non-empty)
-          • Disordered regions     (shown if *disorder_scores* provided)
-          • Low-complexity regions (shown if *seq* provided)
-          • TM helices             (shown if *tm_helices* provided)
-
-        At least one track is always rendered.
+        Tracks (top→bottom, only added when data is available):
+          • Pfam/InterPro domains  — when *domains* is non-empty
+          • Disordered regions     — when *disorder_scores* provided
+          • Low-complexity regions — when *seq* provided
+          • TM helices             — when *tm_helices* is non-empty
         """
         # ---- build per-residue LC mask ----------------------------------------
         def _lc_mask(s, window=12, thr=2.0):
             from math import log2
             n = len(s)
             covered = [False] * n
-            for i in range(max(1, n - window + 1)):
+            for i in range(n - min(window, n) + 1):
                 win = s[i:i + window]
                 counts = {}
                 for aa in win:
                     counts[aa] = counts.get(aa, 0) + 1
                 L = len(win)
-                ent = -sum((c/L) * log2(c/L) for c in counts.values() if c > 0)
+                ent = -sum((c / L) * log2(c / L) for c in counts.values() if c > 0)
                 if ent < thr:
                     for j in range(i, min(i + window, n)):
                         covered[j] = True
             return covered
 
-        # ---- determine active tracks ------------------------------------------
-        tracks = []   # list of (track_label, colour, regions_list)
-        # regions_list: list of (start1, end1) in 1-based inclusive coords
+        # ---- collect run-length-encoded regions (1-based inclusive) -----------
+        def _runs(bools):
+            segs, in_seg, start = [], False, 0
+            for i, v in enumerate(bools):
+                if v and not in_seg:
+                    in_seg, start = True, i + 1      # 1-based start
+                elif not v and in_seg:
+                    segs.append((start, i))           # i is 1-based end (exclusive→inclusive)
+                    in_seg = False
+            if in_seg:
+                segs.append((start, len(bools)))
+            return segs
+
+        # ---- build track list -------------------------------------------------
+        # Each entry: (label, colour, regions, pfam_meta)
+        # regions: list of (s1, e1) 1-based inclusive
+        # pfam_meta: list of domain dicts (only for Pfam track), else None
+        tracks = []
 
         if domains:
             pfam_regions = [(d["start"], d["end"]) for d in domains]
-            tracks.append(("Pfam Domains", None, pfam_regions, domains))  # special pfam entry
-        else:
-            tracks.append(("Pfam Domains", "#94a3b8", [], None))
+            tracks.append(("Pfam Domains", None, pfam_regions, domains))
 
         if disorder_scores is not None and len(disorder_scores) == seq_len:
-            dis_regions = []
-            in_seg, seg_start = False, 0
-            for i, v in enumerate(disorder_scores):
-                if v > 0.5 and not in_seg:
-                    in_seg, seg_start = True, i + 1
-                elif v <= 0.5 and in_seg:
-                    dis_regions.append((seg_start, i))
-                    in_seg = False
-            if in_seg:
-                dis_regions.append((seg_start, seq_len))
-            tracks.append(("Disorder", "#f3722c", dis_regions, None))
+            dis_runs = _runs([v > 0.5 for v in disorder_scores])
+            tracks.append(("Disorder", "#f3722c", dis_runs, None))
 
         if seq and len(seq) == seq_len:
-            lc = _lc_mask(seq)
-            lc_regions = []
-            in_seg, seg_start = False, 0
-            for i, v in enumerate(lc):
-                if v and not in_seg:
-                    in_seg, seg_start = True, i + 1
-                elif not v and in_seg:
-                    lc_regions.append((seg_start, i))
-                    in_seg = False
-            if in_seg:
-                lc_regions.append((seg_start, seq_len))
-            tracks.append(("Low Complexity", "#a8dadc", lc_regions, None))
+            lc_runs = _runs(_lc_mask(seq))
+            tracks.append(("Low Complexity", "#a8dadc", lc_runs, None))
 
         if tm_helices:
+            # predict_tm_helices returns 0-based start/end (inclusive)
             tm_regions = [(h["start"] + 1, h["end"] + 1) for h in tm_helices]
             tracks.append(("TM Helices", "#6a4c93", tm_regions, None))
+
+        # Ensure at least one track (backbone only) so the graph always renders
+        if not tracks:
+            tracks.append(("Sequence", "#94a3b8", [], None))
 
         n_tracks = len(tracks)
         fig_h    = max(2.5, 1.2 + n_tracks * 1.0)
@@ -1946,55 +1979,67 @@ class GraphingTools:
         ax  = fig.add_subplot(111)
         ax.set_facecolor("#fafbff")
 
-        track_ys  = list(range(n_tracks - 1, -1, -1))   # top track at highest y
-        half      = 0.32
+        # y positions: top track at y = n_tracks-1, bottom track at y = 0
+        track_ys      = list(range(n_tracks - 1, -1, -1))
+        half          = 0.32
         legend_patches = []
 
         for tidx, (label, colour, regions, meta) in enumerate(tracks):
             ty = track_ys[tidx]
-            # backbone
+            # Backbone line
             ax.plot([1, seq_len], [ty, ty], color="#cbd5e0", linewidth=2.5,
                     solid_capstyle="round", zorder=2)
-            ax.text(0, ty, label, ha="right", va="center",
-                    fontsize=max(6, tick_font - 3), color="#4a5568",
-                    fontweight="600")
-            # N/C terminus markers on first track only
+            # N/C terminus only on topmost track
             if tidx == 0:
-                ax.text(1,        ty + half + 0.05, "N",
+                ax.text(1,        ty + half + 0.06, "N",
                         ha="center", fontsize=tick_font - 3, color="#718096")
-                ax.text(seq_len, ty + half + 0.05, "C",
+                ax.text(seq_len,  ty + half + 0.06, "C",
                         ha="center", fontsize=tick_font - 3, color="#718096")
 
             if meta is not None:
-                # Pfam — each domain gets its own palette colour
+                # Pfam track: each domain gets a distinct palette colour
                 for i, (dom, (s, e)) in enumerate(zip(meta, regions)):
-                    col = _PALETTE[i % len(_PALETTE)]
-                    rect = Rectangle((s, ty - half), e - s, 2 * half,
+                    col  = _PALETTE[i % len(_PALETTE)]
+                    w    = e - s + 1          # inclusive width
+                    rect = Rectangle((s, ty - half), w, 2 * half,
                                      color=col, alpha=0.85, zorder=4, linewidth=0)
                     ax.add_patch(rect)
-                    mid = (s + e) / 2
+                    mid = (s + e) / 2.0
                     ax.text(mid, ty, dom["name"][:14],
                             ha="center", va="center",
                             fontsize=max(5, tick_font - 5), color="white",
                             fontweight="bold", zorder=5)
-                    legend_patches.append(
-                        Patch(color=col, label=dom["name"]))
+                    legend_patches.append(Patch(color=col, label=dom["name"]))
             else:
                 for (s, e) in regions:
-                    rect = Rectangle((s, ty - half), e - s, 2 * half,
+                    w    = e - s + 1          # inclusive width
+                    rect = Rectangle((s, ty - half), w, 2 * half,
                                      color=colour, alpha=0.80, zorder=4, linewidth=0)
                     ax.add_patch(rect)
                 if regions:
                     legend_patches.append(Patch(color=colour, label=label))
+
+        # Y-axis tick labels as track names (lets matplotlib manage placement)
+        ax.set_yticks(track_ys)
+        ax.set_yticklabels([t[0] for t in tracks],
+                           fontsize=max(6, tick_font - 3), color="#4a5568",
+                           fontweight="600")
+        ax.tick_params(axis="y", length=0, pad=6)
 
         _pub_style_ax(ax,
                       title="Domain Architecture",
                       xlabel="Residue Position", ylabel="",
                       grid=False, title_size=label_font + 1,
                       label_size=label_font - 1, tick_size=tick_font - 1)
-        ax.set_xlim(-max(12, seq_len * 0.06), seq_len + max(5, seq_len * 0.02))
+        ax.set_xlim(1, seq_len)
         ax.set_ylim(-0.7, n_tracks - 0.3)
-        ax.set_yticks([])
+        # Keep ytick labels (override _pub_style_ax which may have cleared them)
+        ax.set_yticks(track_ys)
+        ax.set_yticklabels([t[0] for t in tracks],
+                           fontsize=max(6, tick_font - 3), color="#4a5568",
+                           fontweight="600")
+        ax.tick_params(axis="y", length=0, pad=6)
+
         if legend_patches:
             ax.legend(handles=legend_patches,
                       fontsize=max(6, tick_font - 4), framealpha=0.85,
@@ -2389,13 +2434,13 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.show_heading        = True
         self.show_grid           = True
         self.default_graph_format = "PNG"
-        self.enable_tooltips     = False
+        self.enable_tooltips     = True
         self.use_reducing        = False
         self.custom_pka          = None
-        self.sequence_name       = ""   # display name for current sequence
-        self.app_font_size       = 12   # global UI font size (pt)
-        self._tooltips: dict     = {}  # widget -> tooltip text
-        self.transparent_bg      = False
+        self.sequence_name       = ""
+        self.app_font_size       = 12
+        self._tooltips: dict     = {}
+        self.transparent_bg      = True
         self._analysis_worker    = None
         self._history: list      = []   # list of (name, seq)
 
@@ -2534,9 +2579,9 @@ class ProteinAnalyzerGUI(QMainWindow):
         # ---- toolbar row 2: UniProt/NCBI fetch + history ----
         tb2 = QHBoxLayout()
         tb2.setSpacing(6)
-        tb2.addWidget(QLabel("Fetch accession:"))
+        tb2.addWidget(QLabel("Fetch:"))
         self.accession_input = QLineEdit()
-        self.accession_input.setPlaceholderText("UniProt ID or NCBI accession")
+        self.accession_input.setPlaceholderText("UniProt ID or PDB ID (e.g. P04637, 1ABC)")
         self.accession_input.setMaximumWidth(200)
         tb2.addWidget(self.accession_input)
         fetch_btn = QPushButton("Fetch")
@@ -3089,19 +3134,16 @@ window.addEventListener("load", init);
         form3.addRow("Default Graph Format:", self.graph_format_combo)
 
         self.colormap_combo = QComboBox()
-        self.colormap_combo.addItems([
-            "coolwarm", "viridis", "plasma", "inferno", "magma",
-            "cividis", "Spectral", "RdBu", "PiYG", "PRGn",
-            "hot", "copper", "cool", "autumn", "hsv",
-        ])
-        self._set_tooltip(self.colormap_combo, "Colour map for bead hydrophobicity model.")
+        self.colormap_combo.addItems(NAMED_COLORMAPS)
+        self.colormap_combo.setCurrentText(self.colormap)
+        self._set_tooltip(self.colormap_combo, "Colour map for the bead hydrophobicity model.")
         form3.addRow("Bead Colormap:", self.colormap_combo)
 
         self.graph_color_combo = QComboBox()
-        self.graph_color_combo.addItems([
-            "#4361ee", "#f72585", "#43aa8b", "#7209b7",
-            "#f3722c", "#277da1", "#06d6a0", "#2d3748",
-        ])
+        self.graph_color_combo.addItems(list(NAMED_COLORS.keys()))
+        # Select the name that matches the current hex
+        _rev = {v: k for k, v in NAMED_COLORS.items()}
+        self.graph_color_combo.setCurrentText(_rev.get(self.graph_color, "Royal Blue"))
         self._set_tooltip(self.graph_color_combo, "Accent colour for line and bar graphs.")
         form3.addRow("Graph Accent Colour:", self.graph_color_combo)
 
@@ -3117,8 +3159,8 @@ window.addEventListener("load", init);
         self.label_checkbox.setChecked(self.show_bead_labels)
         form3.addRow("", self.label_checkbox)
 
-        self.transparent_bg_checkbox = QCheckBox("Transparent background (PNG/SVG graph export)")
-        self.transparent_bg_checkbox.setChecked(False)
+        self.transparent_bg_checkbox = QCheckBox("Transparent background on PNG/SVG export")
+        self.transparent_bg_checkbox.setChecked(self.transparent_bg)
         form3.addRow("", self.transparent_bg_checkbox)
         layout.addLayout(form3)
 
@@ -3140,7 +3182,7 @@ window.addEventListener("load", init);
         form4.addRow("", self.theme_toggle)
 
         self.tooltips_checkbox = QCheckBox("Enable Tooltips")
-        self.tooltips_checkbox.setChecked(False)
+        self.tooltips_checkbox.setChecked(self.enable_tooltips)
         form4.addRow("", self.tooltips_checkbox)
         layout.addLayout(form4)
 
@@ -3192,7 +3234,9 @@ window.addEventListener("load", init);
   <li><b>Paste sequence</b> — type or paste a bare amino-acid string (ACDEFG…) or FASTA block into the sequence box and click <b>Analyze [Ctrl+Enter]</b>.</li>
   <li><b>Import FASTA</b> — load a .fa / .fasta file (single or multi-sequence).</li>
   <li><b>Import PDB</b> — extract sequence(s) from a local PDB file.</li>
-  <li><b>Fetch accession</b> — enter a UniProt ID (e.g. <tt>P04637</tt>) or NCBI accession and click <b>Fetch</b>. This also enables the <b>Fetch AlphaFold</b> and <b>Fetch Pfam</b> buttons.</li>
+  <li><b>Fetch</b> — enter a <b>UniProt ID</b> (e.g. <tt>P04637</tt>) or a <b>PDB ID</b> (e.g. <tt>1ABC</tt>) and click <b>Fetch</b>.
+    UniProt IDs also enable the <b>Fetch AlphaFold</b> and <b>Fetch Pfam</b> buttons.
+    PDB IDs retrieve the sequence from RCSB; AlphaFold/Pfam are not available for PDB IDs.</li>
 </ul>
 <h2>Navigation</h2>
 <p>Use the <b>left sidebar</b> to switch between sections. Keyboard shortcuts:</p>
@@ -3264,25 +3308,28 @@ Spacers = all others. Mean/min/max gaps between consecutive stickers (Mittag &am
             ("Transmembrane Helices", """
 <h1>Transmembrane Helix Prediction</h1>
 <p>Available in the <b>TM Helices</b> report section and the <b>TM Topology</b> graph
-after running analysis. No external server required — prediction is purely sequence-based.</p>
+after running analysis. No external server required — purely sequence-based.</p>
 <h2>Algorithm</h2>
 <ol>
-  <li>A <b>sliding window</b> (width = 19) of Kyte-Doolittle scores is computed at every position.</li>
-  <li>Contiguous runs where the window score exceeds <b>1.6</b> are merged into candidate helices.</li>
-  <li>Candidates with length outside <b>15–35 aa</b> are discarded.</li>
-  <li><b>Inside-positive rule (von Heijne)</b> — the flanking 15 residues on each side are scanned
-      for K and R. The side with more positively charged residues is assigned as cytoplasmic.
-      <ul>
-        <li><b>out→in</b>: N-terminus is extracellular, C-terminus is cytoplasmic.</li>
-        <li><b>in→out</b>: N-terminus is cytoplasmic, C-terminus is extracellular.</li>
-      </ul>
+  <li>For every position where a full <b>19-residue window</b> fits, the Kyte-Doolittle average is computed (no partial-edge windows — avoids false positives at sequence termini).</li>
+  <li>Each residue covered by at least one window scoring ≥ <b>1.6</b> is marked as a TM candidate.</li>
+  <li>Contiguous TM-marked segments of length <b>17–25 aa</b> are retained as helices.</li>
+  <li>Segments longer than 25 aa are trimmed to the single best-scoring 19-residue window within that region.</li>
+  <li><b>Inside-positive rule (von Heijne)</b> — the 15-residue flanks on each side are scanned for K/R; the side with more positives is cytoplasmic.
+    <ul>
+      <li><b>out→in</b>: N-terminus extracellular, C-terminus cytoplasmic.</li>
+      <li><b>in→out</b>: N-terminus cytoplasmic, C-terminus extracellular.</li>
+    </ul>
   </li>
 </ol>
+<h2>Domain Architecture — TM track</h2>
+<p>After analysis the <b>Domain Architecture</b> graph automatically shows a TM Helices track
+(purple blocks) without requiring AlphaFold or Pfam data.</p>
 <h2>TM Topology graph</h2>
 <p>A simplified snake-plot. The yellow band represents the membrane. Blue rectangles are TM helices
 labelled with their residue range. Loops are drawn above (extracellular) or below (cytoplasmic)
 the band according to the predicted topology.</p>
-<p class="note">Note: This is a heuristic predictor suitable for a first-pass screen.
+<p class="note">This is a heuristic predictor for first-pass screening.
 For high-accuracy results use TMHMM, Phobius, or DeepTMHMM.</p>
 """),
             ("AlphaFold & 3D Structure", """
@@ -3324,17 +3371,20 @@ web viewer at <tt>3dmol.csb.pitt.edu</tt>.</p>
             ("Pfam Domains", """
 <h1>Pfam Domain Annotations</h1>
 <p>Requires an internet connection and a valid UniProt accession. Click <b>Fetch Pfam</b>
-after loading an accession.</p>
+after loading a UniProt accession. Not available for PDB IDs.</p>
 <h2>Data source</h2>
 <p>Queries the <b>EMBL-EBI InterPro REST API</b> for all Pfam-family entries associated
-with the given UniProt protein. Results include domain name, accession, and start/end residue
-positions.</p>
-<h2>Domain Architecture graph</h2>
-<p>A linear ruler from N- to C-terminus. Each Pfam domain is drawn as a coloured box labelled
-with a truncated domain name (hover for full label in the legend). Domains are coloured from the
-BEER palette in the order they appear. Overlapping domains are all drawn at the same height.</p>
-<p class="note">Only Pfam entries are shown. InterPro, SUPERFAMILY, PRINTS, and other databases
-are excluded for clarity.</p>
+with the given UniProt protein. Results include domain name, accession, and start/end residue positions.</p>
+<h2>Domain Architecture graph (multi-track)</h2>
+<p>The Domain Architecture graph is always shown after analysis and displays up to four tracks:</p>
+<table>
+  <tr><th>Track</th><th>Colour</th><th>Source</th></tr>
+  <tr><td>Pfam Domains</td><td>BEER palette</td><td>Fetch Pfam (requires UniProt)</td></tr>
+  <tr><td>Disorder</td><td>Orange</td><td>IUPred-inspired score &gt; 0.5 (always available)</td></tr>
+  <tr><td>Low Complexity</td><td>Teal</td><td>Shannon entropy &lt; 2.0 bits (always available)</td></tr>
+  <tr><td>TM Helices</td><td>Purple</td><td>KD sliding window prediction (always available)</td></tr>
+</table>
+<p class="note">Only Pfam entries are shown in the Pfam track. Tracks without data are omitted automatically.</p>
 """),
             ("BLAST Search", """
 <h1>BLAST Integration</h1>
@@ -3363,44 +3413,43 @@ in rapid succession. For batch analyses use NCBI standalone BLAST locally.</p>
 """),
             ("Graphs Reference", """
 <h1>Graphs Reference</h1>
-<p>All graphs are accessible from the <b>Graphs</b> section. Use the category tree on the
-left to navigate. Each graph has its own <b>Save Graph</b> button; <b>Save All Graphs</b>
-exports the whole collection to a chosen directory.</p>
+<p>All graphs are in the <b>Graphs</b> section. Use the category tree on the left to navigate.
+Each graph has a <b>Save Graph</b> button; <b>Save All Graphs</b> exports every graph
+to a chosen directory in the format configured in Settings.</p>
 <h2>Composition</h2>
 <ul>
-  <li><b>Bar / Pie Chart</b> — amino acid counts and frequencies. Bar chart sort order matches
-      the Composition report section buttons.</li>
+  <li><b>AA Composition (Bar / Pie)</b> — amino acid counts and frequencies. Bar sort order matches the report buttons.</li>
 </ul>
 <h2>Profiles</h2>
 <ul>
   <li><b>Hydrophobicity Profile</b> — Kyte-Doolittle sliding-window average (window set in Settings).</li>
-  <li><b>Local Charge Profile</b> — sliding-window NCPR; shows charge blocks.</li>
-  <li><b>Local Complexity</b> — sliding-window Shannon entropy; red dashed line = LC threshold (2.0 bits).</li>
+  <li><b>Local Charge Profile</b> — sliding-window NCPR.</li>
+  <li><b>Local Complexity</b> — sliding-window Shannon entropy; dashed line = LC threshold (2.0 bits).</li>
   <li><b>Disorder Profile</b> — IUPred-inspired per-residue score; orange fill = disordered (&gt;0.5).</li>
   <li><b>Linear Sequence Map</b> — four-track overview: hydrophobicity, NCPR, disorder, helix Pα.</li>
-  <li><b>Secondary Structure</b> — Chou-Fasman per-residue Pα (helix) and Pβ (sheet) propensities.</li>
+  <li><b>Secondary Structure</b> — two-panel Chou-Fasman: top = helix Pα, bottom = sheet Pβ. Fill above 1.0 = propensity for that structure.</li>
 </ul>
 <h2>Charge &amp; π-Interactions</h2>
 <ul>
   <li><b>Net Charge vs pH</b> — Henderson-Hasselbalch charge curve 0–14; pI marked.</li>
-  <li><b>Isoelectric Focus</b> — enhanced version with physiological pH 7.4 annotation.</li>
-  <li><b>Charge Decoration</b> — Das-Pappu FCR vs |NCPR| phase diagram; star = this protein.</li>
-  <li><b>Cation–π Map</b> — proximity heat map (1/distance weight) for K/R ↔ F/W/Y pairs.</li>
+  <li><b>Isoelectric Focus</b> — enhanced charge curve with physiological pH 7.4 annotation.</li>
+  <li><b>Charge Decoration</b> — Das-Pappu FCR vs |NCPR| phase diagram.</li>
+  <li><b>Cation–π Map</b> — proximity heat map (1/distance) for K/R ↔ F/W/Y pairs within ±8 residues.</li>
 </ul>
 <h2>Structure &amp; Folding</h2>
 <ul>
-  <li><b>Bead Model (Hydrophobicity)</b> — per-residue KD score, coolwarm colourmap.</li>
+  <li><b>Bead Model (Hydrophobicity)</b> — per-residue KD score; colourmap selectable in Settings.</li>
   <li><b>Bead Model (Charge)</b> — K/R blue, D/E red, H cyan, neutral grey.</li>
   <li><b>Sticker Map</b> — aromatic (amber), basic (blue), acidic (pink), spacer (grey).</li>
-  <li><b>Properties Radar Chart</b> — five normalised properties: MW, pI, GRAVY, instability, aromaticity.</li>
-  <li><b>Helical Wheel</b> — projection of first 18 residues at 100° per step, KD coloured.</li>
-  <li><b>TM Topology</b> — snake-plot of predicted transmembrane helices (see TM Helices section).</li>
+  <li><b>Helical Wheel</b> — Cartesian projection of first 18 residues at 100°/step; connecting lines between sequential residues; KD coloured with luminance-contrast labels.</li>
+  <li><b>TM Topology</b> — snake-plot of predicted transmembrane helices (see Transmembrane Helices).</li>
 </ul>
 <h2>AlphaFold / Structural</h2>
 <ul>
-  <li><b>pLDDT Profile</b> — per-residue AlphaFold confidence (see AlphaFold section). Requires Fetch AlphaFold.</li>
-  <li><b>Distance Map</b> — Cα pairwise distance heatmap with 8 Å contact contour. Requires Fetch AlphaFold.</li>
-  <li><b>Domain Architecture</b> — linear Pfam domain map. Requires Fetch Pfam.</li>
+  <li><b>pLDDT Profile</b> — per-residue confidence (0–100). Requires Fetch AlphaFold.</li>
+  <li><b>Cα Distance Map</b> — pairwise distance heatmap with 8 Å contact contour. Requires Fetch AlphaFold.</li>
+  <li><b>Domain Architecture</b> — multi-track: Pfam domains, Disorder, Low Complexity, TM Helices.
+      Always shown after analysis; Pfam track appears after Fetch Pfam.</li>
 </ul>
 """),
             ("Multichain & Compare", """
@@ -3418,25 +3467,29 @@ length, MW, pI, GRAVY, FCR, NCPR, net charge, instability, aromaticity, and exti
 <h1>Settings</h1>
 <h2>Analysis Parameters</h2>
 <ul>
-  <li><b>Default pH</b> — pH used for net-charge calculations (0–14).</li>
+  <li><b>Default pH</b> — pH for net-charge calculations (0–14).</li>
   <li><b>Sliding Window Size</b> — window width for hydrophobicity, NCPR, and entropy profiles.</li>
-  <li><b>Override pKa</b> — custom pKa values (N-term, C-term, D, E, C, Y, H, K, R) as comma-separated numbers.</li>
+  <li><b>Override pKa</b> — nine comma-separated values: N-term, C-term, D, E, C, Y, H, K, R.
+      Leave blank to use the built-in defaults.</li>
   <li><b>Reducing conditions</b> — if checked, Cys residues are not counted as disulphide pairs for extinction coefficient.</li>
 </ul>
 <h2>Graph Appearance</h2>
 <ul>
   <li><b>Label / Tick Font Size</b> — point size of axis titles and tick labels.</li>
-  <li><b>Default Graph Format</b> — PNG, SVG, or PDF for Save Graph / Save All.</li>
-  <li><b>Bead Colormap</b> — matplotlib colourmap for the Bead Hydrophobicity model.</li>
-  <li><b>Graph Accent Colour</b> — primary line/fill colour for most graphs.</li>
-  <li><b>Transparent background</b> — export graphs with alpha = 0 (PNG/SVG only).</li>
+  <li><b>Default Graph Format</b> — PNG, SVG, or PDF for Save Graph and Save All Graphs.</li>
+  <li><b>Bead Colormap</b> — 30+ matplotlib colourmap choices for the Bead Hydrophobicity model.</li>
+  <li><b>Graph Accent Colour</b> — 24 named colours for the primary line/fill of most graphs.
+      Applying this setting immediately re-renders all graphs.</li>
+  <li><b>Transparent background</b> — export graphs with a transparent background (PNG/SVG only). On by default.</li>
 </ul>
 <h2>Interface</h2>
 <ul>
-  <li><b>UI Font Size</b> — global application font size in points.</li>
+  <li><b>UI Font Size</b> — global font size in points (8–24).</li>
   <li><b>Dark Theme</b> — toggles between light and dark colour themes.</li>
-  <li><b>Enable Tooltips</b> — show tooltips on Settings widgets.</li>
+  <li><b>Enable Tooltips</b> — show hover tooltips on Settings widgets. On by default.</li>
 </ul>
+<h2>Reset to Defaults</h2>
+<p>Restores all settings to their factory defaults and re-applies them immediately.</p>
 <h1>Sessions</h1>
 <p>Use <b>Save Session</b> / <b>Load Session</b> (or Ctrl+S / Ctrl+O) to persist the current
 sequence, name, pH, window size, pKa overrides, reducing conditions, font sizes, and
@@ -3740,8 +3793,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 seq, self.show_bead_labels, label_font=lf, tick_font=tf, cmap=self.colormap),
             "Bead Model (Charge)": GraphingTools.create_bead_model_charge_figure(
                 seq, self.show_bead_labels, label_font=lf, tick_font=tf),
-            "Properties Radar Chart": GraphingTools.create_radar_chart_figure(
-                self.analysis_data, label_font=lf),
             "Sticker Map": GraphingTools.create_sticker_map(
                 seq, self.show_bead_labels, label_font=lf, tick_font=tf),
             "Local Charge Profile": GraphingTools.create_local_charge_figure(
@@ -3865,11 +3916,17 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         ext = self.default_graph_format.lower()
         try:
+            use_transparent = self.transparent_bg and ext in ("png", "svg")
             for title, (tab, vb) in self.graph_tabs.items():
                 canvas = self._find_canvas(vb)
                 if canvas:
-                    path = os.path.join(d, title.replace(" ", "_") + f".{ext}")
-                    canvas.figure.savefig(path, format=ext)
+                    safe = re.sub(r'[^\w\-]', '_', title)
+                    path = os.path.join(d, safe + f".{ext}")
+                    canvas.figure.savefig(
+                        path, format=ext, dpi=200, bbox_inches="tight",
+                        facecolor="none" if use_transparent else "white",
+                        transparent=use_transparent,
+                    )
             QMessageBox.information(self, "Saved", "All graphs exported.")
         except OSError as e:
             QMessageBox.critical(self, "Export Error", f"Could not save graphs: {e}")
@@ -3952,7 +4009,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self.marker_size     = int(self.marker_size_input.text())
         except (ValueError, TypeError):
             pass
-        self.graph_color          = self.graph_color_combo.currentText()
+        self.graph_color = NAMED_COLORS.get(self.graph_color_combo.currentText(), "#4361ee")
+        # Propagate accent colour to module-level graph constants
+        global _ACCENT, _FILL, _POS_COL
+        _ACCENT  = self.graph_color
+        _FILL    = self.graph_color
+        _POS_COL = self.graph_color
         self.show_heading         = self.heading_checkbox.isChecked()
         self.show_grid            = self.grid_checkbox.isChecked()
         self.default_graph_format = self.graph_format_combo.currentText()
@@ -4007,17 +4069,21 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def reset_defaults(self):
         self.window_size_input.setText("9")
         self.ph_input.setText("7.0")
+        self.pka_input.setText("")
+        self.reducing_checkbox.setChecked(False)
         self.label_checkbox.setChecked(True)
         self.colormap_combo.setCurrentText("coolwarm")
         self.label_font_input.setText("14")
         self.tick_font_input.setText("12")
         self.marker_size_input.setText("10")
-        self.graph_color_combo.setCurrentText("#4361ee")
+        self.graph_color_combo.setCurrentText("Royal Blue")
         self.graph_format_combo.setCurrentText("PNG")
-        self.tooltips_checkbox.setChecked(False)
         self.heading_checkbox.setChecked(True)
         self.grid_checkbox.setChecked(True)
+        self.transparent_bg_checkbox.setChecked(True)
         self.app_font_size_input.setText("12")
+        self.theme_toggle.setChecked(False)
+        self.tooltips_checkbox.setChecked(True)
         self.apply_settings()
 
     # --- Chain selection ---
@@ -4095,13 +4161,18 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def fetch_accession(self):
         acc = self.accession_input.text().strip()
         if not acc:
-            QMessageBox.warning(self, "Fetch", "Enter a UniProt accession.")
+            QMessageBox.warning(self, "Fetch", "Enter a UniProt ID or PDB ID.")
             return
-        url = f"https://rest.uniprot.org/uniprotkb/{acc}.fasta"
+        # Detect PDB ID: exactly 4 alphanumeric chars, first char is a digit
+        is_pdb = (len(acc) == 4 and acc[0].isdigit() and acc.isalnum())
         self.statusBar.showMessage(f"Fetching {acc}…")
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
-                raw = resp.read().decode()
+            if is_pdb:
+                raw = self._fetch_pdb_fasta(acc)
+            else:
+                url = f"https://rest.uniprot.org/uniprotkb/{acc}.fasta"
+                with urllib.request.urlopen(url, timeout=15) as resp:
+                    raw = resp.read().decode()
         except Exception as e:
             self.statusBar.showMessage("Fetch failed", 3000)
             QMessageBox.warning(self, "Fetch Failed", str(e))
@@ -4113,12 +4184,20 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         rid, seq = entries[0]
         self.seq_text.setPlainText(seq)
         self.sequence_name = rid
-        # Store the raw accession for AlphaFold / Pfam lookups
-        self.current_accession = acc
-        self.fetch_af_btn.setEnabled(True)
-        self.fetch_pfam_btn.setEnabled(True)
+        # Store accession; AlphaFold/Pfam only available for UniProt IDs
+        self.current_accession = acc if not is_pdb else ""
+        self.fetch_af_btn.setEnabled(not is_pdb)
+        self.fetch_pfam_btn.setEnabled(not is_pdb)
         self.accession_input.clear()
-        self.statusBar.showMessage(f"Fetched {rid}  ({len(seq)} aa)", 3000)
+        src = "PDB" if is_pdb else "UniProt"
+        self.statusBar.showMessage(f"Fetched {rid} from {src}  ({len(seq)} aa)", 3000)
+
+    def _fetch_pdb_fasta(self, pdb_id: str) -> str:
+        """Fetch FASTA sequence(s) from RCSB PDB for a given 4-char PDB ID."""
+        url = f"https://www.rcsb.org/fasta/entry/{pdb_id.upper()}"
+        req = urllib.request.Request(url, headers={"User-Agent": "BEER/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return resp.read().decode()
 
     # --- AlphaFold ---
 
