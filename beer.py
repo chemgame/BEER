@@ -6,8 +6,9 @@ Requirements:
   pip install biopython matplotlib PyQt5 mplcursors
 """
 
-import sys, math, os, base64, json, csv, subprocess
+import sys, math, os, base64, json, csv, subprocess, re
 from io import BytesIO
+import urllib.request
 import numpy as np
 
 from PyQt5.QtWidgets import (
@@ -15,10 +16,12 @@ from PyQt5.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QTextEdit, QTextBrowser,
     QFileDialog, QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem,
     QCheckBox, QStatusBar, QComboBox, QFormLayout,
-    QSplitter, QScrollArea, QFrame
+    QSplitter, QScrollArea, QFrame, QDialog, QDialogButtonBox,
+    QSpinBox, QProgressDialog, QAbstractItemView
 )
-from PyQt5.QtGui import QFont
-from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont, QKeySequence
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtWidgets import QShortcut
 from PyQt5.QtPrintSupport import QPrinter
 
 import matplotlib
@@ -74,6 +77,42 @@ STICKER_ALL           = STICKER_AROMATIC | STICKER_ELECTROSTATIC
 # Prion-like domain composition residues (PLAAC/Lancaster)
 PRION_LIKE = set("NQSGY")
 
+# Chou-Fasman helix and sheet propensities (Chou & Fasman 1978)
+CHOU_FASMAN_HELIX = {
+    'A': 1.42, 'R': 0.98, 'N': 0.67, 'D': 1.01, 'C': 0.70,
+    'Q': 1.11, 'E': 1.51, 'G': 0.57, 'H': 1.00, 'I': 1.08,
+    'L': 1.21, 'K': 1.16, 'M': 1.45, 'F': 1.13, 'P': 0.57,
+    'S': 0.77, 'T': 0.83, 'W': 1.08, 'Y': 0.69, 'V': 1.06,
+}
+CHOU_FASMAN_SHEET = {
+    'A': 0.83, 'R': 0.93, 'N': 0.89, 'D': 0.54, 'C': 1.19,
+    'Q': 1.10, 'E': 0.37, 'G': 0.75, 'H': 0.87, 'I': 1.60,
+    'L': 1.30, 'K': 0.74, 'M': 1.05, 'F': 1.38, 'P': 0.55,
+    'S': 0.75, 'T': 1.19, 'W': 1.37, 'Y': 1.47, 'V': 1.70,
+}
+# IUPred-inspired per-residue disorder propensity (higher = more disordered)
+DISORDER_PROPENSITY = {
+    'A':  0.060, 'R': -0.260, 'N':  0.007, 'D':  0.192, 'C': -0.020,
+    'Q': -0.091, 'E':  0.736, 'G':  0.166, 'H': -0.303, 'I': -0.486,
+    'L': -0.326, 'K':  0.586, 'M': -0.397, 'F': -0.697, 'P':  0.987,
+    'S':  0.341, 'T':  0.059, 'W': -0.884, 'Y': -0.510, 'V': -0.386,
+}
+# Residue colours for the colour-coded sequence viewer
+_AA_COLOURS = {
+    # Hydrophobic (orange)
+    **{aa: "#e06c00" for aa in "ACILMV"},
+    # Aromatic (dark amber)
+    **{aa: "#c47600" for aa in "FWY"},
+    # Positive (blue)
+    **{aa: "#2563eb" for aa in "KRH"},
+    # Negative (red)
+    **{aa: "#dc2626" for aa in "DE"},
+    # Polar uncharged (teal)
+    **{aa: "#0d9488" for aa in "NQST"},
+    # Special (purple)
+    **{aa: "#7c3aed" for aa in "GP"},
+}
+
 REPORT_SECTIONS = [
     "Composition",
     "Properties",
@@ -82,6 +121,7 @@ REPORT_SECTIONS = [
     "Aromatic & \u03c0",
     "Low Complexity",
     "Disorder",
+    "Secondary Structure",
     "Repeat Motifs",
     "Sticker & Spacer",
 ]
@@ -98,6 +138,12 @@ GRAPH_TITLES = [
     "Local Charge Profile",
     "Local Complexity",
     "Cation\u2013\u03c0 Map",
+    "Isoelectric Focus",
+    "Secondary Structure",
+    "Helical Wheel",
+    "Charge Decoration",
+    "Linear Sequence Map",
+    "Disorder Profile",
 ]
 
 LIGHT_THEME_CSS = """
@@ -489,6 +535,31 @@ def _pub_style_ax(ax, title="", xlabel="", ylabel="", grid=True, despine=True,
     ax.set_facecolor("#fafbff")
 
 
+def calc_chou_fasman_profile(seq: str) -> tuple:
+    """Return (helix_list, sheet_list) of per-residue Chou-Fasman propensities."""
+    helix = [CHOU_FASMAN_HELIX.get(aa, 1.0) for aa in seq]
+    sheet = [CHOU_FASMAN_SHEET.get(aa, 1.0) for aa in seq]
+    return helix, sheet
+
+
+def calc_disorder_profile(seq: str, window: int = 9) -> list:
+    """Sliding-window disorder propensity, normalised to 0-1."""
+    raw = [DISORDER_PROPENSITY.get(aa, 0.0) for aa in seq]
+    mn, mx = min(raw), max(raw)
+    span = mx - mn if mx != mn else 1.0
+    norm = [(v - mn) / span for v in raw]
+    n = len(norm)
+    if n < window:
+        return norm
+    half = window // 2
+    smoothed = []
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        smoothed.append(sum(norm[lo:hi]) / (hi - lo))
+    return smoothed
+
+
 # --- Analysis ---
 
 class AnalysisTools:
@@ -715,32 +786,64 @@ class AnalysisTools:
         <p class="note">Sticker-and-spacer model: Mittag &amp; Pappu</p>
         """
 
+        # --- Chou-Fasman secondary structure propensity ---
+        cf_helix_arr, cf_sheet_arr = calc_chou_fasman_profile(seq)
+        mean_helix = sum(cf_helix_arr) / seq_length
+        mean_sheet = sum(cf_sheet_arr) / seq_length
+        n_high_helix = sum(1 for v in cf_helix_arr if v > 1.0)
+        n_high_sheet = sum(1 for v in cf_sheet_arr if v > 1.0)
+
+        # --- IUPred-style disorder ---
+        disorder_scores = calc_disorder_profile(seq)
+        mean_disorder = sum(disorder_scores) / seq_length
+        disordered_frac = sum(1 for v in disorder_scores if v > 0.5) / seq_length
+
+        ss_html = _style + f"""
+        <h2>Secondary Structure Propensity (Chou-Fasman)</h2>
+        <table>
+          <tr><th>Property</th><th>Value</th></tr>
+          <tr><td>Mean helix propensity (P&alpha;)</td><td>{mean_helix:.3f}</td></tr>
+          <tr><td>Mean sheet propensity (P&beta;)</td><td>{mean_sheet:.3f}</td></tr>
+          <tr><td>Helix-forming residues (P&alpha; &gt; 1.0)</td><td>{n_high_helix} ({n_high_helix/seq_length*100:.1f}%)</td></tr>
+          <tr><td>Sheet-forming residues (P&beta; &gt; 1.0)</td><td>{n_high_sheet} ({n_high_sheet/seq_length*100:.1f}%)</td></tr>
+          <tr><td>Mean disorder score (IUPred-inspired)</td><td>{mean_disorder:.3f}</td></tr>
+          <tr><td>Disordered fraction (score &gt; 0.5)</td><td>{disordered_frac:.3f} ({disordered_frac*100:.1f}%)</td></tr>
+        </table>
+        <p class="note">Chou-Fasman: P &gt; 1.0 = propensity for helix/sheet. Disorder: IUPred-inspired per-residue score (0=ordered, 1=disordered).</p>
+        """
+
         return {
             "report_sections": {
-                "Composition":     comp_html,
-                "Properties":      bio_html,
-                "Hydrophobicity":  hydro_html,
-                "Charge":          charge_html,
-                "Aromatic & \u03c0": aromatic_html,
-                "Low Complexity":  lc_html,
-                "Disorder":        disorder_html,
-                "Repeat Motifs":   repeats_html,
-                "Sticker & Spacer": sticker_html,
+                "Composition":        comp_html,
+                "Properties":         bio_html,
+                "Hydrophobicity":     hydro_html,
+                "Charge":             charge_html,
+                "Aromatic & \u03c0":  aromatic_html,
+                "Low Complexity":     lc_html,
+                "Disorder":           disorder_html,
+                "Secondary Structure": ss_html,
+                "Repeat Motifs":      repeats_html,
+                "Sticker & Spacer":   sticker_html,
             },
-            "aa_counts":      aa_counts,
-            "aa_freq":        aa_freq,
-            "hydro_profile":  sliding_window_hydrophobicity(seq, window_size),
-            "ncpr_profile":   sliding_window_ncpr(seq, window_size),
+            "aa_counts":       aa_counts,
+            "aa_freq":         aa_freq,
+            "hydro_profile":   sliding_window_hydrophobicity(seq, window_size),
+            "ncpr_profile":    sliding_window_ncpr(seq, window_size),
             "entropy_profile": sliding_window_entropy(seq, window_size),
-            "window_size":    window_size,
-            "seq":            seq,
-            "mol_weight":     mol_weight,
-            "iso_point":      iso_point,
-            "net_charge_7":   net_charge_7,
-            "extinction":     extinction,
-            "gravy":          gravy,
-            "instability":    instability,
-            "aromaticity":    aromaticity,
+            "cf_helix":        cf_helix_arr,
+            "cf_sheet":        cf_sheet_arr,
+            "disorder_scores": disorder_scores,
+            "window_size":     window_size,
+            "seq":             seq,
+            "mol_weight":      mol_weight,
+            "iso_point":       iso_point,
+            "net_charge_7":    net_charge_7,
+            "extinction":      extinction,
+            "gravy":           gravy,
+            "instability":     instability,
+            "aromaticity":     aromaticity,
+            "fcr":             fcr,
+            "ncpr":            ncpr,
         }
 
     # predict_solubility removed – superseded by Hydrophobicity tab
@@ -1157,6 +1260,234 @@ class GraphingTools:
         fig.tight_layout(pad=1.5)
         return fig
 
+    @staticmethod
+    def create_isoelectric_focus(seq, label_font=14, tick_font=12, pka=None):
+        """Enhanced isoelectric focusing simulation."""
+        fig = Figure(figsize=(9, 4.5), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        phs  = [i / 20 for i in range(281)]   # 0 to 14, step 0.05
+        nets = [calc_net_charge(seq, p, pka) for p in phs]
+        ax.plot(phs, nets, color=_ACCENT, linewidth=2.2, zorder=5)
+        ax.fill_between(phs, nets, 0,
+                        where=[v >= 0 for v in nets],
+                        alpha=0.15, color=_POS_COL, interpolate=True, label="Positive region")
+        ax.fill_between(phs, nets, 0,
+                        where=[v < 0 for v in nets],
+                        alpha=0.15, color=_NEG_COL, interpolate=True, label="Negative region")
+        ax.axhline(0, color="#888", linewidth=0.8, linestyle="--", zorder=3)
+        # Locate pI
+        pI_idx = min(range(len(nets)), key=lambda i: abs(nets[i]))
+        pI     = phs[pI_idx]
+        ax.axvline(pI, color="#f72585", linewidth=1.8, linestyle="-", alpha=0.9, zorder=4)
+        y_top = max(nets) if max(nets) > 0 else 1
+        ax.annotate(f"  pI = {pI:.2f}", xy=(pI, 0),
+                    xytext=(pI + 0.5, y_top * 0.65),
+                    fontsize=tick_font, color="#f72585", fontweight="bold",
+                    arrowprops=dict(arrowstyle="->", color="#f72585", lw=1.2))
+        # Physiological pH 7.4
+        ch74 = calc_net_charge(seq, 7.4, pka)
+        ax.axvline(7.4, color="#43aa8b", linewidth=1.0, linestyle=":", alpha=0.8, zorder=3)
+        y_bot = min(nets) if min(nets) < 0 else -1
+        ax.text(7.55, y_bot * 0.65,
+                f"pH 7.4\n({ch74:+.1f})", fontsize=tick_font - 2, color="#43aa8b")
+        _pub_style_ax(ax,
+                      title="Isoelectric Focusing Simulation",
+                      xlabel="pH", ylabel="Net Charge",
+                      grid=True, title_size=label_font + 1,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        ax.set_xlim(0, 14)
+        ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0", loc="upper right")
+        fig.tight_layout(pad=1.5)
+        mplcursors.cursor(ax)
+        return fig
+
+    @staticmethod
+    def create_secondary_structure(cf_helix, cf_sheet, label_font=14, tick_font=12):
+        """Chou-Fasman per-residue helix and sheet propensity."""
+        n  = len(cf_helix)
+        xs = list(range(1, n + 1))
+        fig = Figure(figsize=(9, 4), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        ax.plot(xs, cf_helix, color="#4361ee", linewidth=1.6, label="Helix P\u03b1", zorder=4)
+        ax.plot(xs, cf_sheet, color="#f72585", linewidth=1.6, label="Sheet P\u03b2", zorder=4)
+        ax.fill_between(xs, cf_helix, 1.0,
+                        where=[v > 1.0 for v in cf_helix],
+                        alpha=0.20, color="#4361ee", interpolate=True)
+        ax.fill_between(xs, cf_sheet, 1.0,
+                        where=[v > 1.0 for v in cf_sheet],
+                        alpha=0.20, color="#f72585", interpolate=True)
+        ax.axhline(1.0, color="#888", linewidth=0.8, linestyle="--",
+                   label="Neutral (1.0)", zorder=3)
+        _pub_style_ax(ax,
+                      title="Secondary Structure Propensity (Chou-Fasman)",
+                      xlabel="Residue Position", ylabel="Propensity",
+                      grid=True, title_size=label_font + 1,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")
+        fig.tight_layout(pad=1.5)
+        mplcursors.cursor(ax)
+        return fig
+
+    @staticmethod
+    def create_helical_wheel(seq, label_font=14):
+        """Helical wheel projection: first ≤18 residues at 100° per residue."""
+        seg = seq[:18]
+        n   = len(seg)
+        fig = Figure(figsize=(5.5, 5.5), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111, polar=True)
+        ax.set_facecolor("#fafbff")
+        cmap    = plt.get_cmap("RdYlBu_r")
+        kd_min, kd_max = -4.5, 4.5
+        for i, aa in enumerate(seg):
+            ang  = math.radians(i * 100.0)
+            kd   = KYTE_DOOLITTLE.get(aa, 0.0)
+            nkd  = (kd - kd_min) / (kd_max - kd_min)
+            col  = cmap(nkd)
+            ax.scatter([ang], [1.0], s=520, c=[col], zorder=5,
+                       edgecolors="white", linewidths=1.0)
+            ax.text(ang, 1.0, aa, ha="center", va="center",
+                    fontsize=label_font - 3, fontweight="bold",
+                    color="white" if nkd > 0.4 else "#1a1a2e", zorder=6)
+            ax.text(ang, 1.24, str(i + 1), ha="center", va="bottom",
+                    fontsize=label_font - 5, color="#718096", zorder=6)
+        ax.set_yticks([])
+        ax.set_xticks([])
+        ax.spines["polar"].set_visible(False)
+        ax.set_title(f"Helical Wheel  (residues 1\u2013{n})",
+                     fontsize=label_font, fontweight="bold", color="#1a1a2e", pad=14)
+        from matplotlib.cm import ScalarMappable
+        from matplotlib.colors import Normalize
+        sm  = ScalarMappable(cmap=cmap, norm=Normalize(vmin=kd_min, vmax=kd_max))
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=ax, shrink=0.65, pad=0.06, aspect=20)
+        cbar.set_label("Hydrophobicity (KD)", fontsize=label_font - 4, color="#4a5568")
+        cbar.ax.tick_params(labelsize=label_font - 5, colors="#4a5568")
+        fig.tight_layout(pad=2.0)
+        return fig
+
+    @staticmethod
+    def create_charge_decoration(fcr, ncpr, label_font=14, tick_font=12):
+        """Das-Pappu FCR vs |NCPR| phase diagram."""
+        abs_ncpr = abs(ncpr)
+        fig = Figure(figsize=(6, 5.5), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        ax.set_facecolor("#fafbff")
+        # Feasibility boundary |NCPR| ≤ FCR
+        fcr_arr = np.linspace(0, 0.72, 200)
+        ax.plot(fcr_arr, fcr_arr, color="#c0c4d0", linewidth=1.5,
+                linestyle="--", zorder=2, label="|NCPR| = FCR boundary")
+        ax.fill_between(fcr_arr, 0, fcr_arr, alpha=0.04, color="#4361ee")
+        # Phase regions
+        ax.axvspan(0,    0.25, alpha=0.09, color="#43aa8b")
+        ax.axvspan(0.25, 0.35, alpha=0.09, color="#f3722c")
+        ax.axvspan(0.35, 0.72, alpha=0.09, color="#f72585")
+        ax.axvline(0.25, color="#888", linewidth=0.7, linestyle=":", zorder=3)
+        ax.axvline(0.35, color="#888", linewidth=0.7, linestyle=":", zorder=3)
+        # Region labels
+        ax.text(0.12, 0.62, "Globule /\nCollapsed", ha="center", fontsize=tick_font - 3,
+                color="#43aa8b", fontweight="600")
+        ax.text(0.30, 0.62, "Coil /\nTadpole", ha="center", fontsize=tick_font - 3,
+                color="#f3722c", fontweight="600")
+        ax.text(0.54, 0.62, "Strong\nPolyelectrolyte", ha="center", fontsize=tick_font - 3,
+                color="#f72585", fontweight="600")
+        # Protein point
+        ax.scatter([fcr], [abs_ncpr], marker="*", s=380, color="#f72585",
+                   zorder=10, edgecolors="white", linewidths=0.8, label="This protein")
+        ax.annotate(f"  ({fcr:.2f}, {abs_ncpr:.2f})", xy=(fcr, abs_ncpr),
+                    fontsize=tick_font - 1, color="#f72585", va="bottom")
+        _pub_style_ax(ax,
+                      title="Charge Decoration Phase Diagram (Das-Pappu)",
+                      xlabel="FCR  (Fraction of Charged Residues)",
+                      ylabel="|NCPR|  (|Net Charge Per Residue|)",
+                      grid=True, title_size=label_font + 1,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        ax.set_xlim(0, 0.72)
+        ax.set_ylim(0, 0.72)
+        ax.legend(fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0",
+                  loc="upper left")
+        fig.tight_layout(pad=1.5)
+        mplcursors.cursor(ax)
+        return fig
+
+    @staticmethod
+    def create_linear_sequence_map(seq, hydro_profile, ncpr_profile,
+                                   disorder_scores, cf_helix,
+                                   label_font=14, tick_font=12):
+        """4-track linear sequence map."""
+        n      = len(seq)
+        xs_win = list(range(1, len(hydro_profile) + 1))
+        xs_all = list(range(1, n + 1))
+        fig    = Figure(figsize=(10, 7), dpi=120)
+        fig.set_facecolor("#ffffff")
+        axs = fig.subplots(4, 1, sharex=False)
+        fig.subplots_adjust(hspace=0.55, left=0.10, right=0.97, top=0.93, bottom=0.07)
+        fig.suptitle("Linear Sequence Map", fontsize=label_font + 1,
+                     fontweight="bold", color="#1a1a2e")
+
+        def _track(ax, xs, ys, col, zero, ylabel_txt, fill_above=True, fill_below=True):
+            if fill_above:
+                ax.fill_between(xs, ys, zero,
+                                where=[v >= zero for v in ys],
+                                alpha=0.28, color=col, interpolate=True)
+            if fill_below:
+                ax.fill_between(xs, ys, zero,
+                                where=[v < zero for v in ys],
+                                alpha=0.28, color="#f72585", interpolate=True)
+            ax.plot(xs, ys, color=col, linewidth=1.3)
+            ax.axhline(zero, color="#aaa", linewidth=0.6, linestyle="--")
+            ax.set_ylabel(ylabel_txt, fontsize=tick_font - 2, color="#4a5568")
+            ax.tick_params(labelsize=tick_font - 3, length=3)
+            for sp in ["top", "right"]:
+                ax.spines[sp].set_visible(False)
+            ax.set_facecolor("#fafbff")
+            ax.grid(True, linestyle="--", linewidth=0.4, alpha=0.5, color="#c8cdd8")
+            ax.set_axisbelow(True)
+
+        _track(axs[0], xs_win, hydro_profile, "#4361ee",  0, "Hydrophobicity")
+        _track(axs[1], xs_win, ncpr_profile,  "#7209b7",  0, "NCPR")
+        _track(axs[2], xs_all, disorder_scores, "#f3722c", 0.5, "Disorder",
+               fill_above=True, fill_below=False)
+        _track(axs[3], xs_all, cf_helix,       "#43aa8b",  1.0, "Helix P\u03b1",
+               fill_above=True, fill_below=False)
+        axs[3].set_xlabel("Residue Position", fontsize=tick_font - 1, color="#4a5568")
+        return fig
+
+    @staticmethod
+    def create_disorder_profile(disorder_scores, label_font=14, tick_font=12):
+        """IUPred-style per-residue disorder score plot."""
+        n  = len(disorder_scores)
+        xs = list(range(1, n + 1))
+        fig = Figure(figsize=(9, 4), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        ax.fill_between(xs, disorder_scores, 0.5,
+                        where=[v > 0.5 for v in disorder_scores],
+                        alpha=0.28, color="#f3722c", interpolate=True,
+                        label="Disordered (> 0.5)")
+        ax.fill_between(xs, disorder_scores, 0.5,
+                        where=[v <= 0.5 for v in disorder_scores],
+                        alpha=0.12, color="#4361ee", interpolate=True,
+                        label="Ordered (\u2264 0.5)")
+        ax.plot(xs, disorder_scores, color="#f3722c", linewidth=1.8,
+                marker="o", markersize=3.0, markeredgewidth=0, zorder=4)
+        ax.axhline(0.5, color="#888", linewidth=1.0, linestyle="--",
+                   zorder=3, label="Threshold (0.5)")
+        _pub_style_ax(ax,
+                      title="Disorder Profile (IUPred-inspired)",
+                      xlabel="Residue Position", ylabel="Disorder Score",
+                      grid=True, title_size=label_font + 1,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        ax.set_ylim(-0.02, 1.05)
+        ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")
+        fig.tight_layout(pad=1.5)
+        mplcursors.cursor(ax)
+        return fig
+
+
 # --- Export ---
 
 class ExportTools:
@@ -1259,6 +1590,74 @@ def _calc_batch_stats(seq: str, data: dict) -> tuple:
     neu    = 100 - (pos + neg)
     return hydro, 100 - hydro, pos, neg, neu
 
+# --- Worker thread ---
+
+class AnalysisWorker(QThread):
+    """Non-blocking analysis in a QThread.  Emits finished(dict) or error(str)."""
+    finished = pyqtSignal(dict)
+    error    = pyqtSignal(str)
+
+    def __init__(self, seq, pH, window_size, use_reducing, pka):
+        super().__init__()
+        self.seq          = seq
+        self.pH           = pH
+        self.window_size  = window_size
+        self.use_reducing = use_reducing
+        self.pka          = pka
+
+    def run(self):
+        try:
+            data = AnalysisTools.analyze_sequence(
+                self.seq, self.pH, self.window_size,
+                self.use_reducing, self.pka
+            )
+            self.finished.emit(data)
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
+# --- Mutation dialog ---
+
+class MutationDialog(QDialog):
+    """Simple dialog: pick a position and a replacement amino acid."""
+    def __init__(self, seq: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Mutate Residue")
+        self.setMinimumWidth(320)
+        self._seq = seq
+        layout = QFormLayout(self)
+        layout.setSpacing(10)
+
+        self.pos_spin = QSpinBox()
+        self.pos_spin.setRange(1, len(seq))
+        self.pos_spin.setValue(1)
+        self.pos_spin.valueChanged.connect(self._update_current)
+        layout.addRow("Position (1-based):", self.pos_spin)
+
+        self.current_lbl = QLabel(seq[0] if seq else "?")
+        self.current_lbl.setStyleSheet(
+            "font-weight:700; color:#4361ee; font-family:monospace; font-size:14pt;"
+        )
+        layout.addRow("Current residue:", self.current_lbl)
+
+        self.aa_combo = QComboBox()
+        self.aa_combo.addItems(sorted(VALID_AMINO_ACIDS))
+        layout.addRow("Replace with:", self.aa_combo)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addRow(btns)
+
+    def _update_current(self, pos):
+        aa = self._seq[pos - 1] if 0 <= pos - 1 < len(self._seq) else "?"
+        self.current_lbl.setText(aa)
+
+    def get_mutation(self):
+        """Returns (position_0based, new_aa)."""
+        return self.pos_spin.value() - 1, self.aa_combo.currentText()
+
+
 # --- Main GUI ---
 
 class ProteinAnalyzerGUI(QMainWindow):
@@ -1291,6 +1690,9 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.sequence_name       = ""   # display name for current sequence
         self.app_font_size       = 12   # global UI font size (pt)
         self._tooltips: dict     = {}  # widget -> tooltip text
+        self.transparent_bg      = False
+        self._analysis_worker    = None
+        self._history: list      = []   # list of (name, seq)
 
         self.check_dependencies()
         self.main_tabs = QTabWidget()
@@ -1298,8 +1700,10 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.init_analysis_tab()
         self.init_graphs_tab()
         self.init_batch_tab()
+        self.init_comparison_tab()
         self.init_settings_tab()
         self.init_help_tab()
+        self._setup_shortcuts()
 
     # --- Tooltip helpers ---
 
@@ -1387,23 +1791,52 @@ class ProteinAnalyzerGUI(QMainWindow):
         outer.setSpacing(6)
         self.main_tabs.addTab(container, "Analysis")
 
-        # ---- toolbar row ----
+        # ---- toolbar row 1 ----
         toolbar = QHBoxLayout()
         toolbar.setSpacing(6)
-        self.import_fasta_btn = QPushButton("  Import FASTA")
+        self.import_fasta_btn = QPushButton("Import FASTA")
         self.import_fasta_btn.clicked.connect(self.import_fasta)
-        self.import_pdb_btn = QPushButton("  Import PDB")
+        self.import_pdb_btn = QPushButton("Import PDB")
         self.import_pdb_btn.clicked.connect(self.import_pdb)
-        self.analyze_btn = QPushButton("  Analyze")
+        self.analyze_btn = QPushButton("Analyze  [Ctrl+↵]")
         self.analyze_btn.clicked.connect(self.on_analyze)
-        self.save_pdf_btn = QPushButton("  Export PDF")
+        self.save_pdf_btn = QPushButton("Export PDF")
         self.save_pdf_btn.clicked.connect(self.export_pdf)
+        self.mutate_btn = QPushButton("Mutate…")
+        self.mutate_btn.clicked.connect(self.open_mutation_dialog)
+        self.session_save_btn = QPushButton("Save Session")
+        self.session_save_btn.clicked.connect(self.session_save)
+        self.session_load_btn = QPushButton("Load Session")
+        self.session_load_btn.clicked.connect(self.session_load)
         for w in (self.import_fasta_btn, self.import_pdb_btn, self.analyze_btn,
-                  self.save_pdf_btn):
+                  self.save_pdf_btn, self.mutate_btn,
+                  self.session_save_btn, self.session_load_btn):
             w.setMinimumHeight(32)
             toolbar.addWidget(w)
         toolbar.addStretch()
         outer.addLayout(toolbar)
+
+        # ---- toolbar row 2: UniProt/NCBI fetch + history ----
+        tb2 = QHBoxLayout()
+        tb2.setSpacing(6)
+        tb2.addWidget(QLabel("Fetch accession:"))
+        self.accession_input = QLineEdit()
+        self.accession_input.setPlaceholderText("UniProt ID or NCBI accession")
+        self.accession_input.setMaximumWidth(200)
+        tb2.addWidget(self.accession_input)
+        fetch_btn = QPushButton("Fetch")
+        fetch_btn.setMinimumHeight(28)
+        fetch_btn.clicked.connect(self.fetch_accession)
+        tb2.addWidget(fetch_btn)
+        tb2.addSpacing(20)
+        tb2.addWidget(QLabel("History:"))
+        self.history_combo = QComboBox()
+        self.history_combo.setMinimumWidth(200)
+        self.history_combo.addItem("— recent sequences —")
+        self.history_combo.currentIndexChanged.connect(self._on_history_selected)
+        tb2.addWidget(self.history_combo)
+        tb2.addStretch()
+        outer.addLayout(tb2)
 
         # ---- splitter: left input panel | right results panel ----
         splitter = QSplitter(Qt.Horizontal)
@@ -1435,10 +1868,26 @@ class ProteinAnalyzerGUI(QMainWindow):
         chain_row.addWidget(self.chain_combo, 1)
         left_layout.addLayout(chain_row)
 
-        # Sequence viewer (UniProt style)
+        # Sequence viewer (UniProt style) + motif search
+        sv_hdr = QHBoxLayout()
         seq_view_label = QLabel("Sequence Viewer:")
         seq_view_label.setStyleSheet("font-weight:600; color:#4361ee; margin-top:4px;")
-        left_layout.addWidget(seq_view_label)
+        sv_hdr.addWidget(seq_view_label)
+        sv_hdr.addStretch()
+        sv_hdr.addWidget(QLabel("Search:"))
+        self.motif_input = QLineEdit()
+        self.motif_input.setPlaceholderText("motif / regex")
+        self.motif_input.setMaximumWidth(130)
+        sv_hdr.addWidget(self.motif_input)
+        hl_btn = QPushButton("Highlight")
+        hl_btn.setMinimumHeight(26)
+        hl_btn.clicked.connect(self.highlight_motif)
+        sv_hdr.addWidget(hl_btn)
+        clr_btn = QPushButton("Clear")
+        clr_btn.setMinimumHeight(26)
+        clr_btn.clicked.connect(self.clear_motif_highlight)
+        sv_hdr.addWidget(clr_btn)
+        left_layout.addLayout(sv_hdr)
         self.seq_viewer = QTextBrowser()
         self.seq_viewer.setFont(QFont("Courier New", 10))
         self.seq_viewer.setStyleSheet(
@@ -1462,18 +1911,23 @@ class ProteinAnalyzerGUI(QMainWindow):
             tab = QWidget()
             vb  = QVBoxLayout(tab)
             vb.setContentsMargins(4, 4, 4, 4)
+            btn_row = QHBoxLayout()
+            btn_row.setSpacing(4)
             if sec == "Composition":
-                sort_row = QHBoxLayout()
-                sort_row.setSpacing(4)
                 for lbl, mode in [("A–Z", "alpha"), ("By Freq", "composition"),
                                    ("Hydro ↑", "hydro_inc"), ("Hydro ↓", "hydro_dec")]:
-                    btn = QPushButton(lbl)
-                    btn.setMaximumWidth(90)
-                    btn.setMinimumHeight(28)
-                    btn.clicked.connect(lambda _, m=mode: self.sort_composition(m))
-                    sort_row.addWidget(btn)
-                sort_row.addStretch()
-                vb.addLayout(sort_row)
+                    b = QPushButton(lbl)
+                    b.setMaximumWidth(90)
+                    b.setMinimumHeight(26)
+                    b.clicked.connect(lambda _, m=mode: self.sort_composition(m))
+                    btn_row.addWidget(b)
+            btn_row.addStretch()
+            copy_btn = QPushButton("Copy Table")
+            copy_btn.setMaximumWidth(100)
+            copy_btn.setMinimumHeight(26)
+            copy_btn.clicked.connect(lambda _, s=sec: self._copy_section(s))
+            btn_row.addWidget(copy_btn)
+            vb.addLayout(btn_row)
             browser = QTextBrowser()
             vb.addWidget(browser)
             self.report_tabs.addTab(tab, sec)
@@ -1513,6 +1967,42 @@ class ProteinAnalyzerGUI(QMainWindow):
         save_all.setMinimumHeight(30)
         save_all.clicked.connect(self.save_all_graphs)
         layout.addWidget(save_all, alignment=Qt.AlignRight)
+
+    def init_comparison_tab(self):
+        container = QWidget()
+        layout    = QVBoxLayout(container)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
+        self.main_tabs.addTab(container, "Compare")
+
+        # Two sequence inputs side by side
+        inputs = QSplitter(Qt.Horizontal)
+        for attr, lbl in [("compare_seq_a", "Sequence A"), ("compare_seq_b", "Sequence B")]:
+            w = QWidget()
+            v = QVBoxLayout(w)
+            v.setContentsMargins(0, 0, 0, 0)
+            v.addWidget(QLabel(lbl))
+            te = QTextEdit()
+            te.setPlaceholderText(f"Paste {lbl} here…")
+            te.setFont(QFont("Courier New", 10))
+            te.setMaximumHeight(120)
+            v.addWidget(te)
+            setattr(self, attr, te)
+            inputs.addWidget(w)
+        layout.addWidget(inputs)
+
+        cmp_btn = QPushButton("Compare Sequences")
+        cmp_btn.setMinimumHeight(32)
+        cmp_btn.clicked.connect(self.do_compare)
+        layout.addWidget(cmp_btn, alignment=Qt.AlignLeft)
+
+        self.compare_table = QTableWidget()
+        self.compare_table.setAlternatingRowColors(True)
+        self.compare_table.setColumnCount(3)
+        self.compare_table.setHorizontalHeaderLabels(["Property", "Sequence A", "Sequence B"])
+        self.compare_table.horizontalHeader().setStretchLastSection(True)
+        self.compare_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        layout.addWidget(self.compare_table, 1)
 
     def init_batch_tab(self):
         container = QWidget()
@@ -1651,6 +2141,10 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.label_checkbox = QCheckBox("Show residue labels on bead models (≤60 aa)")
         self.label_checkbox.setChecked(self.show_bead_labels)
         form3.addRow("", self.label_checkbox)
+
+        self.transparent_bg_checkbox = QCheckBox("Transparent background (PNG/SVG graph export)")
+        self.transparent_bg_checkbox.setChecked(False)
+        form3.addRow("", self.transparent_bg_checkbox)
         layout.addLayout(form3)
 
         form4 = QFormLayout()
@@ -1947,38 +2441,79 @@ class ProteinAnalyzerGUI(QMainWindow):
             )
             return
 
-        # Single sequence
+        # Single sequence → run in worker thread
         seq = entries[0][1]
         if not self.sequence_name:
             self.sequence_name = entries[0][0]
-
-        self.analysis_data = AnalysisTools.analyze_sequence(
-            seq, pH, self.default_window_size, self.use_reducing, self.custom_pka
-        )
 
         # Clear chain combo when manually typing
         if not self.batch_data:
             self.chain_combo.clear()
             self.chain_combo.setEnabled(False)
 
-        for sec, browser in self.report_section_tabs.items():
-            browser.setHtml(self.analysis_data["report_sections"][sec])
-        self._update_seq_viewer()
-        self.update_graph_tabs()
-        self.statusBar.showMessage(
-            f"Analysis complete  |  {len(seq)} aa  |  {self.sequence_name}", 4000
-        )
-        QMessageBox.information(self, "Done", "Analysis complete.")
+        self.analyze_btn.setEnabled(False)
+        self.statusBar.showMessage("Analyzing…")
 
-    def _update_seq_viewer(self):
-        """Refresh the sequence viewer panel with UniProt-style formatted output."""
+        self._analysis_worker = AnalysisWorker(
+            seq, pH, self.default_window_size, self.use_reducing, self.custom_pka
+        )
+        self._analysis_worker.finished.connect(self._on_worker_finished)
+        self._analysis_worker.error.connect(self._on_worker_error)
+        self._analysis_worker.start()
+
+    def _update_seq_viewer(self, highlight_pattern: str = ""):
+        """Refresh the sequence viewer panel with colour-coded residues (UniProt style)."""
         if not self.analysis_data:
             return
         seq  = self.analysis_data["seq"]
         name = self.sequence_name or ""
         text = format_sequence_block(seq, name=name)
-        # Colour position numbers
-        lines  = text.split("\n")
+
+        # Pre-compile highlight pattern
+        hl_re = None
+        if highlight_pattern:
+            try:
+                hl_re = re.compile(highlight_pattern.upper())
+            except re.error:
+                hl_re = None
+
+        def _colour_residues(chunk: str) -> str:
+            """Wrap each residue letter in a coloured span, with optional highlight."""
+            parts = []
+            for aa in chunk:
+                if aa == " ":
+                    parts.append("&nbsp;")
+                    continue
+                col = _AA_COLOURS.get(aa, "#1a1a2e")
+                parts.append(f'<span style="color:{col};">{aa}</span>')
+            result = "".join(parts)
+            # Now apply motif highlighting on top (background colour)
+            if hl_re:
+                # Rebuild plain text chunk for regex matching, then wrap matches
+                positions = [m.span() for m in hl_re.finditer(chunk.replace(" ", ""))]
+                if positions:
+                    # Re-colourise with highlight bg
+                    idx = 0
+                    new_parts = []
+                    for aa in chunk:
+                        if aa == " ":
+                            new_parts.append("&nbsp;")
+                            continue
+                        col = _AA_COLOURS.get(aa, "#1a1a2e")
+                        # Check if this plain-text index falls in a match
+                        in_match = any(lo <= idx < hi for lo, hi in positions)
+                        if in_match:
+                            new_parts.append(
+                                f'<span style="color:{col};background:#fef08a;'
+                                f'border-radius:2px;">{aa}</span>'
+                            )
+                        else:
+                            new_parts.append(f'<span style="color:{col};">{aa}</span>')
+                        idx += 1
+                    result = "".join(new_parts)
+            return result
+
+        lines      = text.split("\n")
         html_lines = []
         for ln in lines:
             if ln.startswith(">"):
@@ -1986,16 +2521,16 @@ class ProteinAnalyzerGUI(QMainWindow):
                     f'<span style="color:#4361ee;font-weight:700;">{ln}</span>'
                 )
             elif ln and ln.lstrip()[0:1].isdigit():
-                # position number + sequence groups
                 parts = ln.split("  ", 1)
                 if len(parts) == 2:
                     pos_str, seq_str = parts
+                    coloured = _colour_residues(seq_str)
                     html_lines.append(
                         f'<span style="color:#718096;">{pos_str}</span>'
-                        f'  <span style="color:#1a1a2e;">{seq_str}</span>'
+                        f'&nbsp;&nbsp;{coloured}'
                     )
                 else:
-                    html_lines.append(f'<span style="color:#1a1a2e;">{ln}</span>')
+                    html_lines.append(_colour_residues(ln))
             else:
                 html_lines.append(f'<span style="color:#1a1a2e;">{ln}</span>')
         html = (
@@ -2038,6 +2573,25 @@ class ProteinAnalyzerGUI(QMainWindow):
                 label_font=lf, tick_font=tf),
             "Cation\u2013\u03c0 Map": GraphingTools.create_cation_pi_map(
                 seq, label_font=lf, tick_font=tf),
+            "Isoelectric Focus": GraphingTools.create_isoelectric_focus(
+                seq, label_font=lf, tick_font=tf, pka=self.custom_pka),
+            "Secondary Structure": GraphingTools.create_secondary_structure(
+                self.analysis_data["cf_helix"], self.analysis_data["cf_sheet"],
+                label_font=lf, tick_font=tf),
+            "Helical Wheel": GraphingTools.create_helical_wheel(
+                seq, label_font=lf),
+            "Charge Decoration": GraphingTools.create_charge_decoration(
+                self.analysis_data["fcr"], self.analysis_data["ncpr"],
+                label_font=lf, tick_font=tf),
+            "Linear Sequence Map": GraphingTools.create_linear_sequence_map(
+                seq,
+                self.analysis_data["hydro_profile"],
+                self.analysis_data["ncpr_profile"],
+                self.analysis_data["disorder_scores"],
+                self.analysis_data["cf_helix"],
+                label_font=lf, tick_font=tf),
+            "Disorder Profile": GraphingTools.create_disorder_profile(
+                self.analysis_data["disorder_scores"], label_font=lf, tick_font=tf),
         }
 
         # Apply global heading/grid/colour overrides
@@ -2088,8 +2642,12 @@ class ProteinAnalyzerGUI(QMainWindow):
         if fn:
             if not fn.lower().endswith(f".{ext}"):
                 fn += f".{ext}"
-            canvas.figure.savefig(fn, format=ext, dpi=200,
-                                   bbox_inches="tight", facecolor="white")
+            use_transparent = self.transparent_bg and ext in ("png", "svg")
+            canvas.figure.savefig(
+                fn, format=ext, dpi=200, bbox_inches="tight",
+                facecolor="none" if use_transparent else "white",
+                transparent=use_transparent
+            )
             QMessageBox.information(self, "Saved", f"{title} → {fn}")
 
     def save_all_graphs(self):
@@ -2177,6 +2735,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         except (ValueError, TypeError):
             pass
         self.show_bead_labels = self.label_checkbox.isChecked()
+        self.transparent_bg   = self.transparent_bg_checkbox.isChecked()
         self.colormap         = self.colormap_combo.currentText()
         try:
             self.label_font_size = int(self.label_font_input.text())
@@ -2265,6 +2824,236 @@ class ProteinAnalyzerGUI(QMainWindow):
                 self._update_seq_viewer()
                 self.update_graph_tabs()
                 break
+
+    # --- Keyboard shortcuts ---
+
+    def _setup_shortcuts(self):
+        QShortcut(QKeySequence("Ctrl+Return"), self, self.on_analyze)
+        QShortcut(QKeySequence("Ctrl+E"),      self, self.export_pdf)
+        QShortcut(QKeySequence("Ctrl+G"),      self,
+                  lambda: self.main_tabs.setCurrentIndex(1))
+        QShortcut(QKeySequence("Ctrl+S"),      self, self.session_save)
+        QShortcut(QKeySequence("Ctrl+O"),      self, self.session_load)
+        QShortcut(QKeySequence("Ctrl+F"),      self,
+                  lambda: self.motif_input.setFocus())
+
+    # --- Worker callbacks ---
+
+    def _on_worker_finished(self, data: dict):
+        seq  = data["seq"]
+        self.analysis_data = data
+        self._add_to_history(self.sequence_name, seq)
+        for sec, browser in self.report_section_tabs.items():
+            browser.setHtml(data["report_sections"][sec])
+        self._update_seq_viewer()
+        self.update_graph_tabs()
+        self.analyze_btn.setEnabled(True)
+        self.statusBar.showMessage(
+            f"Analysis complete  |  {len(seq)} aa  |  {self.sequence_name}", 4000
+        )
+
+    def _on_worker_error(self, msg: str):
+        self.analyze_btn.setEnabled(True)
+        self.statusBar.showMessage("Analysis failed", 3000)
+        QMessageBox.critical(self, "Analysis Error", msg)
+
+    # --- History ---
+
+    def _add_to_history(self, name: str, seq: str):
+        # Avoid duplicates by sequence
+        self._history = [(n, s) for n, s in self._history if s != seq]
+        self._history.insert(0, (name or "Sequence", seq))
+        self._history = self._history[:10]
+        # Rebuild combo
+        self.history_combo.blockSignals(True)
+        self.history_combo.clear()
+        self.history_combo.addItem("— recent sequences —")
+        for n, _ in self._history:
+            self.history_combo.addItem(n)
+        self.history_combo.setCurrentIndex(0)
+        self.history_combo.blockSignals(False)
+
+    def _on_history_selected(self, idx: int):
+        if idx <= 0:
+            return
+        name, seq = self._history[idx - 1]
+        self.seq_text.setPlainText(seq)
+        self.sequence_name = name
+        self.history_combo.setCurrentIndex(0)
+
+    # --- Accession fetch ---
+
+    def fetch_accession(self):
+        acc = self.accession_input.text().strip()
+        if not acc:
+            QMessageBox.warning(self, "Fetch", "Enter a UniProt accession.")
+            return
+        url = f"https://rest.uniprot.org/uniprotkb/{acc}.fasta"
+        self.statusBar.showMessage(f"Fetching {acc}…")
+        try:
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                raw = resp.read().decode()
+        except Exception as e:
+            self.statusBar.showMessage("Fetch failed", 3000)
+            QMessageBox.warning(self, "Fetch Failed", str(e))
+            return
+        entries = self._parse_pasted_text(raw)
+        if not entries:
+            QMessageBox.warning(self, "Fetch", "No valid protein sequence returned.")
+            return
+        rid, seq = entries[0]
+        self.seq_text.setPlainText(seq)
+        self.sequence_name = rid
+        self.accession_input.clear()
+        self.statusBar.showMessage(f"Fetched {rid}  ({len(seq)} aa)", 3000)
+
+    # --- Mutation tool ---
+
+    def open_mutation_dialog(self):
+        if not self.analysis_data:
+            QMessageBox.warning(self, "Mutate", "Run analysis first.")
+            return
+        seq = self.analysis_data["seq"]
+        dlg = MutationDialog(seq, self)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        pos, new_aa = dlg.get_mutation()
+        mutated = seq[:pos] + new_aa + seq[pos + 1:]
+        old_aa  = seq[pos]
+        self.seq_text.setPlainText(mutated)
+        self.statusBar.showMessage(
+            f"Mutated position {pos+1}: {old_aa} → {new_aa}", 3000
+        )
+        self.on_analyze()
+
+    # --- Motif search ---
+
+    def highlight_motif(self):
+        if not self.analysis_data:
+            return
+        pattern = self.motif_input.text().strip()
+        if not pattern:
+            self._update_seq_viewer()
+            return
+        seq = self.analysis_data["seq"]
+        try:
+            matches = list(re.finditer(pattern.upper(), seq))
+        except re.error as e:
+            self.statusBar.showMessage(f"Invalid regex: {e}", 3000)
+            return
+        self._update_seq_viewer(highlight_pattern=pattern)
+        self.statusBar.showMessage(
+            f"{len(matches)} match(es) found for '{pattern}'", 3000
+        )
+
+    def clear_motif_highlight(self):
+        self.motif_input.clear()
+        self._update_seq_viewer()
+
+    # --- Sequence comparison ---
+
+    def do_compare(self):
+        raw_a = self.compare_seq_a.toPlainText()
+        raw_b = self.compare_seq_b.toPlainText()
+        entries_a = self._parse_pasted_text(raw_a)
+        entries_b = self._parse_pasted_text(raw_b)
+        if not entries_a or not entries_b:
+            QMessageBox.warning(self, "Compare",
+                                "Both Sequence A and B must be valid protein sequences.")
+            return
+        seq_a = entries_a[0][1]
+        seq_b = entries_b[0][1]
+        da = AnalysisTools.analyze_sequence(seq_a)
+        db = AnalysisTools.analyze_sequence(seq_b)
+
+        props = [
+            ("Length (aa)",           str(len(seq_a)),           str(len(seq_b))),
+            ("Molecular Weight (Da)",  f"{da['mol_weight']:.2f}", f"{db['mol_weight']:.2f}"),
+            ("Isoelectric Point (pI)", f"{da['iso_point']:.2f}",  f"{db['iso_point']:.2f}"),
+            ("GRAVY Score",            f"{da['gravy']:.3f}",      f"{db['gravy']:.3f}"),
+            ("FCR",                    f"{da['fcr']:.3f}",        f"{db['fcr']:.3f}"),
+            ("NCPR",                   f"{da['ncpr']:+.3f}",      f"{db['ncpr']:+.3f}"),
+            ("Net Charge (pH 7)",      f"{da['net_charge_7']:.2f}", f"{db['net_charge_7']:.2f}"),
+            ("Instability Index",      f"{da['instability']:.2f}", f"{db['instability']:.2f}"),
+            ("Aromaticity",            f"{da['aromaticity']:.3f}", f"{db['aromaticity']:.3f}"),
+            ("Extinction Coeff.",      str(da['extinction']),     str(db['extinction'])),
+        ]
+        self.compare_table.setRowCount(len(props))
+        for row, (prop, va, vb) in enumerate(props):
+            self.compare_table.setItem(row, 0, QTableWidgetItem(prop))
+            self.compare_table.setItem(row, 1, QTableWidgetItem(va))
+            self.compare_table.setItem(row, 2, QTableWidgetItem(vb))
+        self.compare_table.resizeColumnsToContents()
+        self.statusBar.showMessage("Comparison complete", 3000)
+
+    # --- Copy table to clipboard ---
+
+    def _copy_section(self, sec: str):
+        browser = self.report_section_tabs.get(sec)
+        if not browser:
+            return
+        text = browser.toPlainText()
+        QApplication.clipboard().setText(text)
+        self.statusBar.showMessage(f"'{sec}' copied to clipboard", 2000)
+
+    # --- Session save / load ---
+
+    def session_save(self):
+        fn, _ = QFileDialog.getSaveFileName(
+            self, "Save Session", "", "BEER Session Files (*.beer)"
+        )
+        if not fn:
+            return
+        if not fn.endswith(".beer"):
+            fn += ".beer"
+        state = {
+            "seq":         self.seq_text.toPlainText(),
+            "seq_name":    self.sequence_name,
+            "pH":          self.default_pH,
+            "window_size": self.default_window_size,
+            "use_reducing": self.use_reducing,
+            "custom_pka":  self.custom_pka,
+            "app_font_size": self.app_font_size,
+            "label_font_size": self.label_font_size,
+            "tick_font_size":  self.tick_font_size,
+            "colormap":     self.colormap,
+            "transparent_bg": self.transparent_bg,
+        }
+        try:
+            with open(fn, "w") as f:
+                json.dump(state, f, indent=2)
+            self.statusBar.showMessage(f"Session saved: {fn}", 3000)
+        except OSError as e:
+            QMessageBox.critical(self, "Save Failed", str(e))
+
+    def session_load(self):
+        fn, _ = QFileDialog.getOpenFileName(
+            self, "Load Session", "", "BEER Session Files (*.beer)"
+        )
+        if not fn:
+            return
+        try:
+            with open(fn) as f:
+                state = json.load(f)
+        except Exception as e:
+            QMessageBox.critical(self, "Load Failed", str(e))
+            return
+        seq = state.get("seq", "")
+        if seq:
+            self.seq_text.setPlainText(seq)
+        self.sequence_name    = state.get("seq_name", "")
+        self.default_pH       = state.get("pH", 7.0)
+        self.default_window_size = state.get("window_size", 9)
+        self.use_reducing     = state.get("use_reducing", False)
+        self.custom_pka       = state.get("custom_pka", None)
+        self.transparent_bg   = state.get("transparent_bg", False)
+        # Update settings UI widgets
+        self.ph_input.setText(str(self.default_pH))
+        self.window_size_input.setText(str(self.default_window_size))
+        self.transparent_bg_checkbox.setChecked(self.transparent_bg)
+        self.statusBar.showMessage(f"Session loaded: {fn}", 3000)
+        if seq:
+            self.on_analyze()
 
     # --- Dependency check ---
 
