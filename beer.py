@@ -17,7 +17,8 @@ from PyQt5.QtWidgets import (
     QFileDialog, QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem,
     QCheckBox, QStatusBar, QComboBox, QFormLayout,
     QSplitter, QScrollArea, QFrame, QDialog, QDialogButtonBox,
-    QSpinBox, QProgressDialog, QAbstractItemView
+    QSpinBox, QProgressDialog, QAbstractItemView,
+    QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QStackedWidget,
 )
 from PyQt5.QtGui import QFont, QKeySequence
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
@@ -156,6 +157,41 @@ GRAPH_TITLES = [
     "Domain Architecture",
 ]
 
+# Graph categories for the tree browser (order matters; every GRAPH_TITLES entry must appear here)
+GRAPH_CATEGORIES = [
+    ("Composition", [
+        "Amino Acid Composition (Bar)",
+        "Amino Acid Composition (Pie)",
+    ]),
+    ("Profiles", [
+        "Hydrophobicity Profile",
+        "Local Charge Profile",
+        "Local Complexity",
+        "Disorder Profile",
+        "Linear Sequence Map",
+        "Secondary Structure",
+    ]),
+    ("Charge & \u03c0-Interactions", [
+        "Net Charge vs pH",
+        "Isoelectric Focus",
+        "Charge Decoration",
+        "Cation\u2013\u03c0 Map",
+    ]),
+    ("Structure & Folding", [
+        "Bead Model (Hydrophobicity)",
+        "Bead Model (Charge)",
+        "Sticker Map",
+        "Properties Radar Chart",
+        "Helical Wheel",
+        "TM Topology",
+    ]),
+    ("AlphaFold / Structural", [
+        "pLDDT Profile",
+        "Distance Map",
+        "Domain Architecture",
+    ]),
+]
+
 LIGHT_THEME_CSS = """
  QWidget {
      background-color: #f5f6fa;
@@ -224,6 +260,43 @@ LIGHT_THEME_CSS = """
  QScrollBar:vertical { background: #f0f0f5; width: 10px; border-radius: 5px; }
  QScrollBar::handle:vertical { background: #c0c4d0; border-radius: 5px; min-height: 30px; }
  QStatusBar { background-color: #4361ee; color: #ffffff; font-size: 11px; }
+ /* --- Left navigation sidebar --- */
+ QListWidget#nav_bar {
+     background-color: #e4e8f4;
+     border: none;
+     border-right: 1px solid #c8cede;
+     padding: 8px 0;
+     font-size: 11px;
+     font-weight: 500;
+     outline: 0;
+ }
+ QListWidget#nav_bar::item {
+     padding: 11px 10px;
+     color: #4a5568;
+     border-left: 3px solid transparent;
+ }
+ QListWidget#nav_bar::item:selected {
+     background-color: #dce3f8;
+     color: #4361ee;
+     border-left: 3px solid #4361ee;
+     font-weight: 700;
+ }
+ QListWidget#nav_bar::item:hover:!selected { background-color: #d4d9ec; }
+ QFrame#nav_sep { color: #c8cede; max-width: 1px; }
+ /* --- Graph tree & report nav --- */
+ QTreeWidget#graph_tree, QListWidget#report_nav {
+     background-color: #f0f2fa;
+     border: none;
+     border-right: 1px solid #d0d4e0;
+     font-size: 11px;
+     outline: 0;
+ }
+ QTreeWidget#graph_tree::item { padding: 5px 6px; color: #4a5568; }
+ QTreeWidget#graph_tree::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 3px; }
+ QTreeWidget#graph_tree::branch { background-color: #f0f2fa; }
+ QListWidget#report_nav::item { padding: 8px 10px; color: #4a5568; }
+ QListWidget#report_nav::item:selected { background-color: #4361ee; color: #ffffff; }
+ QListWidget#report_nav::item:hover:!selected { background-color: #dce3f8; }
 """
 
 DARK_THEME_CSS = """
@@ -295,6 +368,43 @@ DARK_THEME_CSS = """
  QScrollBar:vertical { background: #16213e; width: 10px; border-radius: 5px; }
  QScrollBar::handle:vertical { background: #2d3561; border-radius: 5px; min-height: 30px; }
  QStatusBar { background-color: #0f3460; color: #4cc9f0; font-size: 11px; }
+ /* --- Left navigation sidebar --- */
+ QListWidget#nav_bar {
+     background-color: #0f3460;
+     border: none;
+     border-right: 1px solid #1a3a5c;
+     padding: 8px 0;
+     font-size: 11px;
+     font-weight: 500;
+     outline: 0;
+ }
+ QListWidget#nav_bar::item {
+     padding: 11px 10px;
+     color: #94a3b8;
+     border-left: 3px solid transparent;
+ }
+ QListWidget#nav_bar::item:selected {
+     background-color: #1a3a5c;
+     color: #4cc9f0;
+     border-left: 3px solid #4cc9f0;
+     font-weight: 700;
+ }
+ QListWidget#nav_bar::item:hover:!selected { background-color: #1a3a5c; color: #e2e8f0; }
+ QFrame#nav_sep { color: #1a3a5c; max-width: 1px; }
+ /* --- Graph tree & report nav --- */
+ QTreeWidget#graph_tree, QListWidget#report_nav {
+     background-color: #16213e;
+     border: none;
+     border-right: 1px solid #2d3561;
+     font-size: 11px;
+     outline: 0;
+ }
+ QTreeWidget#graph_tree::item { padding: 5px 6px; color: #94a3b8; }
+ QTreeWidget#graph_tree::item:selected { background-color: #4cc9f0; color: #1a1a2e; border-radius: 3px; }
+ QTreeWidget#graph_tree::branch { background-color: #16213e; }
+ QListWidget#report_nav::item { padding: 8px 10px; color: #94a3b8; }
+ QListWidget#report_nav::item:selected { background-color: #4cc9f0; color: #1a1a2e; }
+ QListWidget#report_nav::item:hover:!selected { background-color: #1a3a5c; }
 """
 
 # --- HTML/PDF styling ---
@@ -2056,6 +2166,71 @@ class MutationDialog(QDialog):
         return self.pos_spin.value() - 1, self.aa_combo.currentText()
 
 
+# --- Navigation sidebar widget ---
+
+class NavTabWidget(QWidget):
+    """Left-sidebar navigation that is a drop-in replacement for QTabWidget.
+    Implements the subset of QTabWidget API used in this app."""
+
+    _NAV_ICONS = {
+        "Analysis":            "🧪",
+        "Graphs":              "📊",
+        "Structure":           "🔬",
+        "BLAST":               "🔍",
+        "Compare":             "⚖\ufe0f",
+        "Multichain Analysis": "📋",
+        "Settings":            "⚙\ufe0f",
+        "Help":                "❓",
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self.nav_list = QListWidget()
+        self.nav_list.setObjectName("nav_bar")
+        self.nav_list.setFixedWidth(136)
+        self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        outer.addWidget(self.nav_list)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setFrameShadow(QFrame.Plain)
+        sep.setObjectName("nav_sep")
+        outer.addWidget(sep)
+
+        self.stack = QStackedWidget()
+        outer.addWidget(self.stack, 1)
+
+        self.nav_list.currentRowChanged.connect(self.stack.setCurrentIndex)
+
+    def addTab(self, widget: QWidget, name: str) -> int:
+        icon = self._NAV_ICONS.get(name, "▸")
+        item = QListWidgetItem(f"  {icon}  {name}")
+        self.nav_list.addItem(item)
+        idx = self.stack.addWidget(widget)
+        if self.nav_list.count() == 1:
+            self.nav_list.setCurrentRow(0)
+        return idx
+
+    def setCurrentIndex(self, idx: int):
+        self.nav_list.setCurrentRow(idx)
+
+    def currentIndex(self) -> int:
+        return self.nav_list.currentRow()
+
+    def currentWidget(self) -> QWidget:
+        return self.stack.currentWidget()
+
+    def widget(self, idx: int) -> QWidget:
+        return self.stack.widget(idx)
+
+    def count(self) -> int:
+        return self.stack.count()
+
+
 # --- Main GUI ---
 
 class ProteinAnalyzerGUI(QMainWindow):
@@ -2101,7 +2276,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._blast_worker       = None
 
         self.check_dependencies()
-        self.main_tabs = QTabWidget()
+        self.main_tabs = NavTabWidget()
         self.setCentralWidget(self.main_tabs)
         self.init_analysis_tab()
         self.init_graphs_tab()
@@ -2321,16 +2496,38 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         splitter.addWidget(left)
 
-        # Right panel: report tabs
+        # Right panel: section list + content stack
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(4, 0, 0, 0)
         right_layout.setSpacing(0)
 
-        self.report_tabs = QTabWidget()
-        right_layout.addWidget(self.report_tabs)
+        report_panel = QWidget()
+        report_h     = QHBoxLayout(report_panel)
+        report_h.setContentsMargins(0, 0, 0, 0)
+        report_h.setSpacing(0)
+
+        self.report_section_list = QListWidget()
+        self.report_section_list.setObjectName("report_nav")
+        self.report_section_list.setFixedWidth(152)
+        self.report_section_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        report_h.addWidget(self.report_section_list)
+
+        rsep = QFrame()
+        rsep.setFrameShape(QFrame.VLine)
+        rsep.setFrameShadow(QFrame.Plain)
+        rsep.setObjectName("nav_sep")
+        report_h.addWidget(rsep)
+
+        self.report_stack = QStackedWidget()
+        report_h.addWidget(self.report_stack, 1)
+
+        right_layout.addWidget(report_panel, 1)
+
         self.report_section_tabs = {}
         for sec in REPORT_SECTIONS:
+            self.report_section_list.addItem(QListWidgetItem(sec))
+
             tab = QWidget()
             vb  = QVBoxLayout(tab)
             vb.setContentsMargins(4, 4, 4, 4)
@@ -2353,8 +2550,12 @@ class ProteinAnalyzerGUI(QMainWindow):
             vb.addLayout(btn_row)
             browser = QTextBrowser()
             vb.addWidget(browser)
-            self.report_tabs.addTab(tab, sec)
+            self.report_stack.addWidget(tab)
             self.report_section_tabs[sec] = browser
+
+        self.report_section_list.currentRowChanged.connect(
+            self.report_stack.setCurrentIndex)
+        self.report_section_list.setCurrentRow(0)
 
         splitter.addWidget(right)
         splitter.setSizes([400, 700])
@@ -2362,34 +2563,84 @@ class ProteinAnalyzerGUI(QMainWindow):
 
     def init_graphs_tab(self):
         container = QWidget()
-        layout    = QVBoxLayout(container)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(4)
+        outer     = QHBoxLayout(container)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
         self.main_tabs.addTab(container, "Graphs")
 
-        self.graphs_subtabs = QTabWidget()
-        layout.addWidget(self.graphs_subtabs, 1)
+        # ── Left: category tree ──────────────────────────────────────────────
+        self.graph_tree = QTreeWidget()
+        self.graph_tree.setObjectName("graph_tree")
+        self.graph_tree.setHeaderHidden(True)
+        self.graph_tree.setFixedWidth(186)
+        self.graph_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.graph_tree.setIndentation(14)
+        outer.addWidget(self.graph_tree)
 
-        self.graph_tabs = {}
-        for title in GRAPH_TITLES:
-            tab = QWidget()
-            vb  = QVBoxLayout(tab)
-            vb.setContentsMargins(4, 4, 4, 4)
-            placeholder = QLabel(f"Run analysis to generate:  {title}")
-            placeholder.setAlignment(Qt.AlignCenter)
-            placeholder.setStyleSheet("color:#718096; font-style:italic;")
-            vb.addWidget(placeholder)
-            btn = QPushButton("Save Graph")
-            btn.setMaximumWidth(120)
-            btn.clicked.connect(lambda _, t=title: self.save_graph(t))
-            vb.addWidget(btn, alignment=Qt.AlignRight)
-            self.graphs_subtabs.addTab(tab, title)
-            self.graph_tabs[title] = (tab, vb)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setFrameShadow(QFrame.Plain)
+        sep.setObjectName("nav_sep")
+        outer.addWidget(sep)
+
+        # ── Right: canvas stack + toolbar ───────────────────────────────────
+        right = QWidget()
+        right_v = QVBoxLayout(right)
+        right_v.setContentsMargins(4, 4, 4, 4)
+        right_v.setSpacing(4)
+        outer.addWidget(right, 1)
 
         save_all = QPushButton("Save All Graphs")
-        save_all.setMinimumHeight(30)
+        save_all.setMaximumWidth(160)
         save_all.clicked.connect(self.save_all_graphs)
-        layout.addWidget(save_all, alignment=Qt.AlignRight)
+        right_v.addWidget(save_all, alignment=Qt.AlignRight)
+
+        self.graph_stack = QStackedWidget()
+        right_v.addWidget(self.graph_stack, 1)
+
+        # ── Populate tree and stack ──────────────────────────────────────────
+        self.graph_tabs = {}
+        self._graph_title_to_stack_idx: dict = {}
+        bold_font = QFont()
+        bold_font.setBold(True)
+        bold_font.setPointSize(10)
+
+        for category, titles in GRAPH_CATEGORIES:
+            cat_item = QTreeWidgetItem([f"  {category}"])
+            cat_item.setFont(0, bold_font)
+            cat_item.setFlags(cat_item.flags() & ~Qt.ItemIsSelectable)
+            self.graph_tree.addTopLevelItem(cat_item)
+
+            for title in titles:
+                leaf = QTreeWidgetItem([f"  {title}"])
+                leaf.setData(0, Qt.UserRole, title)
+                cat_item.addChild(leaf)
+
+                panel = QWidget()
+                vb    = QVBoxLayout(panel)
+                vb.setContentsMargins(4, 4, 4, 4)
+                ph = QLabel(f"Run analysis to generate:\n{title}")
+                ph.setAlignment(Qt.AlignCenter)
+                ph.setStyleSheet("color:#718096; font-style:italic;")
+                vb.addWidget(ph)
+                save_btn = QPushButton("Save Graph")
+                save_btn.setMaximumWidth(120)
+                save_btn.clicked.connect(lambda _, t=title: self.save_graph(t))
+                vb.addWidget(save_btn, alignment=Qt.AlignRight)
+
+                idx = self.graph_stack.addWidget(panel)
+                self.graph_tabs[title] = (panel, vb)
+                self._graph_title_to_stack_idx[title] = idx
+
+            cat_item.setExpanded(True)
+
+        self.graph_tree.itemClicked.connect(self._on_graph_tree_clicked)
+        # Select first graph
+        first_cat = self.graph_tree.topLevelItem(0)
+        if first_cat and first_cat.childCount():
+            first_leaf = first_cat.child(0)
+            self.graph_tree.setCurrentItem(first_leaf)
+            self.graph_stack.setCurrentIndex(0)
 
     def init_structure_tab(self):
         """Tab for 3D AlphaFold structure viewer and pLDDT info."""
@@ -2776,104 +3027,308 @@ window.addEventListener("load", init);
         layout.addStretch()
 
     def init_help_tab(self):
-        layout    = QVBoxLayout()
         container = QWidget()
-        container.setLayout(layout)
+        outer_v   = QVBoxLayout(container)
+        outer_v.setContentsMargins(0, 0, 0, 0)
+        outer_v.setSpacing(0)
         self.main_tabs.addTab(container, "Help")
-        b = QTextBrowser()
-        b.setHtml("""
-        <h1>BEER Help &amp; Definitions</h1>
 
-        <h2>Protein Sequence</h2>
-        <p>Enter a single-letter amino acid sequence or import from FASTA/PDB.</p>
+        # Two-panel layout: section list on left, content on right
+        help_h = QHBoxLayout()
+        help_h.setContentsMargins(0, 0, 0, 0)
+        help_h.setSpacing(0)
+        outer_v.addLayout(help_h)
 
-        <h2>Overview</h2>
-        <ul>
-          <li><b>Sequence Length:</b> Number of residues.</li>
-          <li><b>Sequence:</b> The raw amino acid string.</li>
-          <li><b>Net Charge:</b> At pH 7.0 (and custom pH if specified).</li>
-          <li><b>Solubility Prediction:</b> Based on average hydrophobicity.</li>
-        </ul>
+        help_nav = QListWidget()
+        help_nav.setObjectName("report_nav")
+        help_nav.setFixedWidth(172)
+        help_nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        help_h.addWidget(help_nav)
 
-        <h2>Composition</h2>
-        <p>Counts and percentage frequencies of each residue.</p>
+        sep = QFrame(); sep.setFrameShape(QFrame.VLine)
+        sep.setFrameShadow(QFrame.Plain); sep.setObjectName("nav_sep")
+        help_h.addWidget(sep)
 
-        <h2>Properties</h2>
-        <ul>
-          <li><b>Molecular Weight:</b> Approx. mass in Daltons.</li>
-          <li><b>Isoelectric Point (pI):</b> pH with zero net charge.</li>
-          <li><b>Extinction Coeff.:</b> Absorbance at 280 nm per M per cm.</li>
-          <li><b>GRAVY Score:</b> Grand average of hydropathicity (higher = hydrophobic).</li>
-          <li><b>Instability Index:</b> &lt;40 suggests stable protein.</li>
-          <li><b>Aromaticity:</b> Fraction of F, W, Y residues.</li>
-        </ul>
+        help_stack = QStackedWidget()
+        help_h.addWidget(help_stack, 1)
 
-        <h2>Charge</h2>
-        <ul>
-          <li><b>FCR:</b> Fraction of charged residues (K,R,D,E).</li>
-          <li><b>NCPR:</b> Net charge per residue = (K+R &minus; D+E) / length.</li>
-          <li><b>Kappa (&kappa;):</b> Charge patterning, 0 = well-mixed, 1 = fully segregated (Das &amp; Pappu 2013).</li>
-          <li><b>Charge asymmetry:</b> Ratio of positive to negative residues.</li>
-        </ul>
+        _HELP_SECTIONS = [
+            ("Getting Started", """
+<h1>Getting Started</h1>
+<h2>Input methods</h2>
+<ul>
+  <li><b>Paste sequence</b> — type or paste a bare amino-acid string (ACDEFG…) or FASTA block into the sequence box and click <b>Analyze [Ctrl+Enter]</b>.</li>
+  <li><b>Import FASTA</b> — load a .fa / .fasta file (single or multi-sequence).</li>
+  <li><b>Import PDB</b> — extract sequence(s) from a local PDB file.</li>
+  <li><b>Fetch accession</b> — enter a UniProt ID (e.g. <tt>P04637</tt>) or NCBI accession and click <b>Fetch</b>. This also enables the <b>Fetch AlphaFold</b> and <b>Fetch Pfam</b> buttons.</li>
+</ul>
+<h2>Navigation</h2>
+<p>Use the <b>left sidebar</b> to switch between sections. Keyboard shortcuts:</p>
+<table>
+  <tr><th>Shortcut</th><th>Action</th></tr>
+  <tr><td>Ctrl+Enter</td><td>Run analysis</td></tr>
+  <tr><td>Ctrl+G</td><td>Jump to Graphs</td></tr>
+  <tr><td>Ctrl+E</td><td>Export PDF report</td></tr>
+  <tr><td>Ctrl+S</td><td>Save session</td></tr>
+  <tr><td>Ctrl+O</td><td>Load session</td></tr>
+  <tr><td>Ctrl+F</td><td>Focus motif search</td></tr>
+</table>
+"""),
+            ("Sequence Analysis", """
+<h1>Sequence Analysis</h1>
+<h2>Composition</h2>
+<p>Counts and percentage frequencies of each of the 20 standard amino acids. Use the sort buttons (A–Z, By Freq, Hydro ↑/↓) to reorder the table and the matching bar chart.</p>
+<h2>Properties</h2>
+<ul>
+  <li><b>Molecular Weight</b> — approximate monoisotopic mass (Da).</li>
+  <li><b>Isoelectric Point (pI)</b> — pH at which net charge = 0 (Henderson-Hasselbalch).</li>
+  <li><b>Extinction Coefficient</b> — absorbance at 280 nm per M per cm; uses W (5500), Y (1490), C–C (125 in oxidising conditions).</li>
+  <li><b>GRAVY Score</b> — grand average of hydropathicity; positive = hydrophobic (Kyte &amp; Doolittle 1982).</li>
+  <li><b>Instability Index</b> — &lt;40 suggests stable protein in vitro (Guruprasad et al. 1990).</li>
+  <li><b>Aromaticity</b> — fraction of F, W, Y residues.</li>
+</ul>
+<h2>Hydrophobicity</h2>
+<p>Per-residue Kyte-Doolittle values plus fraction of hydrophobic (KD &gt; 0) vs hydrophilic (KD &lt; 0) residues.</p>
+<h2>Charge</h2>
+<ul>
+  <li><b>FCR</b> — fraction of charged residues (K, R, D, E).</li>
+  <li><b>NCPR</b> — net charge per residue = (pos − neg) / length.</li>
+  <li><b>Kappa (κ)</b> — charge patterning: 0 = well-mixed, 1 = fully segregated (Das &amp; Pappu 2013).</li>
+  <li><b>Charge asymmetry</b> — ratio of positive to negative residues.</li>
+</ul>
+<h2>Aromatic &amp; π-Interactions</h2>
+<ul>
+  <li><b>Aromatic fraction</b> — (F+W+Y)/length; π–π stacking drives many condensates.</li>
+  <li><b>Cation–π pairs</b> — K or R within ±4 positions of F/W/Y.</li>
+  <li><b>π–π pairs</b> — F/W/Y within ±4 positions of another aromatic.</li>
+</ul>
+<h2>Low Complexity</h2>
+<ul>
+  <li><b>Shannon entropy</b> — compositional complexity in bits; max ≈ 4.32 (all 20 AAs equal).</li>
+  <li><b>Prion-like score</b> — fraction of N, Q, S, G, Y; enriched in yeast prion domains (PLAAC / Lancaster &amp; Bhatt).</li>
+  <li><b>LC fraction</b> — fraction covered by windows (w=12) with entropy &lt; 2.0 bits.</li>
+</ul>
+<h2>Disorder</h2>
+<ul>
+  <li><b>Disorder-promoting fraction</b> — A, E, G, K, P, Q, R, S (Uversky classification).</li>
+  <li><b>Order-promoting fraction</b> — C, F, H, I, L, M, V, W, Y.</li>
+  <li><b>Aliphatic index</b> — (A + 2.9V + 3.9(I+L)) / length × 100 (Ikai 1980).</li>
+  <li><b>Omega (Ω)</b> — patterning of sticker residues; 0 = even, 1 = clustered (Das et al. 2015).</li>
+</ul>
+<h2>Secondary Structure (Chou-Fasman)</h2>
+<p>Per-residue helix (Pα) and sheet (Pβ) propensities. Pα or Pβ &gt; 1.0 favours that element.
+The per-residue disorder score is an IUPred-inspired propensity (0 = ordered, 1 = disordered).</p>
+<h2>Repeat Motifs</h2>
+<ul>
+  <li><b>RGG</b> — Arg-Gly-Gly; key driver in FUS, hnRNP family.</li>
+  <li><b>FG</b> — Phe-Gly; hallmark of nucleoporin IDRs.</li>
+  <li><b>SR/RS</b> — Ser-Arg; splicing factor signature.</li>
+  <li><b>QN/NQ</b> — Gln-Asn; yeast prion signature.</li>
+</ul>
+<h2>Sticker &amp; Spacer</h2>
+<p>Stickers = F, W, Y, K, R, D, E — residues mediating specific interactions.
+Spacers = all others. Mean/min/max gaps between consecutive stickers (Mittag &amp; Pappu model).</p>
+"""),
+            ("Transmembrane Helices", """
+<h1>Transmembrane Helix Prediction</h1>
+<p>Available in the <b>TM Helices</b> report section and the <b>TM Topology</b> graph
+after running analysis. No external server required — prediction is purely sequence-based.</p>
+<h2>Algorithm</h2>
+<ol>
+  <li>A <b>sliding window</b> (width = 19) of Kyte-Doolittle scores is computed at every position.</li>
+  <li>Contiguous runs where the window score exceeds <b>1.6</b> are merged into candidate helices.</li>
+  <li>Candidates with length outside <b>15–35 aa</b> are discarded.</li>
+  <li><b>Inside-positive rule (von Heijne)</b> — the flanking 15 residues on each side are scanned
+      for K and R. The side with more positively charged residues is assigned as cytoplasmic.
+      <ul>
+        <li><b>out→in</b>: N-terminus is extracellular, C-terminus is cytoplasmic.</li>
+        <li><b>in→out</b>: N-terminus is cytoplasmic, C-terminus is extracellular.</li>
+      </ul>
+  </li>
+</ol>
+<h2>TM Topology graph</h2>
+<p>A simplified snake-plot. The yellow band represents the membrane. Blue rectangles are TM helices
+labelled with their residue range. Loops are drawn above (extracellular) or below (cytoplasmic)
+the band according to the predicted topology.</p>
+<p class="note">Note: This is a heuristic predictor suitable for a first-pass screen.
+For high-accuracy results use TMHMM, Phobius, or DeepTMHMM.</p>
+"""),
+            ("AlphaFold & 3D Structure", """
+<h1>AlphaFold Integration</h1>
+<p>Requires an internet connection and a valid UniProt accession (fetch it with the
+<b>Fetch</b> button in the Analysis toolbar first). Then click <b>Fetch AlphaFold</b>.</p>
+<h2>What gets downloaded</h2>
+<ul>
+  <li>AlphaFold2 predicted PDB file from the EBI server.</li>
+  <li>Per-residue <b>pLDDT</b> scores (stored in the B-factor column of the PDB).</li>
+  <li>Cα pairwise <b>distance matrix</b> computed from the structure coordinates.</li>
+</ul>
+<h2>pLDDT Profile graph</h2>
+<p>Per-residue confidence score (0–100) plotted with four coloured confidence bands:</p>
+<table>
+  <tr><th>Colour</th><th>Range</th><th>Meaning</th></tr>
+  <tr><td>Blue</td><td>&gt;90</td><td>Very high confidence</td></tr>
+  <tr><td>Cyan</td><td>70–90</td><td>Confident</td></tr>
+  <tr><td>Yellow</td><td>50–70</td><td>Low confidence</td></tr>
+  <tr><td>Orange</td><td>&lt;50</td><td>Very low / disordered region</td></tr>
+</table>
+<h2>Distance Map graph</h2>
+<p>Symmetric Cα–Cα pairwise distance heatmap (viridis palette, 0–40 Å). The pink contour marks
+the <b>8 Å contact threshold</b> — residue pairs inside this contour are in physical contact.</p>
+<h2>3D Structure viewer</h2>
+<p>The <b>Structure</b> section hosts an interactive 3D viewer powered by
+<a href="https://3dmol.csb.pitt.edu">3Dmol.js</a>. Requires <b>PyQtWebEngine</b>:</p>
+<pre>pip install PyQtWebEngine</pre>
+<p>If not installed, the PDB can be saved locally and opened in PyMOL, UCSF ChimeraX, or the
+web viewer at <tt>3dmol.csb.pitt.edu</tt>.</p>
+<p>Colour modes available in the Structure section:</p>
+<ul>
+  <li><b>pLDDT</b> — red (low) → white → blue (high).</li>
+  <li><b>Residue Type</b> — amino-acid colour scheme.</li>
+  <li><b>Chain</b> — each chain a different colour.</li>
+  <li><b>Cartoon / Sphere</b> — toggle representation.</li>
+</ul>
+"""),
+            ("Pfam Domains", """
+<h1>Pfam Domain Annotations</h1>
+<p>Requires an internet connection and a valid UniProt accession. Click <b>Fetch Pfam</b>
+after loading an accession.</p>
+<h2>Data source</h2>
+<p>Queries the <b>EMBL-EBI InterPro REST API</b> for all Pfam-family entries associated
+with the given UniProt protein. Results include domain name, accession, and start/end residue
+positions.</p>
+<h2>Domain Architecture graph</h2>
+<p>A linear ruler from N- to C-terminus. Each Pfam domain is drawn as a coloured box labelled
+with a truncated domain name (hover for full label in the legend). Domains are coloured from the
+BEER palette in the order they appear. Overlapping domains are all drawn at the same height.</p>
+<p class="note">Only Pfam entries are shown. InterPro, SUPERFAMILY, PRINTS, and other databases
+are excluded for clarity.</p>
+"""),
+            ("BLAST Search", """
+<h1>BLAST Integration</h1>
+<p>The <b>BLAST</b> section submits the currently analysed sequence to NCBI via the
+<tt>Bio.Blast.NCBIWWW</tt> interface and displays the top hits. Requires internet access
+and can take <b>1–3 minutes</b>.</p>
+<h2>Controls</h2>
+<ul>
+  <li><b>Database</b> — nr (non-redundant), swissprot, pdb, refseq_protein.</li>
+  <li><b>Max hits</b> — number of alignments to retrieve (5–100).</li>
+  <li><b>BLAST Current Sequence</b> — submits blastp with the sequence from the last analysis.</li>
+</ul>
+<h2>Results table</h2>
+<table>
+  <tr><th>Column</th><th>Meaning</th></tr>
+  <tr><td>Accession</td><td>NCBI accession of the hit</td></tr>
+  <tr><td>Description</td><td>Truncated title of the hit (first 80 chars)</td></tr>
+  <tr><td>Length</td><td>Subject sequence length (aa)</td></tr>
+  <tr><td>Score</td><td>Bit score of top HSP</td></tr>
+  <tr><td>E-value</td><td>Expect value of top HSP</td></tr>
+  <tr><td>% Identity</td><td>Percent identical residues in the aligned region</td></tr>
+  <tr><td>Load</td><td>Loads the subject sequence into Analysis and re-runs it</td></tr>
+</table>
+<p class="note">BLAST uses the public NCBI servers. Do not submit large numbers of queries
+in rapid succession. For batch analyses use NCBI standalone BLAST locally.</p>
+"""),
+            ("Graphs Reference", """
+<h1>Graphs Reference</h1>
+<p>All graphs are accessible from the <b>Graphs</b> section. Use the category tree on the
+left to navigate. Each graph has its own <b>Save Graph</b> button; <b>Save All Graphs</b>
+exports the whole collection to a chosen directory.</p>
+<h2>Composition</h2>
+<ul>
+  <li><b>Bar / Pie Chart</b> — amino acid counts and frequencies. Bar chart sort order matches
+      the Composition report section buttons.</li>
+</ul>
+<h2>Profiles</h2>
+<ul>
+  <li><b>Hydrophobicity Profile</b> — Kyte-Doolittle sliding-window average (window set in Settings).</li>
+  <li><b>Local Charge Profile</b> — sliding-window NCPR; shows charge blocks.</li>
+  <li><b>Local Complexity</b> — sliding-window Shannon entropy; red dashed line = LC threshold (2.0 bits).</li>
+  <li><b>Disorder Profile</b> — IUPred-inspired per-residue score; orange fill = disordered (&gt;0.5).</li>
+  <li><b>Linear Sequence Map</b> — four-track overview: hydrophobicity, NCPR, disorder, helix Pα.</li>
+  <li><b>Secondary Structure</b> — Chou-Fasman per-residue Pα (helix) and Pβ (sheet) propensities.</li>
+</ul>
+<h2>Charge &amp; π-Interactions</h2>
+<ul>
+  <li><b>Net Charge vs pH</b> — Henderson-Hasselbalch charge curve 0–14; pI marked.</li>
+  <li><b>Isoelectric Focus</b> — enhanced version with physiological pH 7.4 annotation.</li>
+  <li><b>Charge Decoration</b> — Das-Pappu FCR vs |NCPR| phase diagram; star = this protein.</li>
+  <li><b>Cation–π Map</b> — proximity heat map (1/distance weight) for K/R ↔ F/W/Y pairs.</li>
+</ul>
+<h2>Structure &amp; Folding</h2>
+<ul>
+  <li><b>Bead Model (Hydrophobicity)</b> — per-residue KD score, coolwarm colourmap.</li>
+  <li><b>Bead Model (Charge)</b> — K/R blue, D/E red, H cyan, neutral grey.</li>
+  <li><b>Sticker Map</b> — aromatic (amber), basic (blue), acidic (pink), spacer (grey).</li>
+  <li><b>Properties Radar Chart</b> — five normalised properties: MW, pI, GRAVY, instability, aromaticity.</li>
+  <li><b>Helical Wheel</b> — projection of first 18 residues at 100° per step, KD coloured.</li>
+  <li><b>TM Topology</b> — snake-plot of predicted transmembrane helices (see TM Helices section).</li>
+</ul>
+<h2>AlphaFold / Structural</h2>
+<ul>
+  <li><b>pLDDT Profile</b> — per-residue AlphaFold confidence (see AlphaFold section). Requires Fetch AlphaFold.</li>
+  <li><b>Distance Map</b> — Cα pairwise distance heatmap with 8 Å contact contour. Requires Fetch AlphaFold.</li>
+  <li><b>Domain Architecture</b> — linear Pfam domain map. Requires Fetch Pfam.</li>
+</ul>
+"""),
+            ("Multichain & Compare", """
+<h1>Multichain Analysis</h1>
+<p>When a multi-FASTA file or PDB with multiple chains is imported, all sequences are
+analysed in bulk and shown in the <b>Multichain Analysis</b> table. Double-click any row
+to load that sequence into the Analysis section with full results.</p>
+<p>Export the table to <b>CSV</b> or <b>JSON</b> for downstream processing.</p>
+<h1>Compare</h1>
+<p>Paste two sequences (or FASTA entries) into the side-by-side inputs and click
+<b>Compare Sequences</b>. A property table shows both values side-by-side:
+length, MW, pI, GRAVY, FCR, NCPR, net charge, instability, aromaticity, and extinction coefficient.</p>
+"""),
+            ("Settings & Session", """
+<h1>Settings</h1>
+<h2>Analysis Parameters</h2>
+<ul>
+  <li><b>Default pH</b> — pH used for net-charge calculations (0–14).</li>
+  <li><b>Sliding Window Size</b> — window width for hydrophobicity, NCPR, and entropy profiles.</li>
+  <li><b>Override pKa</b> — custom pKa values (N-term, C-term, D, E, C, Y, H, K, R) as comma-separated numbers.</li>
+  <li><b>Reducing conditions</b> — if checked, Cys residues are not counted as disulphide pairs for extinction coefficient.</li>
+</ul>
+<h2>Graph Appearance</h2>
+<ul>
+  <li><b>Label / Tick Font Size</b> — point size of axis titles and tick labels.</li>
+  <li><b>Default Graph Format</b> — PNG, SVG, or PDF for Save Graph / Save All.</li>
+  <li><b>Bead Colormap</b> — matplotlib colourmap for the Bead Hydrophobicity model.</li>
+  <li><b>Graph Accent Colour</b> — primary line/fill colour for most graphs.</li>
+  <li><b>Transparent background</b> — export graphs with alpha = 0 (PNG/SVG only).</li>
+</ul>
+<h2>Interface</h2>
+<ul>
+  <li><b>UI Font Size</b> — global application font size in points.</li>
+  <li><b>Dark Theme</b> — toggles between light and dark colour themes.</li>
+  <li><b>Enable Tooltips</b> — show tooltips on Settings widgets.</li>
+</ul>
+<h1>Sessions</h1>
+<p>Use <b>Save Session</b> / <b>Load Session</b> (or Ctrl+S / Ctrl+O) to persist the current
+sequence, name, pH, window size, pKa overrides, reducing conditions, font sizes, and
+transparency setting in a <tt>.beer</tt> JSON file.</p>
+"""),
+        ]
 
-        <h2>Aromatic &amp; &pi;</h2>
-        <ul>
-          <li><b>Aromatic fraction:</b> (F+W+Y)/length &mdash; &pi;&ndash;&pi; stacking drives many condensates.</li>
-          <li><b>Cation&ndash;&pi; pairs:</b> K/R within &plusmn;4 positions of F/W/Y.</li>
-          <li><b>&pi;&ndash;&pi; pairs:</b> F/W/Y within &plusmn;4 positions of another F/W/Y.</li>
-        </ul>
+        for section_name, html_body in _HELP_SECTIONS:
+            help_nav.addItem(QListWidgetItem(section_name))
+            page   = QWidget()
+            page_v = QVBoxLayout(page)
+            page_v.setContentsMargins(0, 0, 0, 0)
+            browser = QTextBrowser()
+            browser.setOpenExternalLinks(True)
+            full_html = (
+                f"<style>{REPORT_CSS} body{{padding:12px;}}</style>"
+                + html_body
+            )
+            browser.setHtml(full_html)
+            page_v.addWidget(browser)
+            help_stack.addWidget(page)
 
-        <h2>Low Complexity</h2>
-        <ul>
-          <li><b>Shannon entropy:</b> Compositional complexity in bits; max = log&#8322;(20) &asymp; 4.32.</li>
-          <li><b>Prion-like score:</b> Fraction of N,Q,S,G,Y &mdash; enriched in yeast prion domains (PLAAC).</li>
-          <li><b>LC fraction:</b> Fraction of sequence covered by windows with entropy &lt; 2.0 bits.</li>
-        </ul>
-
-        <h2>Disorder</h2>
-        <ul>
-          <li><b>Disorder-promoting fraction:</b> A,E,G,K,P,Q,R,S (Uversky classification).</li>
-          <li><b>Order-promoting fraction:</b> C,F,H,I,L,M,V,W,Y.</li>
-          <li><b>Aliphatic index:</b> (A + 2.9V + 3.9(I+L)) / length &times; 100 (Ikai 1980).</li>
-          <li><b>Omega (&Omega;):</b> Patterning of sticker residues; 0 = even, 1 = clustered (Das et al. 2015).</li>
-        </ul>
-
-        <h2>Repeat Motifs</h2>
-        <ul>
-          <li><b>RGG:</b> Arg-Gly-Gly &mdash; major driver in FUS, hnRNP family.</li>
-          <li><b>FG:</b> Phe-Gly &mdash; hallmark of nucleoporin IDRs.</li>
-          <li><b>YG/GY:</b> Tyr-Gly variants.</li>
-          <li><b>SR/RS:</b> Ser-Arg &mdash; splicing factor signature.</li>
-          <li><b>QN/NQ:</b> Gln-Asn &mdash; yeast prion signature.</li>
-        </ul>
-
-        <h2>Sticker &amp; Spacer</h2>
-        <ul>
-          <li><b>Stickers:</b> F,W,Y,K,R,D,E &mdash; residues mediating specific interactions.</li>
-          <li><b>Spacers:</b> all other residues providing chain flexibility and valency.</li>
-          <li><b>Spacing stats:</b> Mean/min/max gap between consecutive stickers (Mittag &amp; Pappu).</li>
-        </ul>
-
-        <h2>Graphs</h2>
-        <ul>
-          <li><b>Bar/Pie Charts:</b> Amino acid composition.</li>
-          <li><b>Hydrophobicity Profile:</b> Sliding-window Kyte-Doolittle average.</li>
-          <li><b>Net Charge vs pH:</b> Charge curve from pH 0 to 14.</li>
-          <li><b>Bead Models:</b> Per-residue hydrophobicity or charge.</li>
-          <li><b>Radar Chart:</b> Normalized physiochemical properties.</li>
-          <li><b>Sticker Map:</b> Per-residue sticker identity (aromatic/basic/acidic/spacer).</li>
-          <li><b>Local Charge Profile:</b> Sliding-window NCPR showing charge block structure.</li>
-          <li><b>Local Complexity:</b> Sliding-window Shannon entropy; red dashed line = LC threshold.</li>
-          <li><b>Cation&ndash;&pi; Map:</b> Proximity heat map of K/R vs F/W/Y pairs along the sequence.</li>
-        </ul>
-
-        <h2>Batch Analysis</h2>
-        <p>Import multi-FASTA or PDB to analyze multiple sequences; select one for detail.</p>
-
-        <h2>Settings</h2>
-        <p>Adjust window size, pH, fonts, colormap, theme, and display options.</p>
-        """)
-        layout.addWidget(b)
+        help_nav.currentRowChanged.connect(help_stack.setCurrentIndex)
+        help_nav.setCurrentRow(0)
 
     # --- Import ---
 
@@ -3227,6 +3682,13 @@ window.addEventListener("load", init);
                 self._update_seq_viewer()
                 self.update_graph_tabs()
                 return
+
+    # --- Graph tree handler ---
+
+    def _on_graph_tree_clicked(self, item: QTreeWidgetItem, _col: int):
+        title = item.data(0, Qt.UserRole)
+        if title and title in self._graph_title_to_stack_idx:
+            self.graph_stack.setCurrentIndex(self._graph_title_to_stack_idx[title])
 
     # --- Export ---
 
