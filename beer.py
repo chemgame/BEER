@@ -1554,40 +1554,77 @@ class GraphingTools:
 
     @staticmethod
     def create_helical_wheel(seq, label_font=14):
-        """Helical wheel projection: first ≤18 residues at 100° per residue."""
+        """Helical wheel projection using Cartesian layout with connecting lines.
+        First ≤18 residues placed at 100° per step, starting from the top (North),
+        proceeding clockwise.  Dot colour = Kyte-Doolittle hydrophobicity; text
+        colour chosen by luminance for contrast.
+        """
         seg = seq[:18]
         n   = len(seg)
-        fig = Figure(figsize=(5.5, 5.5), dpi=120)
+        fig = Figure(figsize=(6.0, 6.0), dpi=120)
         fig.set_facecolor("#ffffff")
-        ax  = fig.add_subplot(111, polar=True)
+        ax  = fig.add_axes([0.06, 0.06, 0.78, 0.84])          # leave room for colourbar
         ax.set_facecolor("#fafbff")
-        cmap    = plt.get_cmap("RdYlBu_r")
-        kd_min, kd_max = -4.5, 4.5
-        for i, aa in enumerate(seg):
-            ang  = math.radians(i * 100.0)
-            kd   = KYTE_DOOLITTLE.get(aa, 0.0)
-            nkd  = (kd - kd_min) / (kd_max - kd_min)
-            col  = cmap(nkd)
-            ax.scatter([ang], [1.0], s=520, c=[col], zorder=5,
-                       edgecolors="white", linewidths=1.0)
-            ax.text(ang, 1.0, aa, ha="center", va="center",
-                    fontsize=label_font - 3, fontweight="bold",
-                    color="white" if nkd > 0.4 else "#1a1a2e", zorder=6)
-            ax.text(ang, 1.24, str(i + 1), ha="center", va="bottom",
-                    fontsize=label_font - 5, color="#718096", zorder=6)
-        ax.set_yticks([])
-        ax.set_xticks([])
-        ax.spines["polar"].set_visible(False)
-        ax.set_title(f"Helical Wheel  (residues 1\u2013{n})",
-                     fontsize=label_font, fontweight="bold", color="#1a1a2e", pad=14)
+        ax.set_aspect("equal")
+        ax.axis("off")
+
         from matplotlib.cm import ScalarMappable
         from matplotlib.colors import Normalize
-        sm  = ScalarMappable(cmap=cmap, norm=Normalize(vmin=kd_min, vmax=kd_max))
+        cmap    = plt.get_cmap("RdYlBu_r")
+        kd_min, kd_max = -4.5, 4.5
+        norm    = Normalize(vmin=kd_min, vmax=kd_max)
+
+        DOT_R   = 0.13          # radius of each residue circle (data-space)
+        RING_R  = 1.0           # distance from centre to each residue
+
+        # Convert step index → Cartesian (start at top, clockwise)
+        def _pos(i):
+            theta = math.radians(90.0 - i * 100.0)   # 90° = top; −100° per residue
+            return math.cos(theta) * RING_R, math.sin(theta) * RING_R
+
+        xs = [_pos(i)[0] for i in range(n)]
+        ys = [_pos(i)[1] for i in range(n)]
+
+        # Draw connecting lines between sequential residues (behind dots)
+        for i in range(n - 1):
+            ax.plot([xs[i], xs[i + 1]], [ys[i], ys[i + 1]],
+                    color="#b0bac8", linewidth=1.2, zorder=2, solid_capstyle="round")
+
+        # Draw dots + labels
+        for i, aa in enumerate(seg):
+            kd  = KYTE_DOOLITTLE.get(aa, 0.0)
+            col = cmap(norm(kd))
+            r, g, b, _ = col
+            lum = 0.299 * r + 0.587 * g + 0.114 * b
+            txt_col = "#1a1a2e" if lum > 0.45 else "white"
+
+            circle = plt.Circle((xs[i], ys[i]), DOT_R,
+                                 color=col, zorder=4,
+                                 linewidth=1.2, edgecolor="#718096")
+            ax.add_patch(circle)
+            ax.text(xs[i], ys[i], aa,
+                    ha="center", va="center",
+                    fontsize=label_font - 2, fontweight="bold",
+                    color=txt_col, zorder=5)
+            # Residue number outside the dot
+            nx = xs[i] * (1.0 + (DOT_R + 0.07) / RING_R)
+            ny = ys[i] * (1.0 + (DOT_R + 0.07) / RING_R)
+            ax.text(nx, ny, str(i + 1),
+                    ha="center", va="center",
+                    fontsize=max(6, label_font - 6), color="#718096", zorder=5)
+
+        pad = RING_R + DOT_R + 0.28
+        ax.set_xlim(-pad, pad)
+        ax.set_ylim(-pad, pad)
+        ax.set_title(f"Helical Wheel  (residues 1\u2013{n})",
+                     fontsize=label_font, fontweight="bold", color="#1a1a2e", pad=10)
+
+        sm = ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
-        cbar = fig.colorbar(sm, ax=ax, shrink=0.65, pad=0.06, aspect=20)
+        cax = fig.add_axes([0.87, 0.12, 0.03, 0.68])
+        cbar = fig.colorbar(sm, cax=cax)
         cbar.set_label("Hydrophobicity (KD)", fontsize=label_font - 4, color="#4a5568")
         cbar.ax.tick_params(labelsize=label_font - 5, colors="#4a5568")
-        fig.tight_layout(pad=2.0)
         return fig
 
     @staticmethod
@@ -1830,44 +1867,139 @@ class GraphingTools:
 
     @staticmethod
     def create_domain_architecture_figure(seq_len: int, domains: list,
+                                          seq: str = "",
+                                          disorder_scores=None,
+                                          tm_helices=None,
                                           label_font=14, tick_font=12):
-        """Linear domain architecture ruler from Pfam/InterPro annotations."""
-        fig = Figure(figsize=(9, max(2.5, 1.0 + len(domains) * 0.5)), dpi=120)
+        """Multi-track domain architecture figure.
+
+        Tracks (top→bottom):
+          • Pfam/InterPro domains  (shown if *domains* is non-empty)
+          • Disordered regions     (shown if *disorder_scores* provided)
+          • Low-complexity regions (shown if *seq* provided)
+          • TM helices             (shown if *tm_helices* provided)
+
+        At least one track is always rendered.
+        """
+        # ---- build per-residue LC mask ----------------------------------------
+        def _lc_mask(s, window=12, thr=2.0):
+            from math import log2
+            n = len(s)
+            covered = [False] * n
+            for i in range(max(1, n - window + 1)):
+                win = s[i:i + window]
+                counts = {}
+                for aa in win:
+                    counts[aa] = counts.get(aa, 0) + 1
+                L = len(win)
+                ent = -sum((c/L) * log2(c/L) for c in counts.values() if c > 0)
+                if ent < thr:
+                    for j in range(i, min(i + window, n)):
+                        covered[j] = True
+            return covered
+
+        # ---- determine active tracks ------------------------------------------
+        tracks = []   # list of (track_label, colour, regions_list)
+        # regions_list: list of (start1, end1) in 1-based inclusive coords
+
+        if domains:
+            pfam_regions = [(d["start"], d["end"]) for d in domains]
+            tracks.append(("Pfam Domains", None, pfam_regions, domains))  # special pfam entry
+        else:
+            tracks.append(("Pfam Domains", "#94a3b8", [], None))
+
+        if disorder_scores is not None and len(disorder_scores) == seq_len:
+            dis_regions = []
+            in_seg, seg_start = False, 0
+            for i, v in enumerate(disorder_scores):
+                if v > 0.5 and not in_seg:
+                    in_seg, seg_start = True, i + 1
+                elif v <= 0.5 and in_seg:
+                    dis_regions.append((seg_start, i))
+                    in_seg = False
+            if in_seg:
+                dis_regions.append((seg_start, seq_len))
+            tracks.append(("Disorder", "#f3722c", dis_regions, None))
+
+        if seq and len(seq) == seq_len:
+            lc = _lc_mask(seq)
+            lc_regions = []
+            in_seg, seg_start = False, 0
+            for i, v in enumerate(lc):
+                if v and not in_seg:
+                    in_seg, seg_start = True, i + 1
+                elif not v and in_seg:
+                    lc_regions.append((seg_start, i))
+                    in_seg = False
+            if in_seg:
+                lc_regions.append((seg_start, seq_len))
+            tracks.append(("Low Complexity", "#a8dadc", lc_regions, None))
+
+        if tm_helices:
+            tm_regions = [(h["start"] + 1, h["end"] + 1) for h in tm_helices]
+            tracks.append(("TM Helices", "#6a4c93", tm_regions, None))
+
+        n_tracks = len(tracks)
+        fig_h    = max(2.5, 1.2 + n_tracks * 1.0)
+        fig = Figure(figsize=(10, fig_h), dpi=120)
         fig.set_facecolor("#ffffff")
         ax  = fig.add_subplot(111)
         ax.set_facecolor("#fafbff")
-        # Backbone
-        ax.plot([1, seq_len], [0, 0], color="#94a3b8", linewidth=3,
-                solid_capstyle="round", zorder=2)
-        ax.text(1,        0.18, "N", ha="center", fontsize=tick_font - 2, color="#4a5568")
-        ax.text(seq_len, 0.18, "C", ha="center", fontsize=tick_font - 2, color="#4a5568")
-        for i, dom in enumerate(domains):
-            col  = _PALETTE[i % len(_PALETTE)]
-            s, e = dom["start"], dom["end"]
-            rect = Rectangle((s, -0.25), e - s, 0.5,
-                              color=col, alpha=0.85, zorder=4, linewidth=0)
-            ax.add_patch(rect)
-            mid = (s + e) / 2
-            ax.text(mid, 0, dom["name"][:14],
-                    ha="center", va="center",
-                    fontsize=max(5, tick_font - 5), color="white",
-                    fontweight="bold", zorder=5)
+
+        track_ys  = list(range(n_tracks - 1, -1, -1))   # top track at highest y
+        half      = 0.32
+        legend_patches = []
+
+        for tidx, (label, colour, regions, meta) in enumerate(tracks):
+            ty = track_ys[tidx]
+            # backbone
+            ax.plot([1, seq_len], [ty, ty], color="#cbd5e0", linewidth=2.5,
+                    solid_capstyle="round", zorder=2)
+            ax.text(0, ty, label, ha="right", va="center",
+                    fontsize=max(6, tick_font - 3), color="#4a5568",
+                    fontweight="600")
+            # N/C terminus markers on first track only
+            if tidx == 0:
+                ax.text(1,        ty + half + 0.05, "N",
+                        ha="center", fontsize=tick_font - 3, color="#718096")
+                ax.text(seq_len, ty + half + 0.05, "C",
+                        ha="center", fontsize=tick_font - 3, color="#718096")
+
+            if meta is not None:
+                # Pfam — each domain gets its own palette colour
+                for i, (dom, (s, e)) in enumerate(zip(meta, regions)):
+                    col = _PALETTE[i % len(_PALETTE)]
+                    rect = Rectangle((s, ty - half), e - s, 2 * half,
+                                     color=col, alpha=0.85, zorder=4, linewidth=0)
+                    ax.add_patch(rect)
+                    mid = (s + e) / 2
+                    ax.text(mid, ty, dom["name"][:14],
+                            ha="center", va="center",
+                            fontsize=max(5, tick_font - 5), color="white",
+                            fontweight="bold", zorder=5)
+                    legend_patches.append(
+                        Patch(color=col, label=dom["name"]))
+            else:
+                for (s, e) in regions:
+                    rect = Rectangle((s, ty - half), e - s, 2 * half,
+                                     color=colour, alpha=0.80, zorder=4, linewidth=0)
+                    ax.add_patch(rect)
+                if regions:
+                    legend_patches.append(Patch(color=colour, label=label))
+
         _pub_style_ax(ax,
-                      title="Domain Architecture (Pfam/InterPro)",
+                      title="Domain Architecture",
                       xlabel="Residue Position", ylabel="",
                       grid=False, title_size=label_font + 1,
                       label_size=label_font - 1, tick_size=tick_font - 1)
-        ax.set_xlim(0, seq_len + 5)
-        ax.set_ylim(-0.6, 0.6)
+        ax.set_xlim(-max(12, seq_len * 0.06), seq_len + max(5, seq_len * 0.02))
+        ax.set_ylim(-0.7, n_tracks - 0.3)
         ax.set_yticks([])
-        if domains:
-            ax.legend(
-                handles=[Patch(color=_PALETTE[i % len(_PALETTE)], label=d["name"])
-                         for i, d in enumerate(domains)],
-                fontsize=max(6, tick_font - 4), framealpha=0.85,
-                edgecolor="#d0d4e0", loc="upper right",
-                ncol=max(1, len(domains) // 6)
-            )
+        if legend_patches:
+            ax.legend(handles=legend_patches,
+                      fontsize=max(6, tick_font - 4), framealpha=0.85,
+                      edgecolor="#d0d4e0", loc="upper right",
+                      ncol=max(1, len(legend_patches) // 6))
         fig.tight_layout(pad=1.5)
         return fig
 
@@ -2177,9 +2309,9 @@ class NavTabWidget(QWidget):
         "Graphs":              "📊",
         "Structure":           "🔬",
         "BLAST":               "🔍",
-        "Compare":             "⚖\ufe0f",
+        "Compare":             "⚖",
         "Multichain Analysis": "📋",
-        "Settings":            "⚙\ufe0f",
+        "Settings":            "⚙",
         "Help":                "❓",
     }
 
@@ -2191,7 +2323,7 @@ class NavTabWidget(QWidget):
 
         self.nav_list = QListWidget()
         self.nav_list.setObjectName("nav_bar")
-        self.nav_list.setFixedWidth(136)
+        self.nav_list.setFixedWidth(152)
         self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         outer.addWidget(self.nav_list)
 
@@ -3656,10 +3788,13 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 figs["Distance Map"] = GraphingTools.create_distance_map_figure(
                     dm, label_font=lf, tick_font=tf)
 
-        # Domain architecture (only when Pfam data is loaded)
-        if self.pfam_domains:
-            figs["Domain Architecture"] = GraphingTools.create_domain_architecture_figure(
-                len(seq), self.pfam_domains, label_font=lf, tick_font=tf)
+        # Domain architecture — always rendered; shows all available tracks
+        figs["Domain Architecture"] = GraphingTools.create_domain_architecture_figure(
+            len(seq), self.pfam_domains,
+            seq=seq,
+            disorder_scores=self.analysis_data.get("disorder_scores"),
+            tm_helices=self.analysis_data.get("tm_helices"),
+            label_font=lf, tick_font=tf)
 
         # Apply global heading/grid/colour overrides
         for title, fig in figs.items():
