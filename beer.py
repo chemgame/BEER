@@ -7,7 +7,7 @@ Requirements:
 """
 
 import sys, math, os, base64, json, csv, subprocess, re
-from io import BytesIO
+from io import BytesIO, StringIO
 import urllib.request
 import numpy as np
 
@@ -17,18 +17,24 @@ from PyQt5.QtWidgets import (
     QFileDialog, QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem,
     QCheckBox, QStatusBar, QComboBox, QFormLayout,
     QSplitter, QScrollArea, QFrame, QDialog, QDialogButtonBox,
-    QSpinBox, QProgressDialog, QAbstractItemView
+    QSpinBox, QProgressDialog, QAbstractItemView,
+    QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QStackedWidget,
 )
 from PyQt5.QtGui import QFont, QKeySequence
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import QShortcut
 from PyQt5.QtPrintSupport import QPrinter
+try:
+    from PyQt5.QtWebEngineWidgets import QWebEngineView
+    _WEBENGINE_AVAILABLE = True
+except ImportError:
+    _WEBENGINE_AVAILABLE = False
 
 import matplotlib
 matplotlib.use("Qt5Agg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT
-from matplotlib.patches import Patch
+from matplotlib.patches import Patch, Rectangle
 import matplotlib.pyplot as plt
 plt.style.use("default")
 import mplcursors
@@ -124,6 +130,7 @@ REPORT_SECTIONS = [
     "Secondary Structure",
     "Repeat Motifs",
     "Sticker & Spacer",
+    "TM Helices",
 ]
 
 GRAPH_TITLES = [
@@ -144,6 +151,45 @@ GRAPH_TITLES = [
     "Charge Decoration",
     "Linear Sequence Map",
     "Disorder Profile",
+    "TM Topology",
+    "pLDDT Profile",
+    "Distance Map",
+    "Domain Architecture",
+]
+
+# Graph categories for the tree browser (order matters; every GRAPH_TITLES entry must appear here)
+GRAPH_CATEGORIES = [
+    ("Composition", [
+        "Amino Acid Composition (Bar)",
+        "Amino Acid Composition (Pie)",
+    ]),
+    ("Profiles", [
+        "Hydrophobicity Profile",
+        "Local Charge Profile",
+        "Local Complexity",
+        "Disorder Profile",
+        "Linear Sequence Map",
+        "Secondary Structure",
+    ]),
+    ("Charge & \u03c0-Interactions", [
+        "Net Charge vs pH",
+        "Isoelectric Focus",
+        "Charge Decoration",
+        "Cation\u2013\u03c0 Map",
+    ]),
+    ("Structure & Folding", [
+        "Bead Model (Hydrophobicity)",
+        "Bead Model (Charge)",
+        "Sticker Map",
+        "Properties Radar Chart",
+        "Helical Wheel",
+        "TM Topology",
+    ]),
+    ("AlphaFold / Structural", [
+        "pLDDT Profile",
+        "Distance Map",
+        "Domain Architecture",
+    ]),
 ]
 
 LIGHT_THEME_CSS = """
@@ -214,6 +260,43 @@ LIGHT_THEME_CSS = """
  QScrollBar:vertical { background: #f0f0f5; width: 10px; border-radius: 5px; }
  QScrollBar::handle:vertical { background: #c0c4d0; border-radius: 5px; min-height: 30px; }
  QStatusBar { background-color: #4361ee; color: #ffffff; font-size: 11px; }
+ /* --- Left navigation sidebar --- */
+ QListWidget#nav_bar {
+     background-color: #e4e8f4;
+     border: none;
+     border-right: 1px solid #c8cede;
+     padding: 8px 0;
+     font-size: 11px;
+     font-weight: 500;
+     outline: 0;
+ }
+ QListWidget#nav_bar::item {
+     padding: 11px 10px;
+     color: #4a5568;
+     border-left: 3px solid transparent;
+ }
+ QListWidget#nav_bar::item:selected {
+     background-color: #dce3f8;
+     color: #4361ee;
+     border-left: 3px solid #4361ee;
+     font-weight: 700;
+ }
+ QListWidget#nav_bar::item:hover:!selected { background-color: #d4d9ec; }
+ QFrame#nav_sep { color: #c8cede; max-width: 1px; }
+ /* --- Graph tree & report nav --- */
+ QTreeWidget#graph_tree, QListWidget#report_nav {
+     background-color: #f0f2fa;
+     border: none;
+     border-right: 1px solid #d0d4e0;
+     font-size: 11px;
+     outline: 0;
+ }
+ QTreeWidget#graph_tree::item { padding: 5px 6px; color: #4a5568; }
+ QTreeWidget#graph_tree::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 3px; }
+ QTreeWidget#graph_tree::branch { background-color: #f0f2fa; }
+ QListWidget#report_nav::item { padding: 8px 10px; color: #4a5568; }
+ QListWidget#report_nav::item:selected { background-color: #4361ee; color: #ffffff; }
+ QListWidget#report_nav::item:hover:!selected { background-color: #dce3f8; }
 """
 
 DARK_THEME_CSS = """
@@ -285,6 +368,43 @@ DARK_THEME_CSS = """
  QScrollBar:vertical { background: #16213e; width: 10px; border-radius: 5px; }
  QScrollBar::handle:vertical { background: #2d3561; border-radius: 5px; min-height: 30px; }
  QStatusBar { background-color: #0f3460; color: #4cc9f0; font-size: 11px; }
+ /* --- Left navigation sidebar --- */
+ QListWidget#nav_bar {
+     background-color: #0f3460;
+     border: none;
+     border-right: 1px solid #1a3a5c;
+     padding: 8px 0;
+     font-size: 11px;
+     font-weight: 500;
+     outline: 0;
+ }
+ QListWidget#nav_bar::item {
+     padding: 11px 10px;
+     color: #94a3b8;
+     border-left: 3px solid transparent;
+ }
+ QListWidget#nav_bar::item:selected {
+     background-color: #1a3a5c;
+     color: #4cc9f0;
+     border-left: 3px solid #4cc9f0;
+     font-weight: 700;
+ }
+ QListWidget#nav_bar::item:hover:!selected { background-color: #1a3a5c; color: #e2e8f0; }
+ QFrame#nav_sep { color: #1a3a5c; max-width: 1px; }
+ /* --- Graph tree & report nav --- */
+ QTreeWidget#graph_tree, QListWidget#report_nav {
+     background-color: #16213e;
+     border: none;
+     border-right: 1px solid #2d3561;
+     font-size: 11px;
+     outline: 0;
+ }
+ QTreeWidget#graph_tree::item { padding: 5px 6px; color: #94a3b8; }
+ QTreeWidget#graph_tree::item:selected { background-color: #4cc9f0; color: #1a1a2e; border-radius: 3px; }
+ QTreeWidget#graph_tree::branch { background-color: #16213e; }
+ QListWidget#report_nav::item { padding: 8px 10px; color: #94a3b8; }
+ QListWidget#report_nav::item:selected { background-color: #4cc9f0; color: #1a1a2e; }
+ QListWidget#report_nav::item:hover:!selected { background-color: #1a3a5c; }
 """
 
 # --- HTML/PDF styling ---
@@ -560,6 +680,81 @@ def calc_disorder_profile(seq: str, window: int = 9) -> list:
     return smoothed
 
 
+# --- Transmembrane / structural helpers ---
+
+def predict_tm_helices(seq: str, window: int = 19, threshold: float = 1.6,
+                       min_len: int = 15, max_len: int = 35) -> list:
+    """Predict TM helices using Kyte-Doolittle sliding window (TMHMM-heuristic).
+    Returns list of dicts: {start(0-based), end(0-based inclusive), score, orientation}."""
+    n    = len(seq)
+    half = window // 2
+    scores = [
+        sum(KYTE_DOOLITTLE[seq[j]] for j in range(max(0, i - half), min(n, i + half + 1)))
+        / (min(n, i + half + 1) - max(0, i - half))
+        for i in range(n)
+    ]
+    helices = []
+    i = 0
+    while i < n:
+        if scores[i] >= threshold:
+            j = i
+            while j < n and scores[j] >= threshold:
+                j += 1
+            span = j - i
+            if min_len <= span <= max_len:
+                helices.append({
+                    "start": i, "end": j - 1,
+                    "score": round(sum(scores[i:j]) / span, 3),
+                })
+            i = j
+        else:
+            i += 1
+    # Inside-positive rule (von Heijne): cytoplasmic loops are K/R-enriched
+    pos   = set("KR")
+    flank = 15
+    for h in helices:
+        s, e  = h["start"], h["end"]
+        n_pos = sum(1 for aa in seq[max(0, s - flank):s] if aa in pos)
+        c_pos = sum(1 for aa in seq[e + 1:min(n, e + 1 + flank)] if aa in pos)
+        h["orientation"] = "out\u2192in" if c_pos >= n_pos else "in\u2192out"
+    return helices
+
+
+def compute_ca_distance_matrix(pdb_str: str) -> np.ndarray:
+    """Return symmetric Cα pairwise distance matrix (Å) from a PDB string."""
+    parser = PDBParser(QUIET=True)
+    struct = parser.get_structure("af", StringIO(pdb_str))
+    coords = []
+    for model in struct:
+        for chain in model:
+            for res in chain:
+                if is_aa(res, standard=True) and res.has_id("CA"):
+                    coords.append(res["CA"].get_vector().get_array())
+        break
+    if not coords:
+        return np.array([])
+    ca   = np.array(coords, dtype=float)
+    diff = ca[:, np.newaxis, :] - ca[np.newaxis, :, :]
+    return np.sqrt((diff ** 2).sum(axis=-1))
+
+
+def extract_plddt_from_pdb(pdb_str: str) -> list:
+    """Extract per-residue pLDDT scores (stored in B-factor column) from AlphaFold PDB."""
+    parser = PDBParser(QUIET=True)
+    struct = parser.get_structure("af", StringIO(pdb_str))
+    scores = []
+    for model in struct:
+        for chain in model:
+            for res in chain:
+                if is_aa(res, standard=True):
+                    for atom in res:
+                        if atom.get_name() == "CA":
+                            scores.append(atom.get_bfactor())
+                            break
+        break
+    return scores
+
+
 # --- Analysis ---
 
 class AnalysisTools:
@@ -786,6 +981,31 @@ class AnalysisTools:
         <p class="note">Sticker-and-spacer model: Mittag &amp; Pappu</p>
         """
 
+        # --- Transmembrane helix prediction ---
+        tm_helices   = predict_tm_helices(seq)
+        n_tm         = len(tm_helices)
+        tm_rows = "".join(
+            f"<tr><td>{i}</td><td>{h['start']+1}</td><td>{h['end']+1}</td>"
+            f"<td>{h['end']-h['start']+1}</td><td>{h['score']:.3f}</td>"
+            f"<td>{h['orientation']}</td></tr>"
+            for i, h in enumerate(tm_helices, 1)
+        )
+        tm_body = (
+            tm_rows
+            if tm_helices
+            else "<tr><td colspan='6'><em>No TM helices predicted</em></td></tr>"
+        )
+        tm_html = _style + f"""
+        <h2>Transmembrane Helices</h2>
+        <table>
+          <tr><th>#</th><th>Start</th><th>End</th>
+              <th>Length</th><th>Avg KD Score</th><th>Orientation</th></tr>
+          {tm_body}
+        </table>
+        <p class="note">Kyte-Doolittle sliding window (w=19, threshold=1.6).
+        Orientation by inside-positive rule (von Heijne): out&rarr;in = N-term extracellular.</p>
+        """
+
         # --- Chou-Fasman secondary structure propensity ---
         cf_helix_arr, cf_sheet_arr = calc_chou_fasman_profile(seq)
         mean_helix = sum(cf_helix_arr) / seq_length
@@ -824,7 +1044,9 @@ class AnalysisTools:
                 "Secondary Structure": ss_html,
                 "Repeat Motifs":      repeats_html,
                 "Sticker & Spacer":   sticker_html,
+                "TM Helices":         tm_html,
             },
+            "tm_helices":      tm_helices,
             "aa_counts":       aa_counts,
             "aa_freq":         aa_freq,
             "hydro_profile":   sliding_window_hydrophobicity(seq, window_size),
@@ -1488,6 +1710,168 @@ class GraphingTools:
         return fig
 
 
+    @staticmethod
+    def create_tm_topology_figure(seq: str, helices: list, label_font=14, tick_font=12):
+        """Simplified transmembrane topology diagram (snake-plot style)."""
+        n   = len(seq)
+        fig = Figure(figsize=(max(9, n * 0.06), 4.5), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        ax.set_facecolor("#fafbff")
+        # Membrane band
+        ax.axhspan(-0.5, 0.5, alpha=0.12, color="#f59e0b")
+        ax.text(2, 0.65,  "Extracellular", fontsize=tick_font - 2, color="#6b7280", style="italic")
+        ax.text(2, -0.85, "Cytoplasmic",   fontsize=tick_font - 2, color="#6b7280", style="italic")
+        # Draw backbone segments and TM rectangles
+        side     = 1   # +1 = extracellular, -1 = cytoplasmic
+        prev_end = 0
+        for h in helices:
+            s, e = h["start"], h["end"]
+            y    = side * 1.15
+            if s > prev_end:
+                ax.plot([prev_end + 1, s], [y, y],
+                        color="#4361ee", linewidth=1.8, solid_capstyle="round", zorder=3)
+            rect = Rectangle((s + 1, -0.5), e - s, 1.0,
+                              color="#4361ee", alpha=0.75, zorder=4, linewidth=0)
+            ax.add_patch(rect)
+            mid = (s + e) / 2 + 1
+            ax.text(mid, 0, f"{s+1}–{e+1}",
+                    ha="center", va="center",
+                    fontsize=max(5, tick_font - 5), color="white", fontweight="bold", zorder=5)
+            side     = -side
+            prev_end = e
+        # Final loop
+        y = side * 1.15
+        ax.plot([prev_end + 1, n], [y, y],
+                color="#4361ee", linewidth=1.8, solid_capstyle="round", zorder=3)
+        _pub_style_ax(ax,
+                      title=f"TM Topology  ({len(helices)} predicted helix/es)",
+                      xlabel="Residue Position", ylabel="",
+                      grid=False, title_size=label_font + 1,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        ax.set_xlim(0, n + 2)
+        ax.set_ylim(-1.6, 1.8)
+        ax.set_yticks([])
+        ax.legend(handles=[Patch(color="#f59e0b", alpha=0.3, label="Membrane"),
+                            Patch(color="#4361ee", alpha=0.75, label="TM helix")],
+                  fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0",
+                  loc="upper right")
+        fig.tight_layout(pad=1.5)
+        return fig
+
+    @staticmethod
+    def create_plddt_figure(plddt: list, label_font=14, tick_font=12):
+        """Per-residue AlphaFold pLDDT confidence score with coloured confidence zones."""
+        import matplotlib.colors as mcolors
+        n   = len(plddt)
+        xs  = list(range(1, n + 1))
+        fig = Figure(figsize=(9, 4), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        # Confidence zone bands
+        ax.axhspan(90, 100, alpha=0.07, color="#0053D6")
+        ax.axhspan(70,  90, alpha=0.07, color="#65CBF3")
+        ax.axhspan(50,  70, alpha=0.07, color="#FFDB13")
+        ax.axhspan( 0,  50, alpha=0.07, color="#FF7D45")
+        cmap = plt.get_cmap("RdYlBu")
+        norm = mcolors.Normalize(vmin=0, vmax=100)
+        for i in range(n - 1):
+            ax.plot([xs[i], xs[i + 1]], [plddt[i], plddt[i + 1]],
+                    color=cmap(norm((plddt[i] + plddt[i + 1]) / 2)),
+                    linewidth=1.8, zorder=4, solid_capstyle="round")
+        for thresh, col, lbl in [
+            (90, "#0053D6", ">90 Very high"),
+            (70, "#65CBF3", "70–90 Confident"),
+            (50, "#FFDB13", "50–70 Low"),
+        ]:
+            ax.axhline(thresh, color=col, linewidth=0.8, linestyle="--", alpha=0.8)
+        _pub_style_ax(ax,
+                      title="AlphaFold pLDDT Confidence",
+                      xlabel="Residue Position", ylabel="pLDDT Score",
+                      grid=False, title_size=label_font + 1,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        ax.set_ylim(0, 100)
+        ax.set_xlim(1, n)
+        ax.legend(handles=[
+            Patch(color="#0053D6", alpha=0.5, label=">90  Very high"),
+            Patch(color="#65CBF3", alpha=0.5, label="70–90  Confident"),
+            Patch(color="#FFDB13", alpha=0.5, label="50–70  Low"),
+            Patch(color="#FF7D45", alpha=0.5, label="<50  Very low"),
+        ], fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0", loc="lower right")
+        fig.tight_layout(pad=1.5)
+        mplcursors.cursor(ax)
+        return fig
+
+    @staticmethod
+    def create_distance_map_figure(dist_matrix: np.ndarray, label_font=14, tick_font=12):
+        """Cα pairwise distance heatmap from AlphaFold structure.
+        Cells ≤8 Å are highlighted as contacts."""
+        n   = dist_matrix.shape[0]
+        fig = Figure(figsize=(6.5, 5.5), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        ax.set_facecolor("#fafbff")
+        im   = ax.imshow(dist_matrix, cmap="viridis_r", aspect="auto",
+                         origin="upper", interpolation="nearest",
+                         vmin=0, vmax=min(40, dist_matrix.max()))
+        cbar = fig.colorbar(im, ax=ax, shrink=0.85, aspect=20, pad=0.02)
+        cbar.set_label("Cα distance (Å)", fontsize=tick_font - 1, color="#4a5568")
+        cbar.ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
+        # Overlay 8 Å contact threshold as a contour
+        ax.contour(dist_matrix, levels=[8.0], colors=["#f72585"],
+                   linewidths=[0.6], alpha=0.7)
+        _pub_style_ax(ax,
+                      title=f"Cα Distance Map  ({n} residues)  — pink contour = 8 Å contact",
+                      xlabel="Residue Position", ylabel="Residue Position",
+                      grid=False, title_size=label_font,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        fig.tight_layout(pad=1.5)
+        return fig
+
+    @staticmethod
+    def create_domain_architecture_figure(seq_len: int, domains: list,
+                                          label_font=14, tick_font=12):
+        """Linear domain architecture ruler from Pfam/InterPro annotations."""
+        fig = Figure(figsize=(9, max(2.5, 1.0 + len(domains) * 0.5)), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax  = fig.add_subplot(111)
+        ax.set_facecolor("#fafbff")
+        # Backbone
+        ax.plot([1, seq_len], [0, 0], color="#94a3b8", linewidth=3,
+                solid_capstyle="round", zorder=2)
+        ax.text(1,        0.18, "N", ha="center", fontsize=tick_font - 2, color="#4a5568")
+        ax.text(seq_len, 0.18, "C", ha="center", fontsize=tick_font - 2, color="#4a5568")
+        for i, dom in enumerate(domains):
+            col  = _PALETTE[i % len(_PALETTE)]
+            s, e = dom["start"], dom["end"]
+            rect = Rectangle((s, -0.25), e - s, 0.5,
+                              color=col, alpha=0.85, zorder=4, linewidth=0)
+            ax.add_patch(rect)
+            mid = (s + e) / 2
+            ax.text(mid, 0, dom["name"][:14],
+                    ha="center", va="center",
+                    fontsize=max(5, tick_font - 5), color="white",
+                    fontweight="bold", zorder=5)
+        _pub_style_ax(ax,
+                      title="Domain Architecture (Pfam/InterPro)",
+                      xlabel="Residue Position", ylabel="",
+                      grid=False, title_size=label_font + 1,
+                      label_size=label_font - 1, tick_size=tick_font - 1)
+        ax.set_xlim(0, seq_len + 5)
+        ax.set_ylim(-0.6, 0.6)
+        ax.set_yticks([])
+        if domains:
+            ax.legend(
+                handles=[Patch(color=_PALETTE[i % len(_PALETTE)], label=d["name"])
+                         for i, d in enumerate(domains)],
+                fontsize=max(6, tick_font - 4), framealpha=0.85,
+                edgecolor="#d0d4e0", loc="upper right",
+                ncol=max(1, len(domains) // 6)
+            )
+        fig.tight_layout(pad=1.5)
+        return fig
+
+
 # --- Export ---
 
 class ExportTools:
@@ -1616,6 +2000,130 @@ class AnalysisWorker(QThread):
             self.error.emit(str(exc))
 
 
+# --- AlphaFold worker ---
+
+class AlphaFoldWorker(QThread):
+    """Fetch AlphaFold predicted structure for a UniProt accession.
+    Emits finished(dict) with keys: pdb_str, plddt, dist_matrix, accession."""
+    finished = pyqtSignal(dict)
+    error    = pyqtSignal(str)
+    progress = pyqtSignal(str)
+
+    def __init__(self, accession: str):
+        super().__init__()
+        self.accession = accession.strip().upper()
+
+    def run(self):
+        try:
+            self.progress.emit(f"Querying AlphaFold for {self.accession}…")
+            meta_url = f"https://alphafold.ebi.ac.uk/api/prediction/{self.accession}"
+            req = urllib.request.Request(meta_url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                meta = json.loads(r.read().decode())
+            if not meta:
+                self.error.emit(f"No AlphaFold prediction found for {self.accession}.")
+                return
+            pdb_url = meta[0]["pdbUrl"]
+            self.progress.emit("Downloading PDB structure…")
+            with urllib.request.urlopen(pdb_url, timeout=60) as r:
+                pdb_str = r.read().decode()
+            self.progress.emit("Extracting pLDDT and distance matrix…")
+            plddt       = extract_plddt_from_pdb(pdb_str)
+            dist_matrix = compute_ca_distance_matrix(pdb_str)
+            self.finished.emit({
+                "pdb_str":     pdb_str,
+                "plddt":       plddt,
+                "dist_matrix": dist_matrix,
+                "accession":   self.accession,
+            })
+        except Exception as exc:
+            self.error.emit(f"AlphaFold fetch failed: {exc}")
+
+
+# --- Pfam worker ---
+
+class PfamWorker(QThread):
+    """Fetch Pfam domain annotations for a UniProt accession via InterPro REST API."""
+    finished = pyqtSignal(list)
+    error    = pyqtSignal(str)
+
+    def __init__(self, accession: str):
+        super().__init__()
+        self.accession = accession.strip().upper()
+
+    def run(self):
+        try:
+            url = (
+                f"https://www.ebi.ac.uk/interpro/api/entry/pfam"
+                f"/protein/uniprot/{self.accession}/?page_size=100"
+            )
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = json.loads(r.read().decode())
+            domains = []
+            for result in data.get("results", []):
+                meta = result.get("metadata", {})
+                raw_name = meta.get("name", meta.get("accession", "Unknown"))
+                name = raw_name.get("name", raw_name) if isinstance(raw_name, dict) else raw_name
+                acc  = meta.get("accession", "")
+                for prot in result.get("proteins", []):
+                    for loc in prot.get("entry_protein_locations", []):
+                        for frag in loc.get("fragments", []):
+                            domains.append({
+                                "name":      name,
+                                "accession": acc,
+                                "start":     frag["start"],
+                                "end":       frag["end"],
+                            })
+            domains.sort(key=lambda d: d["start"])
+            self.finished.emit(domains)
+        except Exception as exc:
+            self.error.emit(f"Pfam fetch failed: {exc}")
+
+
+# --- BLAST worker ---
+
+class BlastWorker(QThread):
+    """Run NCBI blastp and return top hits. Can take 1-3 minutes."""
+    finished = pyqtSignal(list)
+    error    = pyqtSignal(str)
+    progress = pyqtSignal(str)
+
+    def __init__(self, seq: str, database: str = "nr", hitlist_size: int = 20):
+        super().__init__()
+        self.seq          = seq
+        self.database     = database
+        self.hitlist_size = hitlist_size
+
+    def run(self):
+        try:
+            from Bio.Blast import NCBIWWW, NCBIXML
+            self.progress.emit("Submitting BLAST search (this may take 1–3 min)…")
+            result_handle = NCBIWWW.qblast(
+                "blastp", self.database, self.seq,
+                hitlist_size=self.hitlist_size,
+            )
+            self.progress.emit("Parsing BLAST results…")
+            blast_record = NCBIXML.read(result_handle)
+            hits = []
+            for aln in blast_record.alignments[:self.hitlist_size]:
+                hsp = aln.hsps[0]
+                hits.append({
+                    "accession": aln.accession,
+                    "title":     aln.title[:100],
+                    "length":    aln.length,
+                    "score":     hsp.score,
+                    "e_value":   hsp.expect,
+                    "identity":  hsp.identities / hsp.align_length * 100,
+                    "subject":   hsp.sbjct.replace("-", ""),
+                })
+            self.finished.emit(hits)
+        except ImportError:
+            self.error.emit("Bio.Blast not available — install biopython.")
+        except Exception as exc:
+            self.error.emit(f"BLAST failed: {exc}")
+
+
 # --- Mutation dialog ---
 
 class MutationDialog(QDialog):
@@ -1658,6 +2166,71 @@ class MutationDialog(QDialog):
         return self.pos_spin.value() - 1, self.aa_combo.currentText()
 
 
+# --- Navigation sidebar widget ---
+
+class NavTabWidget(QWidget):
+    """Left-sidebar navigation that is a drop-in replacement for QTabWidget.
+    Implements the subset of QTabWidget API used in this app."""
+
+    _NAV_ICONS = {
+        "Analysis":            "🧪",
+        "Graphs":              "📊",
+        "Structure":           "🔬",
+        "BLAST":               "🔍",
+        "Compare":             "⚖\ufe0f",
+        "Multichain Analysis": "📋",
+        "Settings":            "⚙\ufe0f",
+        "Help":                "❓",
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self.nav_list = QListWidget()
+        self.nav_list.setObjectName("nav_bar")
+        self.nav_list.setFixedWidth(136)
+        self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        outer.addWidget(self.nav_list)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setFrameShadow(QFrame.Plain)
+        sep.setObjectName("nav_sep")
+        outer.addWidget(sep)
+
+        self.stack = QStackedWidget()
+        outer.addWidget(self.stack, 1)
+
+        self.nav_list.currentRowChanged.connect(self.stack.setCurrentIndex)
+
+    def addTab(self, widget: QWidget, name: str) -> int:
+        icon = self._NAV_ICONS.get(name, "▸")
+        item = QListWidgetItem(f"  {icon}  {name}")
+        self.nav_list.addItem(item)
+        idx = self.stack.addWidget(widget)
+        if self.nav_list.count() == 1:
+            self.nav_list.setCurrentRow(0)
+        return idx
+
+    def setCurrentIndex(self, idx: int):
+        self.nav_list.setCurrentRow(idx)
+
+    def currentIndex(self) -> int:
+        return self.nav_list.currentRow()
+
+    def currentWidget(self) -> QWidget:
+        return self.stack.currentWidget()
+
+    def widget(self, idx: int) -> QWidget:
+        return self.stack.widget(idx)
+
+    def count(self) -> int:
+        return self.stack.count()
+
+
 # --- Main GUI ---
 
 class ProteinAnalyzerGUI(QMainWindow):
@@ -1694,11 +2267,21 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._analysis_worker    = None
         self._history: list      = []   # list of (name, seq)
 
+        # --- New state for AlphaFold / Pfam / BLAST ---
+        self.current_accession   = ""   # last successfully fetched UniProt accession
+        self.alphafold_data      = None # dict: pdb_str, plddt, dist_matrix, accession
+        self.pfam_domains        = []   # list of domain dicts from Pfam
+        self._alphafold_worker   = None
+        self._pfam_worker        = None
+        self._blast_worker       = None
+
         self.check_dependencies()
-        self.main_tabs = QTabWidget()
+        self.main_tabs = NavTabWidget()
         self.setCentralWidget(self.main_tabs)
         self.init_analysis_tab()
         self.init_graphs_tab()
+        self.init_structure_tab()
+        self.init_blast_tab()
         self.init_batch_tab()
         self.init_comparison_tab()
         self.init_settings_tab()
@@ -1828,6 +2411,21 @@ class ProteinAnalyzerGUI(QMainWindow):
         fetch_btn.setMinimumHeight(28)
         fetch_btn.clicked.connect(self.fetch_accession)
         tb2.addWidget(fetch_btn)
+        tb2.addSpacing(16)
+        self.fetch_af_btn = QPushButton("Fetch AlphaFold")
+        self.fetch_af_btn.setMinimumHeight(28)
+        self.fetch_af_btn.setEnabled(False)
+        self.fetch_af_btn.clicked.connect(self.fetch_alphafold)
+        self._set_tooltip(self.fetch_af_btn,
+                          "Fetch AlphaFold predicted structure (requires a UniProt accession).")
+        tb2.addWidget(self.fetch_af_btn)
+        self.fetch_pfam_btn = QPushButton("Fetch Pfam")
+        self.fetch_pfam_btn.setMinimumHeight(28)
+        self.fetch_pfam_btn.setEnabled(False)
+        self.fetch_pfam_btn.clicked.connect(self.fetch_pfam)
+        self._set_tooltip(self.fetch_pfam_btn,
+                          "Fetch Pfam domain annotations from InterPro (requires a UniProt accession).")
+        tb2.addWidget(self.fetch_pfam_btn)
         tb2.addSpacing(20)
         tb2.addWidget(QLabel("History:"))
         self.history_combo = QComboBox()
@@ -1898,16 +2496,38 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         splitter.addWidget(left)
 
-        # Right panel: report tabs
+        # Right panel: section list + content stack
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(4, 0, 0, 0)
         right_layout.setSpacing(0)
 
-        self.report_tabs = QTabWidget()
-        right_layout.addWidget(self.report_tabs)
+        report_panel = QWidget()
+        report_h     = QHBoxLayout(report_panel)
+        report_h.setContentsMargins(0, 0, 0, 0)
+        report_h.setSpacing(0)
+
+        self.report_section_list = QListWidget()
+        self.report_section_list.setObjectName("report_nav")
+        self.report_section_list.setFixedWidth(152)
+        self.report_section_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        report_h.addWidget(self.report_section_list)
+
+        rsep = QFrame()
+        rsep.setFrameShape(QFrame.VLine)
+        rsep.setFrameShadow(QFrame.Plain)
+        rsep.setObjectName("nav_sep")
+        report_h.addWidget(rsep)
+
+        self.report_stack = QStackedWidget()
+        report_h.addWidget(self.report_stack, 1)
+
+        right_layout.addWidget(report_panel, 1)
+
         self.report_section_tabs = {}
         for sec in REPORT_SECTIONS:
+            self.report_section_list.addItem(QListWidgetItem(sec))
+
             tab = QWidget()
             vb  = QVBoxLayout(tab)
             vb.setContentsMargins(4, 4, 4, 4)
@@ -1930,8 +2550,12 @@ class ProteinAnalyzerGUI(QMainWindow):
             vb.addLayout(btn_row)
             browser = QTextBrowser()
             vb.addWidget(browser)
-            self.report_tabs.addTab(tab, sec)
+            self.report_stack.addWidget(tab)
             self.report_section_tabs[sec] = browser
+
+        self.report_section_list.currentRowChanged.connect(
+            self.report_stack.setCurrentIndex)
+        self.report_section_list.setCurrentRow(0)
 
         splitter.addWidget(right)
         splitter.setSizes([400, 700])
@@ -1939,34 +2563,253 @@ class ProteinAnalyzerGUI(QMainWindow):
 
     def init_graphs_tab(self):
         container = QWidget()
-        layout    = QVBoxLayout(container)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(4)
+        outer     = QHBoxLayout(container)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
         self.main_tabs.addTab(container, "Graphs")
 
-        self.graphs_subtabs = QTabWidget()
-        layout.addWidget(self.graphs_subtabs, 1)
+        # ── Left: category tree ──────────────────────────────────────────────
+        self.graph_tree = QTreeWidget()
+        self.graph_tree.setObjectName("graph_tree")
+        self.graph_tree.setHeaderHidden(True)
+        self.graph_tree.setFixedWidth(186)
+        self.graph_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.graph_tree.setIndentation(14)
+        outer.addWidget(self.graph_tree)
 
-        self.graph_tabs = {}
-        for title in GRAPH_TITLES:
-            tab = QWidget()
-            vb  = QVBoxLayout(tab)
-            vb.setContentsMargins(4, 4, 4, 4)
-            placeholder = QLabel(f"Run analysis to generate:  {title}")
-            placeholder.setAlignment(Qt.AlignCenter)
-            placeholder.setStyleSheet("color:#718096; font-style:italic;")
-            vb.addWidget(placeholder)
-            btn = QPushButton("Save Graph")
-            btn.setMaximumWidth(120)
-            btn.clicked.connect(lambda _, t=title: self.save_graph(t))
-            vb.addWidget(btn, alignment=Qt.AlignRight)
-            self.graphs_subtabs.addTab(tab, title)
-            self.graph_tabs[title] = (tab, vb)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setFrameShadow(QFrame.Plain)
+        sep.setObjectName("nav_sep")
+        outer.addWidget(sep)
+
+        # ── Right: canvas stack + toolbar ───────────────────────────────────
+        right = QWidget()
+        right_v = QVBoxLayout(right)
+        right_v.setContentsMargins(4, 4, 4, 4)
+        right_v.setSpacing(4)
+        outer.addWidget(right, 1)
 
         save_all = QPushButton("Save All Graphs")
-        save_all.setMinimumHeight(30)
+        save_all.setMaximumWidth(160)
         save_all.clicked.connect(self.save_all_graphs)
-        layout.addWidget(save_all, alignment=Qt.AlignRight)
+        right_v.addWidget(save_all, alignment=Qt.AlignRight)
+
+        self.graph_stack = QStackedWidget()
+        right_v.addWidget(self.graph_stack, 1)
+
+        # ── Populate tree and stack ──────────────────────────────────────────
+        self.graph_tabs = {}
+        self._graph_title_to_stack_idx: dict = {}
+        bold_font = QFont()
+        bold_font.setBold(True)
+        bold_font.setPointSize(10)
+
+        for category, titles in GRAPH_CATEGORIES:
+            cat_item = QTreeWidgetItem([f"  {category}"])
+            cat_item.setFont(0, bold_font)
+            cat_item.setFlags(cat_item.flags() & ~Qt.ItemIsSelectable)
+            self.graph_tree.addTopLevelItem(cat_item)
+
+            for title in titles:
+                leaf = QTreeWidgetItem([f"  {title}"])
+                leaf.setData(0, Qt.UserRole, title)
+                cat_item.addChild(leaf)
+
+                panel = QWidget()
+                vb    = QVBoxLayout(panel)
+                vb.setContentsMargins(4, 4, 4, 4)
+                ph = QLabel(f"Run analysis to generate:\n{title}")
+                ph.setAlignment(Qt.AlignCenter)
+                ph.setStyleSheet("color:#718096; font-style:italic;")
+                vb.addWidget(ph)
+                save_btn = QPushButton("Save Graph")
+                save_btn.setMaximumWidth(120)
+                save_btn.clicked.connect(lambda _, t=title: self.save_graph(t))
+                vb.addWidget(save_btn, alignment=Qt.AlignRight)
+
+                idx = self.graph_stack.addWidget(panel)
+                self.graph_tabs[title] = (panel, vb)
+                self._graph_title_to_stack_idx[title] = idx
+
+            cat_item.setExpanded(True)
+
+        self.graph_tree.itemClicked.connect(self._on_graph_tree_clicked)
+        # Select first graph
+        first_cat = self.graph_tree.topLevelItem(0)
+        if first_cat and first_cat.childCount():
+            first_leaf = first_cat.child(0)
+            self.graph_tree.setCurrentItem(first_leaf)
+            self.graph_stack.setCurrentIndex(0)
+
+    def init_structure_tab(self):
+        """Tab for 3D AlphaFold structure viewer and pLDDT info."""
+        container = QWidget()
+        layout    = QVBoxLayout(container)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        self.main_tabs.addTab(container, "Structure")
+
+        info_row = QHBoxLayout()
+        self.af_status_lbl = QLabel("No structure loaded.  Use 'Fetch AlphaFold' after fetching a UniProt accession.")
+        self.af_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
+        info_row.addWidget(self.af_status_lbl, 1)
+        self.save_pdb_btn = QPushButton("Save PDB")
+        self.save_pdb_btn.setEnabled(False)
+        self.save_pdb_btn.clicked.connect(self._save_pdb)
+        info_row.addWidget(self.save_pdb_btn)
+        layout.addLayout(info_row)
+
+        if _WEBENGINE_AVAILABLE:
+            self.structure_viewer = QWebEngineView()
+            self.structure_viewer.setMinimumHeight(500)
+            layout.addWidget(self.structure_viewer, 1)
+            # Colour-mode buttons
+            btn_row = QHBoxLayout()
+            for label, js in [
+                ("Color: pLDDT",       "colorByPLDDT()"),
+                ("Color: Residue Type","colorByResidue()"),
+                ("Color: Chain",       "colorByChain()"),
+                ("Cartoon / Sphere",   "toggleStyle()"),
+            ]:
+                b = QPushButton(label)
+                b.setMinimumHeight(28)
+                b.clicked.connect(lambda _, call=js: self.structure_viewer.page().runJavaScript(call))
+                btn_row.addWidget(b)
+            btn_row.addStretch()
+            layout.addLayout(btn_row)
+        else:
+            msg = QLabel(
+                "PyQtWebEngine is not installed.\n"
+                "Install it with:  pip install PyQtWebEngine\n\n"
+                "You can still save the PDB file and open it in PyMOL, UCSF ChimeraX, or 3Dmol.csb.pitt.edu."
+            )
+            msg.setAlignment(Qt.AlignCenter)
+            msg.setStyleSheet("color:#718096; font-size:11pt;")
+            layout.addWidget(msg, 1)
+            self.structure_viewer = None
+
+    _3DMOL_HTML = """<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  html, body {{ margin:0; padding:0; overflow:hidden; background:#1a1a2e; width:100%; height:100%; }}
+  #vp {{ width:100%; height:100vh; position:relative; }}
+</style>
+</head><body>
+<div id="vp"></div>
+<script src="https://3dmol.org/build/3Dmol-min.js"></script>
+<script>
+var viewer = null;
+var pdbData = {pdb_json};
+var cartoonMode = true;
+
+function init() {{
+    viewer = $3Dmol.createViewer("vp", {{backgroundColor:"#1a1a2e", antialias:true}});
+    viewer.addModel(pdbData, "pdb");
+    colorByPLDDT();
+    viewer.zoomTo();
+    viewer.render();
+}}
+
+function colorByPLDDT() {{
+    if (!viewer) return;
+    viewer.setStyle({{}}, {{cartoon:{{colorscheme:{{prop:"b",gradient:"rwb",min:0,max:100}}}}}});
+    viewer.render();
+}}
+
+function colorByResidue() {{
+    if (!viewer) return;
+    viewer.setStyle({{}}, {{cartoon:{{colorscheme:"amino"}}}});
+    viewer.render();
+}}
+
+function colorByChain() {{
+    if (!viewer) return;
+    viewer.setStyle({{}}, {{cartoon:{{colorscheme:"chain"}}}});
+    viewer.render();
+}}
+
+function toggleStyle() {{
+    if (!viewer) return;
+    cartoonMode = !cartoonMode;
+    var scheme = {{prop:"b",gradient:"rwb",min:0,max:100}};
+    if (cartoonMode) {{
+        viewer.setStyle({{}}, {{cartoon:{{colorscheme:scheme}}}});
+    }} else {{
+        viewer.setStyle({{}}, {{sphere:{{colorscheme:scheme,radius:0.5}}}});
+    }}
+    viewer.render();
+}}
+
+window.addEventListener("load", init);
+</script>
+</body></html>"""
+
+    def _load_structure_viewer(self, pdb_str: str):
+        """Load PDB string into the 3D viewer widget."""
+        if not _WEBENGINE_AVAILABLE or self.structure_viewer is None:
+            return
+        pdb_json = json.dumps(pdb_str)
+        html     = self._3DMOL_HTML.format(pdb_json=pdb_json)
+        self.structure_viewer.setHtml(html)
+
+    def _save_pdb(self):
+        if not self.alphafold_data:
+            return
+        fn, _ = QFileDialog.getSaveFileName(self, "Save PDB", "", "PDB Files (*.pdb)")
+        if fn:
+            if not fn.lower().endswith(".pdb"):
+                fn += ".pdb"
+            try:
+                with open(fn, "w") as f:
+                    f.write(self.alphafold_data["pdb_str"])
+                self.statusBar.showMessage(f"PDB saved: {fn}", 3000)
+            except OSError as e:
+                QMessageBox.critical(self, "Save Failed", str(e))
+
+    def init_blast_tab(self):
+        """Tab for NCBI BLAST search of the current sequence."""
+        container = QWidget()
+        layout    = QVBoxLayout(container)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        self.main_tabs.addTab(container, "BLAST")
+
+        ctrl_row = QHBoxLayout()
+        ctrl_row.addWidget(QLabel("Database:"))
+        self.blast_db_combo = QComboBox()
+        self.blast_db_combo.addItems(["nr", "swissprot", "pdb", "refseq_protein"])
+        self.blast_db_combo.setMaximumWidth(140)
+        ctrl_row.addWidget(self.blast_db_combo)
+        ctrl_row.addSpacing(12)
+        ctrl_row.addWidget(QLabel("Max hits:"))
+        self.blast_hits_spin = QSpinBox()
+        self.blast_hits_spin.setRange(5, 100)
+        self.blast_hits_spin.setValue(20)
+        self.blast_hits_spin.setMaximumWidth(70)
+        ctrl_row.addWidget(self.blast_hits_spin)
+        ctrl_row.addSpacing(12)
+        self.blast_run_btn = QPushButton("BLAST Current Sequence")
+        self.blast_run_btn.setMinimumHeight(30)
+        self.blast_run_btn.clicked.connect(self.run_blast)
+        ctrl_row.addWidget(self.blast_run_btn)
+        ctrl_row.addStretch()
+        layout.addLayout(ctrl_row)
+
+        self.blast_status_lbl = QLabel("Ready.  Run analysis first, then click 'BLAST Current Sequence'.")
+        self.blast_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
+        layout.addWidget(self.blast_status_lbl)
+
+        self.blast_table = QTableWidget()
+        self.blast_table.setAlternatingRowColors(True)
+        self.blast_table.setColumnCount(7)
+        self.blast_table.setHorizontalHeaderLabels(
+            ["Accession", "Description", "Length", "Score", "E-value", "% Identity", "Load"]
+        )
+        self.blast_table.horizontalHeader().setStretchLastSection(False)
+        self.blast_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.blast_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        layout.addWidget(self.blast_table, 1)
 
     def init_comparison_tab(self):
         container = QWidget()
@@ -2184,104 +3027,308 @@ class ProteinAnalyzerGUI(QMainWindow):
         layout.addStretch()
 
     def init_help_tab(self):
-        layout    = QVBoxLayout()
         container = QWidget()
-        container.setLayout(layout)
+        outer_v   = QVBoxLayout(container)
+        outer_v.setContentsMargins(0, 0, 0, 0)
+        outer_v.setSpacing(0)
         self.main_tabs.addTab(container, "Help")
-        b = QTextBrowser()
-        b.setHtml("""
-        <h1>BEER Help &amp; Definitions</h1>
 
-        <h2>Protein Sequence</h2>
-        <p>Enter a single-letter amino acid sequence or import from FASTA/PDB.</p>
+        # Two-panel layout: section list on left, content on right
+        help_h = QHBoxLayout()
+        help_h.setContentsMargins(0, 0, 0, 0)
+        help_h.setSpacing(0)
+        outer_v.addLayout(help_h)
 
-        <h2>Overview</h2>
-        <ul>
-          <li><b>Sequence Length:</b> Number of residues.</li>
-          <li><b>Sequence:</b> The raw amino acid string.</li>
-          <li><b>Net Charge:</b> At pH 7.0 (and custom pH if specified).</li>
-          <li><b>Solubility Prediction:</b> Based on average hydrophobicity.</li>
-        </ul>
+        help_nav = QListWidget()
+        help_nav.setObjectName("report_nav")
+        help_nav.setFixedWidth(172)
+        help_nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        help_h.addWidget(help_nav)
 
-        <h2>Composition</h2>
-        <p>Counts and percentage frequencies of each residue.</p>
+        sep = QFrame(); sep.setFrameShape(QFrame.VLine)
+        sep.setFrameShadow(QFrame.Plain); sep.setObjectName("nav_sep")
+        help_h.addWidget(sep)
 
-        <h2>Properties</h2>
-        <ul>
-          <li><b>Molecular Weight:</b> Approx. mass in Daltons.</li>
-          <li><b>Isoelectric Point (pI):</b> pH with zero net charge.</li>
-          <li><b>Extinction Coeff.:</b> Absorbance at 280 nm per M per cm.</li>
-          <li><b>GRAVY Score:</b> Grand average of hydropathicity (higher = hydrophobic).</li>
-          <li><b>Instability Index:</b> &lt;40 suggests stable protein.</li>
-          <li><b>Aromaticity:</b> Fraction of F, W, Y residues.</li>
-        </ul>
+        help_stack = QStackedWidget()
+        help_h.addWidget(help_stack, 1)
 
-        <h2>Charge</h2>
-        <ul>
-          <li><b>FCR:</b> Fraction of charged residues (K,R,D,E).</li>
-          <li><b>NCPR:</b> Net charge per residue = (K+R &minus; D+E) / length.</li>
-          <li><b>Kappa (&kappa;):</b> Charge patterning, 0 = well-mixed, 1 = fully segregated (Das &amp; Pappu 2013).</li>
-          <li><b>Charge asymmetry:</b> Ratio of positive to negative residues.</li>
-        </ul>
+        _HELP_SECTIONS = [
+            ("Getting Started", """
+<h1>Getting Started</h1>
+<h2>Input methods</h2>
+<ul>
+  <li><b>Paste sequence</b> — type or paste a bare amino-acid string (ACDEFG…) or FASTA block into the sequence box and click <b>Analyze [Ctrl+Enter]</b>.</li>
+  <li><b>Import FASTA</b> — load a .fa / .fasta file (single or multi-sequence).</li>
+  <li><b>Import PDB</b> — extract sequence(s) from a local PDB file.</li>
+  <li><b>Fetch accession</b> — enter a UniProt ID (e.g. <tt>P04637</tt>) or NCBI accession and click <b>Fetch</b>. This also enables the <b>Fetch AlphaFold</b> and <b>Fetch Pfam</b> buttons.</li>
+</ul>
+<h2>Navigation</h2>
+<p>Use the <b>left sidebar</b> to switch between sections. Keyboard shortcuts:</p>
+<table>
+  <tr><th>Shortcut</th><th>Action</th></tr>
+  <tr><td>Ctrl+Enter</td><td>Run analysis</td></tr>
+  <tr><td>Ctrl+G</td><td>Jump to Graphs</td></tr>
+  <tr><td>Ctrl+E</td><td>Export PDF report</td></tr>
+  <tr><td>Ctrl+S</td><td>Save session</td></tr>
+  <tr><td>Ctrl+O</td><td>Load session</td></tr>
+  <tr><td>Ctrl+F</td><td>Focus motif search</td></tr>
+</table>
+"""),
+            ("Sequence Analysis", """
+<h1>Sequence Analysis</h1>
+<h2>Composition</h2>
+<p>Counts and percentage frequencies of each of the 20 standard amino acids. Use the sort buttons (A–Z, By Freq, Hydro ↑/↓) to reorder the table and the matching bar chart.</p>
+<h2>Properties</h2>
+<ul>
+  <li><b>Molecular Weight</b> — approximate monoisotopic mass (Da).</li>
+  <li><b>Isoelectric Point (pI)</b> — pH at which net charge = 0 (Henderson-Hasselbalch).</li>
+  <li><b>Extinction Coefficient</b> — absorbance at 280 nm per M per cm; uses W (5500), Y (1490), C–C (125 in oxidising conditions).</li>
+  <li><b>GRAVY Score</b> — grand average of hydropathicity; positive = hydrophobic (Kyte &amp; Doolittle 1982).</li>
+  <li><b>Instability Index</b> — &lt;40 suggests stable protein in vitro (Guruprasad et al. 1990).</li>
+  <li><b>Aromaticity</b> — fraction of F, W, Y residues.</li>
+</ul>
+<h2>Hydrophobicity</h2>
+<p>Per-residue Kyte-Doolittle values plus fraction of hydrophobic (KD &gt; 0) vs hydrophilic (KD &lt; 0) residues.</p>
+<h2>Charge</h2>
+<ul>
+  <li><b>FCR</b> — fraction of charged residues (K, R, D, E).</li>
+  <li><b>NCPR</b> — net charge per residue = (pos − neg) / length.</li>
+  <li><b>Kappa (κ)</b> — charge patterning: 0 = well-mixed, 1 = fully segregated (Das &amp; Pappu 2013).</li>
+  <li><b>Charge asymmetry</b> — ratio of positive to negative residues.</li>
+</ul>
+<h2>Aromatic &amp; π-Interactions</h2>
+<ul>
+  <li><b>Aromatic fraction</b> — (F+W+Y)/length; π–π stacking drives many condensates.</li>
+  <li><b>Cation–π pairs</b> — K or R within ±4 positions of F/W/Y.</li>
+  <li><b>π–π pairs</b> — F/W/Y within ±4 positions of another aromatic.</li>
+</ul>
+<h2>Low Complexity</h2>
+<ul>
+  <li><b>Shannon entropy</b> — compositional complexity in bits; max ≈ 4.32 (all 20 AAs equal).</li>
+  <li><b>Prion-like score</b> — fraction of N, Q, S, G, Y; enriched in yeast prion domains (PLAAC / Lancaster &amp; Bhatt).</li>
+  <li><b>LC fraction</b> — fraction covered by windows (w=12) with entropy &lt; 2.0 bits.</li>
+</ul>
+<h2>Disorder</h2>
+<ul>
+  <li><b>Disorder-promoting fraction</b> — A, E, G, K, P, Q, R, S (Uversky classification).</li>
+  <li><b>Order-promoting fraction</b> — C, F, H, I, L, M, V, W, Y.</li>
+  <li><b>Aliphatic index</b> — (A + 2.9V + 3.9(I+L)) / length × 100 (Ikai 1980).</li>
+  <li><b>Omega (Ω)</b> — patterning of sticker residues; 0 = even, 1 = clustered (Das et al. 2015).</li>
+</ul>
+<h2>Secondary Structure (Chou-Fasman)</h2>
+<p>Per-residue helix (Pα) and sheet (Pβ) propensities. Pα or Pβ &gt; 1.0 favours that element.
+The per-residue disorder score is an IUPred-inspired propensity (0 = ordered, 1 = disordered).</p>
+<h2>Repeat Motifs</h2>
+<ul>
+  <li><b>RGG</b> — Arg-Gly-Gly; key driver in FUS, hnRNP family.</li>
+  <li><b>FG</b> — Phe-Gly; hallmark of nucleoporin IDRs.</li>
+  <li><b>SR/RS</b> — Ser-Arg; splicing factor signature.</li>
+  <li><b>QN/NQ</b> — Gln-Asn; yeast prion signature.</li>
+</ul>
+<h2>Sticker &amp; Spacer</h2>
+<p>Stickers = F, W, Y, K, R, D, E — residues mediating specific interactions.
+Spacers = all others. Mean/min/max gaps between consecutive stickers (Mittag &amp; Pappu model).</p>
+"""),
+            ("Transmembrane Helices", """
+<h1>Transmembrane Helix Prediction</h1>
+<p>Available in the <b>TM Helices</b> report section and the <b>TM Topology</b> graph
+after running analysis. No external server required — prediction is purely sequence-based.</p>
+<h2>Algorithm</h2>
+<ol>
+  <li>A <b>sliding window</b> (width = 19) of Kyte-Doolittle scores is computed at every position.</li>
+  <li>Contiguous runs where the window score exceeds <b>1.6</b> are merged into candidate helices.</li>
+  <li>Candidates with length outside <b>15–35 aa</b> are discarded.</li>
+  <li><b>Inside-positive rule (von Heijne)</b> — the flanking 15 residues on each side are scanned
+      for K and R. The side with more positively charged residues is assigned as cytoplasmic.
+      <ul>
+        <li><b>out→in</b>: N-terminus is extracellular, C-terminus is cytoplasmic.</li>
+        <li><b>in→out</b>: N-terminus is cytoplasmic, C-terminus is extracellular.</li>
+      </ul>
+  </li>
+</ol>
+<h2>TM Topology graph</h2>
+<p>A simplified snake-plot. The yellow band represents the membrane. Blue rectangles are TM helices
+labelled with their residue range. Loops are drawn above (extracellular) or below (cytoplasmic)
+the band according to the predicted topology.</p>
+<p class="note">Note: This is a heuristic predictor suitable for a first-pass screen.
+For high-accuracy results use TMHMM, Phobius, or DeepTMHMM.</p>
+"""),
+            ("AlphaFold & 3D Structure", """
+<h1>AlphaFold Integration</h1>
+<p>Requires an internet connection and a valid UniProt accession (fetch it with the
+<b>Fetch</b> button in the Analysis toolbar first). Then click <b>Fetch AlphaFold</b>.</p>
+<h2>What gets downloaded</h2>
+<ul>
+  <li>AlphaFold2 predicted PDB file from the EBI server.</li>
+  <li>Per-residue <b>pLDDT</b> scores (stored in the B-factor column of the PDB).</li>
+  <li>Cα pairwise <b>distance matrix</b> computed from the structure coordinates.</li>
+</ul>
+<h2>pLDDT Profile graph</h2>
+<p>Per-residue confidence score (0–100) plotted with four coloured confidence bands:</p>
+<table>
+  <tr><th>Colour</th><th>Range</th><th>Meaning</th></tr>
+  <tr><td>Blue</td><td>&gt;90</td><td>Very high confidence</td></tr>
+  <tr><td>Cyan</td><td>70–90</td><td>Confident</td></tr>
+  <tr><td>Yellow</td><td>50–70</td><td>Low confidence</td></tr>
+  <tr><td>Orange</td><td>&lt;50</td><td>Very low / disordered region</td></tr>
+</table>
+<h2>Distance Map graph</h2>
+<p>Symmetric Cα–Cα pairwise distance heatmap (viridis palette, 0–40 Å). The pink contour marks
+the <b>8 Å contact threshold</b> — residue pairs inside this contour are in physical contact.</p>
+<h2>3D Structure viewer</h2>
+<p>The <b>Structure</b> section hosts an interactive 3D viewer powered by
+<a href="https://3dmol.csb.pitt.edu">3Dmol.js</a>. Requires <b>PyQtWebEngine</b>:</p>
+<pre>pip install PyQtWebEngine</pre>
+<p>If not installed, the PDB can be saved locally and opened in PyMOL, UCSF ChimeraX, or the
+web viewer at <tt>3dmol.csb.pitt.edu</tt>.</p>
+<p>Colour modes available in the Structure section:</p>
+<ul>
+  <li><b>pLDDT</b> — red (low) → white → blue (high).</li>
+  <li><b>Residue Type</b> — amino-acid colour scheme.</li>
+  <li><b>Chain</b> — each chain a different colour.</li>
+  <li><b>Cartoon / Sphere</b> — toggle representation.</li>
+</ul>
+"""),
+            ("Pfam Domains", """
+<h1>Pfam Domain Annotations</h1>
+<p>Requires an internet connection and a valid UniProt accession. Click <b>Fetch Pfam</b>
+after loading an accession.</p>
+<h2>Data source</h2>
+<p>Queries the <b>EMBL-EBI InterPro REST API</b> for all Pfam-family entries associated
+with the given UniProt protein. Results include domain name, accession, and start/end residue
+positions.</p>
+<h2>Domain Architecture graph</h2>
+<p>A linear ruler from N- to C-terminus. Each Pfam domain is drawn as a coloured box labelled
+with a truncated domain name (hover for full label in the legend). Domains are coloured from the
+BEER palette in the order they appear. Overlapping domains are all drawn at the same height.</p>
+<p class="note">Only Pfam entries are shown. InterPro, SUPERFAMILY, PRINTS, and other databases
+are excluded for clarity.</p>
+"""),
+            ("BLAST Search", """
+<h1>BLAST Integration</h1>
+<p>The <b>BLAST</b> section submits the currently analysed sequence to NCBI via the
+<tt>Bio.Blast.NCBIWWW</tt> interface and displays the top hits. Requires internet access
+and can take <b>1–3 minutes</b>.</p>
+<h2>Controls</h2>
+<ul>
+  <li><b>Database</b> — nr (non-redundant), swissprot, pdb, refseq_protein.</li>
+  <li><b>Max hits</b> — number of alignments to retrieve (5–100).</li>
+  <li><b>BLAST Current Sequence</b> — submits blastp with the sequence from the last analysis.</li>
+</ul>
+<h2>Results table</h2>
+<table>
+  <tr><th>Column</th><th>Meaning</th></tr>
+  <tr><td>Accession</td><td>NCBI accession of the hit</td></tr>
+  <tr><td>Description</td><td>Truncated title of the hit (first 80 chars)</td></tr>
+  <tr><td>Length</td><td>Subject sequence length (aa)</td></tr>
+  <tr><td>Score</td><td>Bit score of top HSP</td></tr>
+  <tr><td>E-value</td><td>Expect value of top HSP</td></tr>
+  <tr><td>% Identity</td><td>Percent identical residues in the aligned region</td></tr>
+  <tr><td>Load</td><td>Loads the subject sequence into Analysis and re-runs it</td></tr>
+</table>
+<p class="note">BLAST uses the public NCBI servers. Do not submit large numbers of queries
+in rapid succession. For batch analyses use NCBI standalone BLAST locally.</p>
+"""),
+            ("Graphs Reference", """
+<h1>Graphs Reference</h1>
+<p>All graphs are accessible from the <b>Graphs</b> section. Use the category tree on the
+left to navigate. Each graph has its own <b>Save Graph</b> button; <b>Save All Graphs</b>
+exports the whole collection to a chosen directory.</p>
+<h2>Composition</h2>
+<ul>
+  <li><b>Bar / Pie Chart</b> — amino acid counts and frequencies. Bar chart sort order matches
+      the Composition report section buttons.</li>
+</ul>
+<h2>Profiles</h2>
+<ul>
+  <li><b>Hydrophobicity Profile</b> — Kyte-Doolittle sliding-window average (window set in Settings).</li>
+  <li><b>Local Charge Profile</b> — sliding-window NCPR; shows charge blocks.</li>
+  <li><b>Local Complexity</b> — sliding-window Shannon entropy; red dashed line = LC threshold (2.0 bits).</li>
+  <li><b>Disorder Profile</b> — IUPred-inspired per-residue score; orange fill = disordered (&gt;0.5).</li>
+  <li><b>Linear Sequence Map</b> — four-track overview: hydrophobicity, NCPR, disorder, helix Pα.</li>
+  <li><b>Secondary Structure</b> — Chou-Fasman per-residue Pα (helix) and Pβ (sheet) propensities.</li>
+</ul>
+<h2>Charge &amp; π-Interactions</h2>
+<ul>
+  <li><b>Net Charge vs pH</b> — Henderson-Hasselbalch charge curve 0–14; pI marked.</li>
+  <li><b>Isoelectric Focus</b> — enhanced version with physiological pH 7.4 annotation.</li>
+  <li><b>Charge Decoration</b> — Das-Pappu FCR vs |NCPR| phase diagram; star = this protein.</li>
+  <li><b>Cation–π Map</b> — proximity heat map (1/distance weight) for K/R ↔ F/W/Y pairs.</li>
+</ul>
+<h2>Structure &amp; Folding</h2>
+<ul>
+  <li><b>Bead Model (Hydrophobicity)</b> — per-residue KD score, coolwarm colourmap.</li>
+  <li><b>Bead Model (Charge)</b> — K/R blue, D/E red, H cyan, neutral grey.</li>
+  <li><b>Sticker Map</b> — aromatic (amber), basic (blue), acidic (pink), spacer (grey).</li>
+  <li><b>Properties Radar Chart</b> — five normalised properties: MW, pI, GRAVY, instability, aromaticity.</li>
+  <li><b>Helical Wheel</b> — projection of first 18 residues at 100° per step, KD coloured.</li>
+  <li><b>TM Topology</b> — snake-plot of predicted transmembrane helices (see TM Helices section).</li>
+</ul>
+<h2>AlphaFold / Structural</h2>
+<ul>
+  <li><b>pLDDT Profile</b> — per-residue AlphaFold confidence (see AlphaFold section). Requires Fetch AlphaFold.</li>
+  <li><b>Distance Map</b> — Cα pairwise distance heatmap with 8 Å contact contour. Requires Fetch AlphaFold.</li>
+  <li><b>Domain Architecture</b> — linear Pfam domain map. Requires Fetch Pfam.</li>
+</ul>
+"""),
+            ("Multichain & Compare", """
+<h1>Multichain Analysis</h1>
+<p>When a multi-FASTA file or PDB with multiple chains is imported, all sequences are
+analysed in bulk and shown in the <b>Multichain Analysis</b> table. Double-click any row
+to load that sequence into the Analysis section with full results.</p>
+<p>Export the table to <b>CSV</b> or <b>JSON</b> for downstream processing.</p>
+<h1>Compare</h1>
+<p>Paste two sequences (or FASTA entries) into the side-by-side inputs and click
+<b>Compare Sequences</b>. A property table shows both values side-by-side:
+length, MW, pI, GRAVY, FCR, NCPR, net charge, instability, aromaticity, and extinction coefficient.</p>
+"""),
+            ("Settings & Session", """
+<h1>Settings</h1>
+<h2>Analysis Parameters</h2>
+<ul>
+  <li><b>Default pH</b> — pH used for net-charge calculations (0–14).</li>
+  <li><b>Sliding Window Size</b> — window width for hydrophobicity, NCPR, and entropy profiles.</li>
+  <li><b>Override pKa</b> — custom pKa values (N-term, C-term, D, E, C, Y, H, K, R) as comma-separated numbers.</li>
+  <li><b>Reducing conditions</b> — if checked, Cys residues are not counted as disulphide pairs for extinction coefficient.</li>
+</ul>
+<h2>Graph Appearance</h2>
+<ul>
+  <li><b>Label / Tick Font Size</b> — point size of axis titles and tick labels.</li>
+  <li><b>Default Graph Format</b> — PNG, SVG, or PDF for Save Graph / Save All.</li>
+  <li><b>Bead Colormap</b> — matplotlib colourmap for the Bead Hydrophobicity model.</li>
+  <li><b>Graph Accent Colour</b> — primary line/fill colour for most graphs.</li>
+  <li><b>Transparent background</b> — export graphs with alpha = 0 (PNG/SVG only).</li>
+</ul>
+<h2>Interface</h2>
+<ul>
+  <li><b>UI Font Size</b> — global application font size in points.</li>
+  <li><b>Dark Theme</b> — toggles between light and dark colour themes.</li>
+  <li><b>Enable Tooltips</b> — show tooltips on Settings widgets.</li>
+</ul>
+<h1>Sessions</h1>
+<p>Use <b>Save Session</b> / <b>Load Session</b> (or Ctrl+S / Ctrl+O) to persist the current
+sequence, name, pH, window size, pKa overrides, reducing conditions, font sizes, and
+transparency setting in a <tt>.beer</tt> JSON file.</p>
+"""),
+        ]
 
-        <h2>Aromatic &amp; &pi;</h2>
-        <ul>
-          <li><b>Aromatic fraction:</b> (F+W+Y)/length &mdash; &pi;&ndash;&pi; stacking drives many condensates.</li>
-          <li><b>Cation&ndash;&pi; pairs:</b> K/R within &plusmn;4 positions of F/W/Y.</li>
-          <li><b>&pi;&ndash;&pi; pairs:</b> F/W/Y within &plusmn;4 positions of another F/W/Y.</li>
-        </ul>
+        for section_name, html_body in _HELP_SECTIONS:
+            help_nav.addItem(QListWidgetItem(section_name))
+            page   = QWidget()
+            page_v = QVBoxLayout(page)
+            page_v.setContentsMargins(0, 0, 0, 0)
+            browser = QTextBrowser()
+            browser.setOpenExternalLinks(True)
+            full_html = (
+                f"<style>{REPORT_CSS} body{{padding:12px;}}</style>"
+                + html_body
+            )
+            browser.setHtml(full_html)
+            page_v.addWidget(browser)
+            help_stack.addWidget(page)
 
-        <h2>Low Complexity</h2>
-        <ul>
-          <li><b>Shannon entropy:</b> Compositional complexity in bits; max = log&#8322;(20) &asymp; 4.32.</li>
-          <li><b>Prion-like score:</b> Fraction of N,Q,S,G,Y &mdash; enriched in yeast prion domains (PLAAC).</li>
-          <li><b>LC fraction:</b> Fraction of sequence covered by windows with entropy &lt; 2.0 bits.</li>
-        </ul>
-
-        <h2>Disorder</h2>
-        <ul>
-          <li><b>Disorder-promoting fraction:</b> A,E,G,K,P,Q,R,S (Uversky classification).</li>
-          <li><b>Order-promoting fraction:</b> C,F,H,I,L,M,V,W,Y.</li>
-          <li><b>Aliphatic index:</b> (A + 2.9V + 3.9(I+L)) / length &times; 100 (Ikai 1980).</li>
-          <li><b>Omega (&Omega;):</b> Patterning of sticker residues; 0 = even, 1 = clustered (Das et al. 2015).</li>
-        </ul>
-
-        <h2>Repeat Motifs</h2>
-        <ul>
-          <li><b>RGG:</b> Arg-Gly-Gly &mdash; major driver in FUS, hnRNP family.</li>
-          <li><b>FG:</b> Phe-Gly &mdash; hallmark of nucleoporin IDRs.</li>
-          <li><b>YG/GY:</b> Tyr-Gly variants.</li>
-          <li><b>SR/RS:</b> Ser-Arg &mdash; splicing factor signature.</li>
-          <li><b>QN/NQ:</b> Gln-Asn &mdash; yeast prion signature.</li>
-        </ul>
-
-        <h2>Sticker &amp; Spacer</h2>
-        <ul>
-          <li><b>Stickers:</b> F,W,Y,K,R,D,E &mdash; residues mediating specific interactions.</li>
-          <li><b>Spacers:</b> all other residues providing chain flexibility and valency.</li>
-          <li><b>Spacing stats:</b> Mean/min/max gap between consecutive stickers (Mittag &amp; Pappu).</li>
-        </ul>
-
-        <h2>Graphs</h2>
-        <ul>
-          <li><b>Bar/Pie Charts:</b> Amino acid composition.</li>
-          <li><b>Hydrophobicity Profile:</b> Sliding-window Kyte-Doolittle average.</li>
-          <li><b>Net Charge vs pH:</b> Charge curve from pH 0 to 14.</li>
-          <li><b>Bead Models:</b> Per-residue hydrophobicity or charge.</li>
-          <li><b>Radar Chart:</b> Normalized physiochemical properties.</li>
-          <li><b>Sticker Map:</b> Per-residue sticker identity (aromatic/basic/acidic/spacer).</li>
-          <li><b>Local Charge Profile:</b> Sliding-window NCPR showing charge block structure.</li>
-          <li><b>Local Complexity:</b> Sliding-window Shannon entropy; red dashed line = LC threshold.</li>
-          <li><b>Cation&ndash;&pi; Map:</b> Proximity heat map of K/R vs F/W/Y pairs along the sequence.</li>
-        </ul>
-
-        <h2>Batch Analysis</h2>
-        <p>Import multi-FASTA or PDB to analyze multiple sequences; select one for detail.</p>
-
-        <h2>Settings</h2>
-        <p>Adjust window size, pH, fonts, colormap, theme, and display options.</p>
-        """)
-        layout.addWidget(b)
+        help_nav.currentRowChanged.connect(help_stack.setCurrentIndex)
+        help_nav.setCurrentRow(0)
 
     # --- Import ---
 
@@ -2594,6 +3641,26 @@ class ProteinAnalyzerGUI(QMainWindow):
                 self.analysis_data["disorder_scores"], label_font=lf, tick_font=tf),
         }
 
+        # TM Topology is always available after analysis
+        figs["TM Topology"] = GraphingTools.create_tm_topology_figure(
+            seq, self.analysis_data.get("tm_helices", []),
+            label_font=lf, tick_font=tf)
+
+        # Structure-dependent graphs (only when AlphaFold data is loaded)
+        if self.alphafold_data:
+            if self.alphafold_data.get("plddt"):
+                figs["pLDDT Profile"] = GraphingTools.create_plddt_figure(
+                    self.alphafold_data["plddt"], label_font=lf, tick_font=tf)
+            dm = self.alphafold_data.get("dist_matrix")
+            if dm is not None and dm.size > 0:
+                figs["Distance Map"] = GraphingTools.create_distance_map_figure(
+                    dm, label_font=lf, tick_font=tf)
+
+        # Domain architecture (only when Pfam data is loaded)
+        if self.pfam_domains:
+            figs["Domain Architecture"] = GraphingTools.create_domain_architecture_figure(
+                len(seq), self.pfam_domains, label_font=lf, tick_font=tf)
+
         # Apply global heading/grid/colour overrides
         for title, fig in figs.items():
             if fig.axes:
@@ -2615,6 +3682,13 @@ class ProteinAnalyzerGUI(QMainWindow):
                 self._update_seq_viewer()
                 self.update_graph_tabs()
                 return
+
+    # --- Graph tree handler ---
+
+    def _on_graph_tree_clicked(self, item: QTreeWidgetItem, _col: int):
+        title = item.data(0, Qt.UserRole)
+        if title and title in self._graph_title_to_stack_idx:
+            self.graph_stack.setCurrentIndex(self._graph_title_to_stack_idx[title])
 
     # --- Export ---
 
@@ -2904,8 +3978,140 @@ class ProteinAnalyzerGUI(QMainWindow):
         rid, seq = entries[0]
         self.seq_text.setPlainText(seq)
         self.sequence_name = rid
+        # Store the raw accession for AlphaFold / Pfam lookups
+        self.current_accession = acc
+        self.fetch_af_btn.setEnabled(True)
+        self.fetch_pfam_btn.setEnabled(True)
         self.accession_input.clear()
         self.statusBar.showMessage(f"Fetched {rid}  ({len(seq)} aa)", 3000)
+
+    # --- AlphaFold ---
+
+    def fetch_alphafold(self):
+        acc = self.current_accession
+        if not acc:
+            QMessageBox.warning(self, "AlphaFold", "Fetch a UniProt accession first.")
+            return
+        if self._alphafold_worker and self._alphafold_worker.isRunning():
+            return
+        self.fetch_af_btn.setEnabled(False)
+        self._alphafold_worker = AlphaFoldWorker(acc)
+        self._alphafold_worker.progress.connect(
+            lambda msg: self.statusBar.showMessage(msg))
+        self._alphafold_worker.finished.connect(self._on_alphafold_finished)
+        self._alphafold_worker.error.connect(self._on_alphafold_error)
+        self._alphafold_worker.start()
+
+    def _on_alphafold_finished(self, data: dict):
+        self.alphafold_data = data
+        self.fetch_af_btn.setEnabled(True)
+        self.save_pdb_btn.setEnabled(True)
+        n_res = len(data.get("plddt", []))
+        mean_plddt = (sum(data["plddt"]) / n_res) if n_res else 0
+        self.af_status_lbl.setText(
+            f"Loaded AlphaFold structure for {data['accession']}  "
+            f"({n_res} residues, mean pLDDT = {mean_plddt:.1f})"
+        )
+        self.af_status_lbl.setStyleSheet("color:#43aa8b; font-weight:600;")
+        self._load_structure_viewer(data["pdb_str"])
+        if self.analysis_data:
+            self.update_graph_tabs()
+        self.statusBar.showMessage(
+            f"AlphaFold structure loaded  ({data['accession']})", 4000)
+
+    def _on_alphafold_error(self, msg: str):
+        self.fetch_af_btn.setEnabled(True)
+        self.statusBar.showMessage("AlphaFold fetch failed", 3000)
+        QMessageBox.warning(self, "AlphaFold Error", msg)
+
+    # --- Pfam ---
+
+    def fetch_pfam(self):
+        acc = self.current_accession
+        if not acc:
+            QMessageBox.warning(self, "Pfam", "Fetch a UniProt accession first.")
+            return
+        if self._pfam_worker and self._pfam_worker.isRunning():
+            return
+        self.fetch_pfam_btn.setEnabled(False)
+        self.statusBar.showMessage(f"Fetching Pfam domains for {acc}…")
+        self._pfam_worker = PfamWorker(acc)
+        self._pfam_worker.finished.connect(self._on_pfam_finished)
+        self._pfam_worker.error.connect(self._on_pfam_error)
+        self._pfam_worker.start()
+
+    def _on_pfam_finished(self, domains: list):
+        self.pfam_domains = domains
+        self.fetch_pfam_btn.setEnabled(True)
+        if not domains:
+            self.statusBar.showMessage("No Pfam domains found.", 3000)
+            QMessageBox.information(self, "Pfam", "No Pfam domain annotations found.")
+            return
+        if self.analysis_data:
+            self.update_graph_tabs()
+        self.statusBar.showMessage(
+            f"Loaded {len(domains)} Pfam domain(s).", 4000)
+
+    def _on_pfam_error(self, msg: str):
+        self.fetch_pfam_btn.setEnabled(True)
+        self.statusBar.showMessage("Pfam fetch failed", 3000)
+        QMessageBox.warning(self, "Pfam Error", msg)
+
+    # --- BLAST ---
+
+    def run_blast(self):
+        if not self.analysis_data:
+            QMessageBox.warning(self, "BLAST", "Run analysis first.")
+            return
+        if self._blast_worker and self._blast_worker.isRunning():
+            QMessageBox.information(self, "BLAST", "A BLAST search is already running.")
+            return
+        seq = self.analysis_data["seq"]
+        db  = self.blast_db_combo.currentText()
+        n   = self.blast_hits_spin.value()
+        self.blast_run_btn.setEnabled(False)
+        self.blast_table.setRowCount(0)
+        self._blast_worker = BlastWorker(seq, database=db, hitlist_size=n)
+        self._blast_worker.progress.connect(
+            lambda msg: self.blast_status_lbl.setText(msg))
+        self._blast_worker.finished.connect(self._on_blast_finished)
+        self._blast_worker.error.connect(self._on_blast_error)
+        self._blast_worker.start()
+
+    def _on_blast_finished(self, hits: list):
+        self.blast_run_btn.setEnabled(True)
+        self.blast_status_lbl.setText(f"{len(hits)} hit(s) returned.")
+        self.blast_table.setRowCount(0)
+        for hit in hits:
+            row = self.blast_table.rowCount()
+            self.blast_table.insertRow(row)
+            self.blast_table.setItem(row, 0, QTableWidgetItem(hit["accession"]))
+            self.blast_table.setItem(row, 1, QTableWidgetItem(hit["title"][:80]))
+            self.blast_table.setItem(row, 2, QTableWidgetItem(str(hit["length"])))
+            self.blast_table.setItem(row, 3, QTableWidgetItem(f"{hit['score']:.0f}"))
+            self.blast_table.setItem(row, 4, QTableWidgetItem(f"{hit['e_value']:.2e}"))
+            self.blast_table.setItem(row, 5, QTableWidgetItem(f"{hit['identity']:.1f}%"))
+            load_btn = QPushButton("Load")
+            load_btn.clicked.connect(
+                lambda _, h=hit: self._load_blast_hit(h))
+            self.blast_table.setCellWidget(row, 6, load_btn)
+        self.blast_table.resizeColumnsToContents()
+        self.statusBar.showMessage(f"BLAST complete — {len(hits)} hits", 4000)
+
+    def _on_blast_error(self, msg: str):
+        self.blast_run_btn.setEnabled(True)
+        self.blast_status_lbl.setText(f"Error: {msg}")
+        QMessageBox.warning(self, "BLAST Error", msg)
+
+    def _load_blast_hit(self, hit: dict):
+        seq = hit.get("subject", "")
+        if not seq or not is_valid_protein(seq):
+            QMessageBox.warning(self, "Load Hit", "Subject sequence is not a valid protein.")
+            return
+        self.seq_text.setPlainText(seq)
+        self.sequence_name = hit["accession"]
+        self.main_tabs.setCurrentIndex(0)
+        self.on_analyze()
 
     # --- Mutation tool ---
 
@@ -3075,6 +4281,11 @@ class ProteinAnalyzerGUI(QMainWindow):
                 if result != 0:
                     QMessageBox.warning(self, "Install Failed",
                                         "Some packages could not be installed.")
+        if not _WEBENGINE_AVAILABLE:
+            self.statusBar.showMessage(
+                "Tip: install PyQtWebEngine (pip install PyQtWebEngine) for the 3D structure viewer.",
+                8000
+            )
 
 
 def main():
