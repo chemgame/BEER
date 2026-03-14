@@ -866,6 +866,7 @@ def detect_larks(seq: str, window: int = 7, min_arom: int = 1,
     n = len(seq)
     hits = []
     seen = set()
+    from collections import Counter
     for i in range(n - window + 1):
         w = seq[i:i + window]
         n_arom = sum(1 for aa in w if aa in LARKS_AROMATIC)
@@ -875,7 +876,6 @@ def detect_larks(seq: str, window: int = 7, min_arom: int = 1,
         if lc_frac < min_lc_frac:
             continue
         # Shannon entropy of window
-        from collections import Counter
         cnt = Counter(w)
         H = -sum((v / window) * math.log2(v / window) for v in cnt.values())
         if H >= max_entropy:
@@ -907,10 +907,12 @@ def calc_llps_score(seq: str, fcr: float, ncpr: float, arom_f: float,
       w3=0.15  Disorder-promoting fraction
       w4=0.15  FCR (charge fraction — enables electrostatic valency)
       w5=0.15  Omega (sticker clustering)
-      w6=0.10  |NCPR| penalty (high asymmetry suppresses LLPS)
-      w7=0.15  LARKS density (per-100-aa)
+      w6=0.10  LARKS density (per-100-aa)
+      penalty  0.10 * |NCPR| (high charge asymmetry suppresses LLPS)
     """
     n = len(seq)
+    if n == 0:
+        return {"score": 0.0, "verdict": "Low LLPS propensity", "components": {}}
     # Normalise each feature to [0,1]
     arom_norm    = min(arom_f / 0.15, 1.0)           # 15 % arom → full score
     prion_norm   = min(prion_score / 0.40, 1.0)       # 40 % prion-like → full
