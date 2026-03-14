@@ -11,8 +11,107 @@ from io import BytesIO, StringIO
 import urllib.request
 import numpy as np
 
+# --- Optional new-feature module imports (graceful fallbacks) ---
+try:
+    from beer.analysis.aggregation import (
+        calc_aggregation_profile, predict_aggregation_hotspots,
+        calc_camsolmt_score, calc_solubility_stats, format_aggregation_report,
+    )
+    _HAS_AGGREGATION = True
+except ImportError:
+    _HAS_AGGREGATION = False
+
+try:
+    from beer.analysis.ptm import scan_ptm_sites, summarize_ptm_sites, format_ptm_report
+    _HAS_PTM = True
+except ImportError:
+    _HAS_PTM = False
+
+try:
+    from beer.analysis.signal_peptide import (
+        predict_signal_peptide, predict_gpi_anchor, format_signal_report,
+    )
+    _HAS_SIGNAL = True
+except ImportError:
+    _HAS_SIGNAL = False
+
+try:
+    from beer.analysis.amphipathic import (
+        calc_hydrophobic_moment_profile, predict_amphipathic_helices,
+        format_amphipathic_report, EISENBERG_SCALE,
+    )
+    _HAS_AMPHIPATHIC = True
+except ImportError:
+    _HAS_AMPHIPATHIC = False
+
+try:
+    from beer.analysis.scd import (
+        calc_scd, calc_scd_profile, calc_pos_neg_block_lengths, format_scd_report,
+    )
+    _HAS_SCD = True
+except ImportError:
+    _HAS_SCD = False
+
+try:
+    from beer.analysis.rnabinding import calc_rbp_score, calc_rbp_profile, format_rbp_report
+    _HAS_RBP = True
+except ImportError:
+    _HAS_RBP = False
+
+try:
+    from beer.analysis.tandem_repeats import (
+        find_tandem_repeats, find_direct_repeats, calc_repeat_stats,
+        format_repeats_report as format_tandem_repeats_report,
+    )
+    _HAS_TANDEM = True
+except ImportError:
+    _HAS_TANDEM = False
+
+try:
+    from beer.graphs.new_graphs import (
+        create_aggregation_profile_figure,
+        create_solubility_profile_figure,
+        create_hydrophobic_moment_figure,
+        create_pI_MW_gel_figure,
+        create_ptm_profile_figure,
+        create_rbp_profile_figure,
+        create_truncation_series_figure,
+        create_scd_profile_figure,
+        create_ramachandran_figure,
+        create_contact_network_figure,
+        create_msa_conservation_figure,
+        create_complex_mw_figure,
+    )
+    _HAS_NEW_GRAPHS = True
+except ImportError:
+    _HAS_NEW_GRAPHS = False
+
+try:
+    from beer.network.elm import ELMWorker
+    _HAS_ELM = True
+except ImportError:
+    _HAS_ELM = False
+
+try:
+    from beer.network.disprot import DisPRotWorker
+    _HAS_DISPROT = True
+except ImportError:
+    _HAS_DISPROT = False
+
+try:
+    from beer.network.phasepdb import PhaSepDBWorker
+    _HAS_PHASEPDB = True
+except ImportError:
+    _HAS_PHASEPDB = False
+
+try:
+    from beer.io.pdb import extract_phi_psi as _extract_phi_psi
+    _HAS_PHI_PSI = True
+except ImportError:
+    _HAS_PHI_PSI = False
+
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QPushButton, QTextEdit, QTextBrowser,
     QFileDialog, QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem,
     QCheckBox, QStatusBar, QComboBox, QFormLayout,
@@ -194,6 +293,14 @@ REPORT_SECTIONS = [
     "TM Helices",
     "Phase Separation",
     "Linear Motifs",
+    # --- New sections ---
+    "\u03b2-Aggregation & Solubility",
+    "PTM Sites",
+    "Signal Peptide & GPI",
+    "Amphipathic Helices",
+    "Charge Decoration (SCD)",
+    "RNA Binding",
+    "Tandem Repeats",
 ]
 
 GRAPH_TITLES = [
@@ -220,6 +327,19 @@ GRAPH_TITLES = [
     "Uversky Phase Plot",
     "Coiled-Coil Profile",
     "Saturation Mutagenesis",
+    # --- New graphs ---
+    "\u03b2-Aggregation Profile",
+    "Solubility Profile",
+    "Hydrophobic Moment",
+    "PTM Map",
+    "RNA-Binding Profile",
+    "SCD Profile",
+    "pI / MW Map",
+    "Truncation Series",
+    "Ramachandran Plot",
+    "Residue Contact Network",
+    "MSA Conservation",
+    "Complex Mass",
 ]
 
 # Graph categories for the tree browser (order matters; every GRAPH_TITLES entry must appear here)
@@ -258,6 +378,22 @@ GRAPH_CATEGORIES = [
         "pLDDT Profile",
         "Distance Map",
         "Domain Architecture",
+        "Ramachandran Plot",
+        "Residue Contact Network",
+    ]),
+    ("Aggregation & Solubility", [
+        "\u03b2-Aggregation Profile",
+        "Solubility Profile",
+        "Hydrophobic Moment",
+    ]),
+    ("New Features", [
+        "PTM Map",
+        "RNA-Binding Profile",
+        "SCD Profile",
+        "pI / MW Map",
+        "Truncation Series",
+        "MSA Conservation",
+        "Complex Mass",
     ]),
 ]
 
@@ -1371,6 +1507,68 @@ class AnalysisTools:
         Matches are regex-based and require experimental validation.</p>
         """
 
+        # ── New feature sections ─────────────────────────────────────────────
+        if _HAS_AGGREGATION:
+            aggr_html  = format_aggregation_report(seq, _style)
+            solub_stats = calc_solubility_stats(seq)
+        else:
+            aggr_html   = _style + "<h2>β-Aggregation & Solubility</h2><p>Module not available. Run: pip install beer-biophys</p>"
+            solub_stats = {}
+
+        if _HAS_PTM:
+            ptm_html = format_ptm_report(seq, _style)
+            ptm_sites = scan_ptm_sites(seq)
+        else:
+            ptm_html  = _style + "<h2>PTM Sites</h2><p>Module not available.</p>"
+            ptm_sites = []
+
+        if _HAS_SIGNAL:
+            signal_html = format_signal_report(seq, _style)
+            sp_result   = predict_signal_peptide(seq)
+            gpi_result  = predict_gpi_anchor(seq)
+        else:
+            signal_html = _style + "<h2>Signal Peptide & GPI</h2><p>Module not available.</p>"
+            sp_result   = {}
+            gpi_result  = {}
+
+        if _HAS_AMPHIPATHIC:
+            amph_html    = format_amphipathic_report(seq, _style)
+            moment_alpha = calc_hydrophobic_moment_profile(seq, angle_deg=100.0)
+            moment_beta  = calc_hydrophobic_moment_profile(seq, angle_deg=160.0)
+            amph_regions = predict_amphipathic_helices(seq)
+        else:
+            amph_html    = _style + "<h2>Amphipathic Helices</h2><p>Module not available.</p>"
+            moment_alpha = []
+            moment_beta  = []
+            amph_regions = []
+
+        if _HAS_SCD:
+            scd_val   = calc_scd(seq)
+            scd_profile_data = calc_scd_profile(seq, window=20)
+            scd_blocks = calc_pos_neg_block_lengths(seq)
+            scd_html  = format_scd_report(seq, _style)
+        else:
+            scd_val   = 0.0
+            scd_profile_data = []
+            scd_blocks = {}
+            scd_html  = _style + "<h2>Charge Decoration (SCD)</h2><p>Module not available.</p>"
+
+        if _HAS_RBP:
+            rbp_result  = calc_rbp_score(seq)
+            rbp_profile_data = calc_rbp_profile(seq)
+            rbp_html    = format_rbp_report(seq, _style)
+        else:
+            rbp_result  = {}
+            rbp_profile_data = []
+            rbp_html    = _style + "<h2>RNA Binding</h2><p>Module not available.</p>"
+
+        if _HAS_TANDEM:
+            tandem_html = format_tandem_repeats_report(seq, _style)
+            tandem_stats = calc_repeat_stats(seq)
+        else:
+            tandem_html  = _style + "<h2>Tandem Repeats</h2><p>Module not available.</p>"
+            tandem_stats = {}
+
         return {
             "report_sections": {
                 "Composition":        comp_html,
@@ -1386,6 +1584,14 @@ class AnalysisTools:
                 "TM Helices":         tm_html,
                 "Phase Separation":   phase_html,
                 "Linear Motifs":      motifs_html,
+                # New sections
+                "\u03b2-Aggregation & Solubility": aggr_html,
+                "PTM Sites":          ptm_html,
+                "Signal Peptide & GPI": signal_html,
+                "Amphipathic Helices": amph_html,
+                "Charge Decoration (SCD)": scd_html,
+                "RNA Binding":        rbp_html,
+                "Tandem Repeats":     tandem_html,
             },
             "tm_helices":      tm_helices,
             "aa_counts":       aa_counts,
@@ -1415,6 +1621,20 @@ class AnalysisTools:
             "llps":            llps,
             "cc_profile":      cc_profile,
             "motifs":          motifs,
+            # New feature data
+            "solub_stats":     solub_stats,
+            "ptm_sites":       ptm_sites,
+            "sp_result":       sp_result,
+            "gpi_result":      gpi_result,
+            "moment_alpha":    moment_alpha,
+            "moment_beta":     moment_beta,
+            "amph_regions":    amph_regions,
+            "scd":             scd_val,
+            "scd_profile":     scd_profile_data,
+            "scd_blocks":      scd_blocks,
+            "rbp":             rbp_result,
+            "rbp_profile":     rbp_profile_data,
+            "tandem_stats":    tandem_stats,
         }
 
 # --- Graphing ---
@@ -2519,6 +2739,160 @@ class GraphingTools:
         fig.tight_layout(pad=1.5)
         return fig
 
+    # ── New graph wrappers ────────────────────────────────────────────────────
+
+    @staticmethod
+    def create_aggregation_profile_figure(seq, aggregation_profile, hotspots,
+                                          label_font=14, tick_font=12):
+        if _HAS_NEW_GRAPHS:
+            return create_aggregation_profile_figure(
+                seq, aggregation_profile, hotspots,
+                label_font=label_font, tick_font=tick_font)
+        fig = Figure(figsize=(9, 3), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "beer.graphs.new_graphs not installed",
+                ha="center", va="center", transform=ax.transAxes, color="#718096")
+        return fig
+
+    @staticmethod
+    def create_solubility_profile_figure(seq, camsolmt_profile,
+                                         label_font=14, tick_font=12):
+        if _HAS_NEW_GRAPHS:
+            return create_solubility_profile_figure(
+                seq, camsolmt_profile, label_font=label_font, tick_font=tick_font)
+        fig = Figure(figsize=(9, 3), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "beer.graphs.new_graphs not installed",
+                ha="center", va="center", transform=ax.transAxes, color="#718096")
+        return fig
+
+    @staticmethod
+    def create_hydrophobic_moment_figure(seq, moment_alpha, moment_beta,
+                                         amphipathic_regions,
+                                         label_font=14, tick_font=12):
+        if _HAS_NEW_GRAPHS:
+            return create_hydrophobic_moment_figure(
+                seq, moment_alpha, moment_beta, amphipathic_regions,
+                label_font=label_font, tick_font=tick_font)
+        fig = Figure(figsize=(9, 3), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "beer.graphs.new_graphs not installed",
+                ha="center", va="center", transform=ax.transAxes, color="#718096")
+        return fig
+
+    @staticmethod
+    def create_pI_MW_gel_figure(proteins_data, label_font=14, tick_font=12):
+        if _HAS_NEW_GRAPHS:
+            return create_pI_MW_gel_figure(
+                proteins_data, label_font=label_font, tick_font=tick_font)
+        fig = Figure(figsize=(7, 5), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "beer.graphs.new_graphs not installed",
+                ha="center", va="center", transform=ax.transAxes, color="#718096")
+        return fig
+
+    @staticmethod
+    def create_ptm_profile_figure(seq, ptm_sites, label_font=14, tick_font=12):
+        if _HAS_NEW_GRAPHS:
+            return create_ptm_profile_figure(
+                seq, ptm_sites, label_font=label_font, tick_font=tick_font)
+        fig = Figure(figsize=(9, 4), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "beer.graphs.new_graphs not installed",
+                ha="center", va="center", transform=ax.transAxes, color="#718096")
+        return fig
+
+    @staticmethod
+    def create_rbp_profile_figure(seq, rbp_profile, rbp_motifs,
+                                   label_font=14, tick_font=12):
+        if _HAS_NEW_GRAPHS:
+            return create_rbp_profile_figure(
+                seq, rbp_profile, rbp_motifs,
+                label_font=label_font, tick_font=tick_font)
+        fig = Figure(figsize=(9, 3), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "beer.graphs.new_graphs not installed",
+                ha="center", va="center", transform=ax.transAxes, color="#718096")
+        return fig
+
+    @staticmethod
+    def create_scd_profile_figure(seq, scd_profile, window,
+                                   label_font=14, tick_font=12):
+        if _HAS_NEW_GRAPHS:
+            return create_scd_profile_figure(
+                seq, scd_profile, window,
+                label_font=label_font, tick_font=tick_font)
+        fig = Figure(figsize=(9, 3), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "beer.graphs.new_graphs not installed",
+                ha="center", va="center", transform=ax.transAxes, color="#718096")
+        return fig
+
+    @staticmethod
+    def create_truncation_series_figure(truncation_data,
+                                         label_font=14, tick_font=12):
+        if _HAS_NEW_GRAPHS:
+            return create_truncation_series_figure(
+                truncation_data, label_font=label_font, tick_font=tick_font)
+        fig = Figure(figsize=(12, 8), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "beer.graphs.new_graphs not installed",
+                ha="center", va="center", transform=ax.transAxes, color="#718096")
+        return fig
+
+    @staticmethod
+    def create_ramachandran_figure(phi_psi_data, label_font=14, tick_font=12):
+        if _HAS_NEW_GRAPHS:
+            return create_ramachandran_figure(
+                phi_psi_data, label_font=label_font, tick_font=tick_font)
+        fig = Figure(figsize=(6, 6), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "beer.graphs.new_graphs not installed\nor no PDB structure loaded",
+                ha="center", va="center", transform=ax.transAxes, color="#718096")
+        ax.set_xlim(-180, 180); ax.set_ylim(-180, 180)
+        ax.axhline(0, color="#aaa", lw=0.5); ax.axvline(0, color="#aaa", lw=0.5)
+        ax.set_xlabel("φ (°)"); ax.set_ylabel("ψ (°)")
+        ax.set_title("Ramachandran Plot")
+        return fig
+
+    @staticmethod
+    def create_contact_network_figure(seq, dist_matrix, cutoff=8.0,
+                                       label_font=14, tick_font=12):
+        if _HAS_NEW_GRAPHS:
+            return create_contact_network_figure(
+                seq, dist_matrix, cutoff_angstrom=cutoff,
+                label_font=label_font, tick_font=tick_font)
+        fig = Figure(figsize=(7, 7), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "beer.graphs.new_graphs not installed\nor no PDB structure loaded",
+                ha="center", va="center", transform=ax.transAxes, color="#718096")
+        return fig
+
+    @staticmethod
+    def create_msa_conservation_figure(sequences, names,
+                                        label_font=14, tick_font=12):
+        if _HAS_NEW_GRAPHS:
+            return create_msa_conservation_figure(
+                sequences, names, label_font=label_font, tick_font=tick_font)
+        fig = Figure(figsize=(10, 4), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "beer.graphs.new_graphs not installed",
+                ha="center", va="center", transform=ax.transAxes, color="#718096")
+        return fig
+
+    @staticmethod
+    def create_complex_mw_figure(chains_data, stoichiometry_str,
+                                   label_font=14, tick_font=12):
+        if _HAS_NEW_GRAPHS:
+            return create_complex_mw_figure(
+                chains_data, stoichiometry_str,
+                label_font=label_font, tick_font=tick_font)
+        fig = Figure(figsize=(7, 5), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "beer.graphs.new_graphs not installed",
+                ha="center", va="center", transform=ax.transAxes, color="#718096")
+        return fig
+
 
 # --- Export ---
 
@@ -2814,6 +3188,66 @@ class MutationDialog(QDialog):
         return self.pos_spin.value() - 1, self.aa_combo.currentText()
 
 
+# --- Figure Composer dialog ---
+
+class _FigureComposerDialog(QDialog):
+    """Dialog to build a multi-panel figure from existing graph canvases."""
+    _LAYOUTS = ["1\u00d71", "1\u00d72", "2\u00d71", "2\u00d72", "2\u00d73", "3\u00d72", "3\u00d73"]
+
+    def __init__(self, available_titles: list, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Figure Composer")
+        self.setMinimumSize(560, 400)
+        layout = QVBoxLayout(self)
+
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Layout:"))
+        self.layout_combo = QComboBox()
+        self.layout_combo.addItems(self._LAYOUTS)
+        self.layout_combo.setCurrentText("2\u00d72")
+        self.layout_combo.currentTextChanged.connect(self._rebuild_slots)
+        top.addWidget(self.layout_combo)
+        top.addStretch()
+        layout.addLayout(top)
+
+        self._available = ["— None —"] + available_titles
+        self._slots_frame = QWidget()
+        self._slots_grid  = QGridLayout(self._slots_frame)
+        layout.addWidget(self._slots_frame)
+
+        self._slot_combos: list = []
+        self._rebuild_slots(self.layout_combo.currentText())
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def _rebuild_slots(self, layout_str: str):
+        try:
+            nr, nc = [int(x) for x in layout_str.split("\u00d7")]
+        except Exception:
+            nr, nc = 2, 2
+        # Clear old
+        for c in self._slot_combos:
+            c.setParent(None)
+        self._slot_combos.clear()
+        for i in range(nr * nc):
+            cb = QComboBox()
+            cb.addItems(self._available)
+            self._slot_combos.append(cb)
+            self._slots_grid.addWidget(QLabel(f"Panel {chr(ord('A')+i)}:"), i // nc, (i % nc) * 2)
+            self._slots_grid.addWidget(cb, i // nc, (i % nc) * 2 + 1)
+
+    def get_composition(self):
+        layout_str = self.layout_combo.currentText()
+        titles = []
+        for cb in self._slot_combos:
+            t = cb.currentText()
+            titles.append(None if t == "— None —" else t)
+        return layout_str, titles
+
+
 # --- Navigation sidebar widget ---
 
 class NavTabWidget(QWidget):
@@ -2827,6 +3261,9 @@ class NavTabWidget(QWidget):
         "BLAST":               "🔍",
         "Compare":             "⚖",
         "Multichain Analysis": "📋",
+        "Truncation":          "✂",
+        "MSA":                 "🔀",
+        "Complex":             "⚛",
         "Settings":            "⚙",
         "Help":                "❓",
     }
@@ -2923,6 +3360,18 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._pfam_worker        = None
         self._blast_worker       = None
 
+        # --- New state for extended features ---
+        self._elm_worker         = None
+        self._disprot_worker     = None
+        self._phasepdb_worker    = None
+        self.elm_data            = []   # list of ELM instances
+        self.disprot_data        = {}   # DisProt disorder regions
+        self.phasepdb_data       = {}   # PhaSepDB lookup result
+        self._msa_sequences      = []   # list of aligned sequences
+        self._msa_names          = []   # corresponding names
+        self._plugins            = []   # loaded plugin modules
+        self._load_plugins()
+
         self.check_dependencies()
         self.main_tabs = NavTabWidget()
         self.setCentralWidget(self.main_tabs)
@@ -2932,6 +3381,9 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.init_blast_tab()
         self.init_batch_tab()
         self.init_comparison_tab()
+        self.init_truncation_tab()
+        self.init_msa_tab()
+        self.init_complex_tab()
         self.init_settings_tab()
         self.init_help_tab()
         self._setup_shortcuts()
@@ -3039,9 +3491,14 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.session_save_btn.clicked.connect(self.session_save)
         self.session_load_btn = QPushButton("Load Session")
         self.session_load_btn.clicked.connect(self.session_load)
+        self.figure_composer_btn = QPushButton("Figure Composer")
+        self.figure_composer_btn.clicked.connect(self.open_figure_composer)
+        self._set_tooltip(self.figure_composer_btn,
+                          "Compose a multi-panel publication figure from any combination of graphs.")
         for w in (self.import_fasta_btn, self.import_pdb_btn, self.analyze_btn,
                   self.save_pdf_btn, self.mutate_btn,
-                  self.session_save_btn, self.session_load_btn):
+                  self.session_save_btn, self.session_load_btn,
+                  self.figure_composer_btn):
             w.setMinimumHeight(32)
             toolbar.addWidget(w)
         toolbar.addStretch()
@@ -3074,6 +3531,31 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._set_tooltip(self.fetch_pfam_btn,
                           "Fetch Pfam domain annotations from InterPro (requires a UniProt accession).")
         tb2.addWidget(self.fetch_pfam_btn)
+
+        self.fetch_elm_btn = QPushButton("Fetch ELM")
+        self.fetch_elm_btn.setMinimumHeight(28)
+        self.fetch_elm_btn.setEnabled(False)
+        self.fetch_elm_btn.clicked.connect(self.fetch_elm)
+        self._set_tooltip(self.fetch_elm_btn,
+                          "Fetch experimentally validated linear motifs from ELM database.")
+        tb2.addWidget(self.fetch_elm_btn)
+
+        self.fetch_disprot_btn = QPushButton("DisProt")
+        self.fetch_disprot_btn.setMinimumHeight(28)
+        self.fetch_disprot_btn.setEnabled(False)
+        self.fetch_disprot_btn.clicked.connect(self.fetch_disprot)
+        self._set_tooltip(self.fetch_disprot_btn,
+                          "Fetch experimentally validated disorder regions from DisProt.")
+        tb2.addWidget(self.fetch_disprot_btn)
+
+        self.fetch_phasepdb_btn = QPushButton("PhaSepDB")
+        self.fetch_phasepdb_btn.setMinimumHeight(28)
+        self.fetch_phasepdb_btn.setEnabled(False)
+        self.fetch_phasepdb_btn.clicked.connect(self.fetch_phasepdb)
+        self._set_tooltip(self.fetch_phasepdb_btn,
+                          "Check if protein is in PhaSepDB (phase separation database).")
+        tb2.addWidget(self.fetch_phasepdb_btn)
+
         tb2.addSpacing(20)
         tb2.addWidget(QLabel("History:"))
         self.history_combo = QComboBox()
@@ -4401,8 +4883,72 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             tm_helices=self.analysis_data.get("tm_helices"),
             label_font=lf, tick_font=tf)
 
+        # ── New feature graphs ────────────────────────────────────────────────
+        # β-Aggregation & Solubility
+        if _HAS_AGGREGATION:
+            aggr_profile = calc_aggregation_profile(seq)
+            hotspots     = predict_aggregation_hotspots(seq)
+            figs["\u03b2-Aggregation Profile"] = GraphingTools.create_aggregation_profile_figure(
+                seq, aggr_profile, hotspots, label_font=lf, tick_font=tf)
+            camsolmt = calc_camsolmt_score(seq)
+            figs["Solubility Profile"] = GraphingTools.create_solubility_profile_figure(
+                seq, camsolmt, label_font=lf, tick_font=tf)
+
+        if _HAS_AMPHIPATHIC:
+            figs["Hydrophobic Moment"] = GraphingTools.create_hydrophobic_moment_figure(
+                seq,
+                self.analysis_data.get("moment_alpha", []),
+                self.analysis_data.get("moment_beta", []),
+                self.analysis_data.get("amph_regions", []),
+                label_font=lf, tick_font=tf)
+
+        if _HAS_PTM:
+            figs["PTM Map"] = GraphingTools.create_ptm_profile_figure(
+                seq, self.analysis_data.get("ptm_sites", []),
+                label_font=lf, tick_font=tf)
+
+        if _HAS_RBP:
+            figs["RNA-Binding Profile"] = GraphingTools.create_rbp_profile_figure(
+                seq,
+                self.analysis_data.get("rbp_profile", []),
+                self.analysis_data.get("rbp", {}).get("motifs_found", []),
+                label_font=lf, tick_font=tf)
+
+        if _HAS_SCD:
+            figs["SCD Profile"] = GraphingTools.create_scd_profile_figure(
+                seq, self.analysis_data.get("scd_profile", []),
+                window=20, label_font=lf, tick_font=tf)
+
+        # pI / MW Map — always available
+        figs["pI / MW Map"] = GraphingTools.create_pI_MW_gel_figure(
+            [{"name": self.sequence_name or "Protein",
+              "pI":   self.analysis_data["iso_point"],
+              "mol_weight": self.analysis_data["mol_weight"]}],
+            label_font=lf, tick_font=tf)
+
+        # Ramachandran (requires AlphaFold PDB)
+        if self.alphafold_data and _HAS_PHI_PSI:
+            phi_psi = _extract_phi_psi(self.alphafold_data["pdb_str"])
+            figs["Ramachandran Plot"] = GraphingTools.create_ramachandran_figure(
+                phi_psi, label_font=lf, tick_font=tf)
+
+        # Contact network (requires AlphaFold distance matrix)
+        if self.alphafold_data:
+            dm = self.alphafold_data.get("dist_matrix")
+            if dm is not None and dm.size > 0:
+                figs["Residue Contact Network"] = GraphingTools.create_contact_network_figure(
+                    seq, dm, label_font=lf, tick_font=tf)
+
+        # MSA Conservation (requires MSA data)
+        if self._msa_sequences:
+            figs["MSA Conservation"] = GraphingTools.create_msa_conservation_figure(
+                self._msa_sequences, self._msa_names,
+                label_font=lf, tick_font=tf)
+
         # Apply global heading/grid/colour overrides
         for title, fig in figs.items():
+            if title not in self.graph_tabs:
+                continue  # skip graphs not in the tree (e.g. plugin graphs added later)
             if fig.axes:
                 ax = fig.axes[0]
                 if not self.show_heading:
@@ -4670,10 +5216,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_worker_finished(self, data: dict):
         seq  = data["seq"]
+        self._run_plugins(seq, data)
         self.analysis_data = data
         self._add_to_history(self.sequence_name, seq)
         for sec, browser in self.report_section_tabs.items():
-            browser.setHtml(data["report_sections"][sec])
+            if sec in data["report_sections"]:
+                browser.setHtml(data["report_sections"][sec])
         self._update_seq_viewer()
         self.update_graph_tabs()
         self.analyze_btn.setEnabled(True)
@@ -4739,10 +5287,13 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         rid, seq = entries[0]
         self.seq_text.setPlainText(seq)
         self.sequence_name = rid
-        # Store accession; AlphaFold/Pfam need a UniProt ID
+        # Store accession; AlphaFold/Pfam/ELM/DisProt/PhaSepDB need a UniProt ID
         self.current_accession = acc if not is_pdb else ""
         self.fetch_af_btn.setEnabled(True)
         self.fetch_pfam_btn.setEnabled(True)
+        self.fetch_elm_btn.setEnabled(not is_pdb)
+        self.fetch_disprot_btn.setEnabled(not is_pdb)
+        self.fetch_phasepdb_btn.setEnabled(not is_pdb)
         self.accession_input.clear()
         src = "PDB" if is_pdb else "UniProt"
         self.statusBar.showMessage(f"Fetched {rid} from {src}  ({len(seq)} aa)", 3000)
@@ -5043,6 +5594,552 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.statusBar.showMessage(f"Session loaded: {fn}", 3000)
         if seq:
             self.on_analyze()
+
+    # ── New tabs ─────────────────────────────────────────────────────────────
+
+    def init_truncation_tab(self):
+        """Tab for N/C terminal truncation series analysis."""
+        container = QWidget()
+        layout    = QVBoxLayout(container)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        self.main_tabs.addTab(container, "Truncation")
+
+        ctrl = QHBoxLayout()
+        ctrl.addWidget(QLabel("Step (%):"))
+        self.trunc_step_spin = QSpinBox()
+        self.trunc_step_spin.setRange(5, 25)
+        self.trunc_step_spin.setValue(10)
+        self.trunc_step_spin.setMaximumWidth(70)
+        ctrl.addWidget(self.trunc_step_spin)
+        ctrl.addSpacing(10)
+        self.trunc_nterm_cb = QCheckBox("N-terminal")
+        self.trunc_nterm_cb.setChecked(True)
+        self.trunc_cterm_cb = QCheckBox("C-terminal")
+        self.trunc_cterm_cb.setChecked(True)
+        ctrl.addWidget(self.trunc_nterm_cb)
+        ctrl.addWidget(self.trunc_cterm_cb)
+        ctrl.addSpacing(10)
+        run_trunc_btn = QPushButton("Run Truncation Series")
+        run_trunc_btn.setMinimumHeight(30)
+        run_trunc_btn.clicked.connect(self.run_truncation_series)
+        ctrl.addWidget(run_trunc_btn)
+        ctrl.addStretch()
+        layout.addLayout(ctrl)
+
+        self.trunc_status_lbl = QLabel("Run analysis first, then click 'Run Truncation Series'.")
+        self.trunc_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
+        layout.addWidget(self.trunc_status_lbl)
+
+        self.trunc_table = QTableWidget()
+        self.trunc_table.setAlternatingRowColors(True)
+        self.trunc_table.setColumnCount(8)
+        self.trunc_table.setHorizontalHeaderLabels([
+            "Type", "Trunc%", "Remaining aa", "MW (Da)", "pI", "GRAVY", "FCR", "NCPR"])
+        self.trunc_table.horizontalHeader().setStretchLastSection(True)
+        self.trunc_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        layout.addWidget(self.trunc_table, 1)
+
+    def init_msa_tab(self):
+        """Tab for Multiple Sequence Alignment + conservation analysis."""
+        container = QWidget()
+        layout    = QVBoxLayout(container)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        self.main_tabs.addTab(container, "MSA")
+
+        ctrl = QHBoxLayout()
+        self.msa_aligned_cb = QCheckBox("Input is pre-aligned (gaps as '-')")
+        self.msa_aligned_cb.setChecked(False)
+        ctrl.addWidget(self.msa_aligned_cb)
+        ctrl.addSpacing(16)
+        run_msa_btn = QPushButton("Align & Show Conservation")
+        run_msa_btn.setMinimumHeight(30)
+        run_msa_btn.clicked.connect(self.run_msa)
+        ctrl.addWidget(run_msa_btn)
+        clear_msa_btn = QPushButton("Clear")
+        clear_msa_btn.setMinimumHeight(30)
+        clear_msa_btn.clicked.connect(self._clear_msa)
+        ctrl.addWidget(clear_msa_btn)
+        ctrl.addStretch()
+        layout.addLayout(ctrl)
+
+        splitter = QSplitter(Qt.Horizontal)
+        left_w = QWidget()
+        left_v = QVBoxLayout(left_w)
+        left_v.addWidget(QLabel("Paste multi-FASTA sequences here (≥2 sequences):"))
+        self.msa_input = QTextEdit()
+        self.msa_input.setPlaceholderText(">seq1\nACDEFG...\n>seq2\nACDEFG...")
+        self.msa_input.setFont(QFont("Courier New", 9))
+        left_v.addWidget(self.msa_input)
+        splitter.addWidget(left_w)
+
+        right_w = QWidget()
+        right_v = QVBoxLayout(right_w)
+        right_v.addWidget(QLabel("Alignment preview:"))
+        self.msa_viewer = QTextBrowser()
+        self.msa_viewer.setFont(QFont("Courier New", 9))
+        right_v.addWidget(self.msa_viewer)
+        splitter.addWidget(right_w)
+        layout.addWidget(splitter, 1)
+
+    def init_complex_tab(self):
+        """Tab for protein complex stoichiometry calculations."""
+        container = QWidget()
+        layout    = QVBoxLayout(container)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        self.main_tabs.addTab(container, "Complex")
+
+        ctrl = QHBoxLayout()
+        ctrl.addWidget(QLabel("Stoichiometry (e.g. A2B1):"))
+        self.complex_stoich_input = QLineEdit()
+        self.complex_stoich_input.setPlaceholderText("A2B1")
+        self.complex_stoich_input.setMaximumWidth(120)
+        ctrl.addWidget(self.complex_stoich_input)
+        ctrl.addSpacing(10)
+        run_complex_btn = QPushButton("Calculate Complex")
+        run_complex_btn.setMinimumHeight(30)
+        run_complex_btn.clicked.connect(self.run_complex_calc)
+        ctrl.addWidget(run_complex_btn)
+        ctrl.addStretch()
+        layout.addLayout(ctrl)
+
+        splitter = QSplitter(Qt.Horizontal)
+        left_w = QWidget()
+        left_v = QVBoxLayout(left_w)
+        left_v.addWidget(QLabel("Paste chain sequences (multi-FASTA, chain ID in header):"))
+        self.complex_input = QTextEdit()
+        self.complex_input.setPlaceholderText(">ChainA\nACDEFG...\n>ChainB\nACDEFG...")
+        self.complex_input.setFont(QFont("Courier New", 9))
+        left_v.addWidget(self.complex_input)
+        splitter.addWidget(left_w)
+
+        right_w = QWidget()
+        right_v = QVBoxLayout(right_w)
+        self.complex_result_browser = QTextBrowser()
+        right_v.addWidget(QLabel("Results:"))
+        right_v.addWidget(self.complex_result_browser)
+        splitter.addWidget(right_w)
+        layout.addWidget(splitter, 1)
+
+    # ── New method callbacks ──────────────────────────────────────────────────
+
+    def run_truncation_series(self):
+        if not self.analysis_data:
+            QMessageBox.warning(self, "Truncation", "Run analysis first.")
+            return
+        seq    = self.analysis_data["seq"]
+        step   = self.trunc_step_spin.value()
+        do_n   = self.trunc_nterm_cb.isChecked()
+        do_c   = self.trunc_cterm_cb.isChecked()
+        n      = len(seq)
+        rows   = []
+        for pct in range(step, 100, step):
+            n_rem = max(5, int(n * (1 - pct / 100)))
+            if do_n:
+                trunc_seq = seq[n - n_rem:]
+                if is_valid_protein(trunc_seq) and len(trunc_seq) >= 5:
+                    d = AnalysisTools.analyze_sequence(
+                        trunc_seq, self.default_pH,
+                        self.default_window_size, self.use_reducing, self.custom_pka)
+                    rows.append(("N-term", pct, len(trunc_seq), d))
+            if do_c:
+                trunc_seq = seq[:n_rem]
+                if is_valid_protein(trunc_seq) and len(trunc_seq) >= 5:
+                    d = AnalysisTools.analyze_sequence(
+                        trunc_seq, self.default_pH,
+                        self.default_window_size, self.use_reducing, self.custom_pka)
+                    rows.append(("C-term", pct, len(trunc_seq), d))
+        self.trunc_table.setRowCount(0)
+        for ttype, pct, rem, d in rows:
+            row = self.trunc_table.rowCount()
+            self.trunc_table.insertRow(row)
+            for col, val in enumerate([
+                ttype, f"{pct}%", str(rem),
+                f"{d['mol_weight']:.2f}", f"{d['iso_point']:.2f}",
+                f"{d['gravy']:.3f}", f"{d['fcr']:.3f}", f"{d['ncpr']:+.3f}",
+            ]):
+                self.trunc_table.setItem(row, col, QTableWidgetItem(val))
+        self.trunc_table.resizeColumnsToContents()
+        # Also generate the truncation graph
+        if rows and _HAS_NEW_GRAPHS:
+            n_data = [{"pct": r[1], "pI": r[3]["iso_point"], "gravy": r[3]["gravy"],
+                       "fcr": r[3]["fcr"], "ncpr": r[3]["ncpr"],
+                       "net_charge_7": r[3]["net_charge_7"],
+                       "disorder_frac": r[3]["disorder_f"]}
+                      for r in rows if r[0] == "N-term"]
+            c_data = [{"pct": r[1], "pI": r[3]["iso_point"], "gravy": r[3]["gravy"],
+                       "fcr": r[3]["fcr"], "ncpr": r[3]["ncpr"],
+                       "net_charge_7": r[3]["net_charge_7"],
+                       "disorder_frac": r[3]["disorder_f"]}
+                      for r in rows if r[0] == "C-term"]
+            fig = GraphingTools.create_truncation_series_figure(
+                {"n_trunc": n_data, "c_trunc": c_data},
+                label_font=self.label_font_size, tick_font=self.tick_font_size)
+            self._replace_graph("Truncation Series", fig)
+        self.trunc_status_lbl.setText(f"Computed {len(rows)} truncation variants.")
+        self.statusBar.showMessage("Truncation series complete.", 3000)
+
+    def run_msa(self):
+        raw = self.msa_input.toPlainText().strip()
+        if not raw:
+            QMessageBox.warning(self, "MSA", "Paste multi-FASTA sequences first.")
+            return
+        entries = self._parse_pasted_text(raw)
+        if len(entries) < 2:
+            QMessageBox.warning(self, "MSA", "Need at least 2 sequences.")
+            return
+        names = [e[0] for e in entries]
+        seqs  = [e[1] for e in entries]
+        pre_aligned = self.msa_aligned_cb.isChecked()
+        if not pre_aligned:
+            # Simple pairwise progressive alignment using difflib
+            import difflib
+            def _align_pair(s1, s2):
+                sm = difflib.SequenceMatcher(None, s1, s2)
+                a1, a2 = [], []
+                for op, i1, i2, j1, j2 in sm.get_opcodes():
+                    if op == "equal":
+                        a1.append(s1[i1:i2]); a2.append(s2[j1:j2])
+                    elif op == "replace":
+                        m = max(i2-i1, j2-j1)
+                        a1.append(s1[i1:i2].ljust(m, "-")); a2.append(s2[j1:j2].ljust(m, "-"))
+                    elif op == "insert":
+                        a1.append("-" * (j2-j1)); a2.append(s2[j1:j2])
+                    elif op == "delete":
+                        a1.append(s1[i1:i2]); a2.append("-" * (i2-i1))
+                return "".join(a1), "".join(a2)
+            aligned = [seqs[0]]
+            for i in range(1, len(seqs)):
+                _, a2 = _align_pair(aligned[0], seqs[i])
+                aligned.append(a2)
+        else:
+            maxlen = max(len(s) for s in seqs)
+            aligned = [s.ljust(maxlen, "-") for s in seqs]
+
+        self._msa_sequences = aligned
+        self._msa_names     = names
+        # Display alignment preview
+        preview_lines = []
+        for name, aln_seq in zip(names, aligned):
+            preview_lines.append(f"<b>{name[:20]}</b>  <tt>{aln_seq[:80]}{'…' if len(aln_seq)>80 else ''}</tt>")
+        self.msa_viewer.setHtml("<br>".join(preview_lines))
+        # Generate conservation graph
+        if _HAS_NEW_GRAPHS:
+            fig = GraphingTools.create_msa_conservation_figure(
+                aligned, names,
+                label_font=self.label_font_size, tick_font=self.tick_font_size)
+            self._replace_graph("MSA Conservation", fig)
+        self.statusBar.showMessage(
+            f"MSA: {len(aligned)} sequences, {len(aligned[0])} alignment columns", 3000)
+
+    def _clear_msa(self):
+        self._msa_sequences = []
+        self._msa_names     = []
+        self.msa_input.clear()
+        self.msa_viewer.clear()
+        self.statusBar.showMessage("MSA cleared.", 2000)
+
+    def run_complex_calc(self):
+        raw   = self.complex_input.toPlainText().strip()
+        stoich = self.complex_stoich_input.text().strip() or "A1"
+        entries = self._parse_pasted_text(raw)
+        if not entries:
+            QMessageBox.warning(self, "Complex", "Paste at least one chain sequence.")
+            return
+        # Parse stoichiometry: e.g. "A2B1" → {A:2, B:1}
+        import re as _re2
+        stoich_map = {}
+        for m in _re2.finditer(r"([A-Za-z]+)(\d*)", stoich):
+            chain_id = m.group(1).upper()
+            count    = int(m.group(2)) if m.group(2) else 1
+            if chain_id:
+                stoich_map[chain_id] = count
+        chain_data = {e[0].split()[0].upper(): e[1] for e in entries}
+        # Compute properties
+        from Bio.SeqUtils.ProtParam import ProteinAnalysis as _BPA
+        lines  = ["<h2>Chain Properties</h2><table><tr><th>Chain</th>"
+                  "<th>n Copies</th><th>Length (aa)</th><th>MW (Da)</th>"
+                  "<th>pI</th><th>Ext.Coeff.</th></tr>"]
+        total_mw  = 0.0
+        total_ext = 0
+        chains_fig_data = []
+        for cid, seq in chain_data.items():
+            copies = stoich_map.get(cid, 1)
+            pa  = _BPA(seq)
+            mw  = pa.molecular_weight()
+            pi  = pa.isoelectric_point()
+            ext = 5500 * seq.count("W") + 1490 * seq.count("Y") + 125 * (seq.count("C")//2)
+            total_mw  += mw  * copies
+            total_ext += ext * copies
+            lines.append(
+                f"<tr><td>{cid}</td><td>{copies}</td><td>{len(seq)}</td>"
+                f"<td>{mw:.2f}</td><td>{pi:.2f}</td><td>{ext}</td></tr>"
+            )
+            chains_fig_data.append({"chain_id": cid, "mol_weight": mw * copies})
+        lines.append("</table>")
+        lines.append(f"<h2>Complex Totals (stoichiometry: {stoich})</h2>"
+                     f"<table><tr><th>Property</th><th>Value</th></tr>"
+                     f"<tr><td>Total MW</td><td>{total_mw:.2f} Da ({total_mw/1000:.2f} kDa)</td></tr>"
+                     f"<tr><td>Combined Ext. Coeff. (280 nm)</td><td>{total_ext} M⁻¹cm⁻¹</td></tr>"
+                     f"</table>")
+        self.complex_result_browser.setHtml("".join(lines))
+        # Generate complex mass graph
+        if _HAS_NEW_GRAPHS and chains_fig_data:
+            fig = GraphingTools.create_complex_mw_figure(
+                chains_fig_data, stoich,
+                label_font=self.label_font_size, tick_font=self.tick_font_size)
+            self._replace_graph("Complex Mass", fig)
+        self.statusBar.showMessage("Complex calculation done.", 3000)
+
+    # ── ELM / DisProt / PhaSepDB callbacks ────────────────────────────────────
+
+    def fetch_elm(self):
+        if not _HAS_ELM:
+            QMessageBox.information(self, "ELM",
+                "ELM module not available.\nInstall with: pip install beer-biophys")
+            return
+        acc = self.current_accession
+        if not acc:
+            QMessageBox.warning(self, "ELM", "Fetch a UniProt accession first.")
+            return
+        if self._elm_worker and self._elm_worker.isRunning():
+            return
+        self.fetch_elm_btn.setEnabled(False)
+        self.statusBar.showMessage(f"Fetching ELM instances for {acc}…")
+        seq = self.analysis_data["seq"] if self.analysis_data else ""
+        self._elm_worker = ELMWorker(acc, seq)
+        self._elm_worker.finished.connect(self._on_elm_finished)
+        self._elm_worker.error.connect(self._on_elm_error)
+        self._elm_worker.start()
+
+    def _on_elm_finished(self, instances: list):
+        self.elm_data = instances
+        self.fetch_elm_btn.setEnabled(True)
+        n = len(instances)
+        if n == 0:
+            QMessageBox.information(self, "ELM",
+                "No ELM instances found for this accession.")
+        else:
+            # Show in a popup summary
+            lines = ["<h2>ELM Instances</h2><table>"
+                     "<tr><th>ELM Class</th><th>Start</th><th>End</th><th>Logic</th></tr>"]
+            for inst in instances[:50]:
+                lines.append(
+                    f"<tr><td>{inst.get('elm_identifier','?')}</td>"
+                    f"<td>{inst.get('start','?')}</td><td>{inst.get('end','?')}</td>"
+                    f"<td>{inst.get('logic','?')}</td></tr>")
+            lines.append("</table>")
+            dlg = QDialog(self); dlg.setWindowTitle("ELM Instances")
+            dlg.resize(600, 400)
+            vb = QVBoxLayout(dlg)
+            br = QTextBrowser(); br.setHtml("".join(lines))
+            vb.addWidget(br)
+            btns = QDialogButtonBox(QDialogButtonBox.Close)
+            btns.rejected.connect(dlg.reject); vb.addWidget(btns)
+            dlg.exec_()
+        self.statusBar.showMessage(f"ELM: {n} instance(s) found.", 3000)
+
+    def _on_elm_error(self, msg: str):
+        self.fetch_elm_btn.setEnabled(True)
+        QMessageBox.warning(self, "ELM Error", msg)
+
+    def fetch_disprot(self):
+        if not _HAS_DISPROT:
+            QMessageBox.information(self, "DisProt",
+                "DisProt module not available.\nInstall with: pip install beer-biophys")
+            return
+        acc = self.current_accession
+        if not acc:
+            QMessageBox.warning(self, "DisProt", "Fetch a UniProt accession first.")
+            return
+        if self._disprot_worker and self._disprot_worker.isRunning():
+            return
+        self.fetch_disprot_btn.setEnabled(False)
+        self.statusBar.showMessage(f"Fetching DisProt annotations for {acc}…")
+        self._disprot_worker = DisPRotWorker(acc)
+        self._disprot_worker.finished.connect(self._on_disprot_finished)
+        self._disprot_worker.error.connect(self._on_disprot_error)
+        self._disprot_worker.start()
+
+    def _on_disprot_finished(self, data: dict):
+        self.disprot_data = data
+        self.fetch_disprot_btn.setEnabled(True)
+        regions = data.get("regions", [])
+        n = len(regions)
+        if n == 0:
+            QMessageBox.information(self, "DisProt",
+                "This protein is not in DisProt, or has no annotated disorder regions.")
+        else:
+            frac = data.get("fraction_disordered", 0)
+            lines = [f"<h2>DisProt: {data.get('disprot_id','?')}</h2>"
+                     f"<p>{data.get('protein_name','')}</p>"
+                     f"<p>Fraction disordered: {frac:.3f}</p>"
+                     "<table><tr><th>Start</th><th>End</th><th>Type</th></tr>"]
+            for r in regions:
+                lines.append(
+                    f"<tr><td>{r['start']}</td><td>{r['end']}</td>"
+                    f"<td>{r.get('type','IDR')}</td></tr>")
+            lines.append("</table>")
+            dlg = QDialog(self); dlg.setWindowTitle("DisProt Disorder Regions")
+            dlg.resize(500, 350)
+            vb = QVBoxLayout(dlg)
+            br = QTextBrowser(); br.setHtml("".join(lines))
+            vb.addWidget(br)
+            btns = QDialogButtonBox(QDialogButtonBox.Close)
+            btns.rejected.connect(dlg.reject); vb.addWidget(btns)
+            dlg.exec_()
+        self.statusBar.showMessage(f"DisProt: {n} disorder region(s).", 3000)
+
+    def _on_disprot_error(self, msg: str):
+        self.fetch_disprot_btn.setEnabled(True)
+        self.statusBar.showMessage("DisProt fetch failed.", 2000)
+        QMessageBox.warning(self, "DisProt Error", msg)
+
+    def fetch_phasepdb(self):
+        if not _HAS_PHASEPDB:
+            QMessageBox.information(self, "PhaSepDB",
+                "PhaSepDB module not available.\nInstall with: pip install beer-biophys")
+            return
+        acc = self.current_accession
+        if not acc:
+            QMessageBox.warning(self, "PhaSepDB", "Fetch a UniProt accession first.")
+            return
+        if self._phasepdb_worker and self._phasepdb_worker.isRunning():
+            return
+        self.fetch_phasepdb_btn.setEnabled(False)
+        self.statusBar.showMessage(f"Checking PhaSepDB for {acc}…")
+        self._phasepdb_worker = PhaSepDBWorker(acc)
+        self._phasepdb_worker.finished.connect(self._on_phasepdb_finished)
+        self._phasepdb_worker.error.connect(self._on_phasepdb_error)
+        self._phasepdb_worker.start()
+
+    def _on_phasepdb_finished(self, data: dict):
+        self.phasepdb_data = data
+        self.fetch_phasepdb_btn.setEnabled(True)
+        if not data.get("found"):
+            QMessageBox.information(self, "PhaSepDB",
+                "This protein was not found in PhaSepDB (phase separation database).\n"
+                "This does not rule out phase-separation capacity.")
+        else:
+            msg = (f"<h2>PhaSepDB Hit</h2>"
+                   f"<p>Source: {data.get('source','PhaSepDB')}</p>"
+                   f"<p>Category: <b>{data.get('category','?')}</b></p>"
+                   f"<p>Evidence type: {data.get('evidence_type','?')}</p>")
+            dlg = QDialog(self); dlg.setWindowTitle("PhaSepDB")
+            dlg.resize(400, 200)
+            vb = QVBoxLayout(dlg)
+            br = QTextBrowser(); br.setHtml(msg)
+            vb.addWidget(br)
+            btns = QDialogButtonBox(QDialogButtonBox.Close)
+            btns.rejected.connect(dlg.reject); vb.addWidget(btns)
+            dlg.exec_()
+        self.statusBar.showMessage(
+            "PhaSepDB: found" if data.get("found") else "PhaSepDB: not found", 3000)
+
+    def _on_phasepdb_error(self, msg: str):
+        self.fetch_phasepdb_btn.setEnabled(True)
+        QMessageBox.warning(self, "PhaSepDB Error", msg)
+
+    # ── Figure Composer ───────────────────────────────────────────────────────
+
+    def open_figure_composer(self):
+        """Open the Figure Composer dialog to build a multi-panel publication figure."""
+        available = list(self.graph_tabs.keys())
+        dlg = _FigureComposerDialog(available, self)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        layout_str, selected_titles = dlg.get_composition()
+        # Parse layout e.g. "2×2" → (rows, cols)
+        try:
+            rows_s, cols_s = layout_str.split("\u00d7")
+            nrows, ncols = int(rows_s), int(cols_s)
+        except Exception:
+            nrows, ncols = 1, 1
+        total = nrows * ncols
+        titles = (selected_titles + [None] * total)[:total]
+        fig_out = Figure(figsize=(ncols * 6, nrows * 4.5), dpi=150)
+        fig_out.set_facecolor("#ffffff")
+        for i, title in enumerate(titles):
+            ax_sub = fig_out.add_subplot(nrows, ncols, i + 1)
+            ax_sub.set_visible(False)
+            if title and title in self.graph_tabs:
+                _, vb = self.graph_tabs[title]
+                canvas = self._find_canvas(vb)
+                if canvas:
+                    src_fig = canvas.figure
+                    if src_fig.axes:
+                        src_ax  = src_fig.axes[0]
+                        # Copy the axis into composite figure using rasterization
+                        ax_sub.set_visible(True)
+                        buf = BytesIO()
+                        src_fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                        buf.seek(0)
+                        img_arr = plt.imread(buf)
+                        ax_sub.imshow(img_arr, aspect="auto")
+                        ax_sub.axis("off")
+                        lbl = chr(ord("A") + i)
+                        ax_sub.text(-0.05, 1.05, lbl, transform=ax_sub.transAxes,
+                                    fontsize=14, fontweight="bold", va="top")
+        fig_out.tight_layout(pad=1.0)
+        # Save dialog
+        ext  = self.default_graph_format.lower()
+        fn, _ = QFileDialog.getSaveFileName(
+            self, "Save Composed Figure", "",
+            f"{self.default_graph_format} Files (*.{ext})")
+        if fn:
+            if not fn.lower().endswith(f".{ext}"):
+                fn += f".{ext}"
+            use_transparent = self.transparent_bg and ext in ("png", "svg")
+            fig_out.savefig(fn, format=ext, dpi=200, bbox_inches="tight",
+                            transparent=use_transparent,
+                            facecolor="none" if use_transparent else "white")
+            QMessageBox.information(self, "Saved", f"Composed figure saved to:\n{fn}")
+        plt.close(fig_out)
+
+    # ── Plugin system ─────────────────────────────────────────────────────────
+
+    def _load_plugins(self):
+        """Scan ~/.beer/plugins/ for .py files and load valid BEER plugins."""
+        import importlib.util
+        plugin_dir = os.path.expanduser("~/.beer/plugins")
+        if not os.path.isdir(plugin_dir):
+            return
+        for fname in os.listdir(plugin_dir):
+            if not fname.endswith(".py"):
+                continue
+            fpath = os.path.join(plugin_dir, fname)
+            try:
+                spec   = importlib.util.spec_from_file_location(fname[:-3], fpath)
+                mod    = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                if hasattr(mod, "PLUGIN_NAME") and hasattr(mod, "analyze"):
+                    self._plugins.append(mod)
+            except Exception as e:
+                print(f"[BEER] Plugin load error ({fname}): {e}", file=sys.stderr)
+
+    def _run_plugins(self, seq: str, data: dict):
+        """Call each loaded plugin's analyze(seq, data) → html, inject into report."""
+        for plugin in self._plugins:
+            try:
+                html = plugin.analyze(seq, data)
+                sec_name = getattr(plugin, "PLUGIN_NAME", "Plugin")
+                data["report_sections"][sec_name] = html
+                if sec_name not in REPORT_SECTIONS:
+                    REPORT_SECTIONS.append(sec_name)
+                    # Add to UI section list
+                    self.report_section_list.addItem(QListWidgetItem(sec_name))
+                    tab = QWidget()
+                    vb  = QVBoxLayout(tab)
+                    vb.setContentsMargins(4, 4, 4, 4)
+                    browser = QTextBrowser()
+                    vb.addWidget(browser)
+                    self.report_stack.addWidget(tab)
+                    self.report_section_tabs[sec_name] = browser
+            except Exception as e:
+                print(f"[BEER] Plugin runtime error ({plugin.PLUGIN_NAME}): {e}",
+                      file=sys.stderr)
 
     # --- Dependency check ---
 
