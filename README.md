@@ -59,8 +59,8 @@ BEER is organised into eight sections, accessible via the **left sidebar**:
 
 | Section | Purpose |
 |---------|---------|
-| **Analysis** | Sequence input, chain selector, sequence viewer, report sections |
-| **Graphs** | 20 interactive, publication-quality plots |
+| **Analysis** | Sequence input, chain selector, sequence viewer, 13 report sections |
+| **Graphs** | 23 interactive, publication-quality plots |
 | **Structure** | Interactive 3D viewer (requires PyQtWebEngine) + AlphaFold fetch |
 | **BLAST** | NCBI blastp against nr, SwissProt, PDB, or RefSeq |
 | **Compare** | Side-by-side physicochemical comparison of two sequences |
@@ -79,7 +79,8 @@ BEER is organised into eight sections, accessible via the **left sidebar**:
    - **UniProt ID** (e.g. `P04637`) — fetches from UniProt REST API; also enables
      **Fetch AlphaFold** and **Fetch Pfam** buttons.
    - **PDB ID** (e.g. `1ABC`) — fetches the FASTA sequence from RCSB PDB.
-     AlphaFold and Pfam are not available for PDB IDs.
+     After fetching a PDB ID, clicking **Fetch AlphaFold** or **Fetch Pfam** will
+     prompt you to enter a UniProt accession.
 
 The **Sequence Viewer** displays the active sequence in UniProt-style formatting
 (groups of 10, ruler every 10 residues). A built-in regex motif search and highlight
@@ -129,6 +130,15 @@ Sticker counts (aromatic + electrostatic), mean/min/max inter-sticker spacing (M
 Kyte-Doolittle sliding-window (w=19, threshold=1.6) transmembrane helix prediction with
 inside-positive topology. See algorithm details below.
 
+### Phase Separation
+Composite LLPS propensity score (0–1) weighted from aromatic fraction, prion-like score,
+disorder fraction, FCR, Omega, LARKS density, and |NCPR| penalty. LARKS detection (7-residue
+windows: ≥1 aromatic, ≥50% LC residues, entropy < 1.8 bits; Hughes et al. 2018 *Science*).
+
+### Linear Motifs
+Regex scan against 15 built-in SLiM patterns: NLS, NES, PxxP, 14-3-3, RGG, FG, KFERQ,
+KDEL, PKA (RxxS/T), SxIP, WW ligand, caspase-3, N-glycosylation, SUMOylation, CK2 sites.
+
 ---
 
 ## Transmembrane Helix Prediction
@@ -140,7 +150,7 @@ inside-positive topology. See algorithm details below.
 
 ---
 
-## Graphs (20 total)
+## Graphs (23 total)
 
 All graphs are rendered at 120 dpi on-screen and 200 dpi on export with interactive
 cursors (`mplcursors`).
@@ -158,6 +168,7 @@ cursors (`mplcursors`).
 | Local Charge Profile | Sliding-window NCPR |
 | Local Complexity | Sliding-window Shannon entropy; LC threshold line |
 | Disorder Profile | IUPred-inspired per-residue score; orange fill = disordered |
+| Coiled-Coil Profile | Per-residue heptad-periodicity score; fill above 0.50 = predicted coiled-coil |
 | Linear Sequence Map | Four-track: hydrophobicity, NCPR, disorder, helix Pα |
 | Secondary Structure | **Two-panel**: helix Pα (top) and sheet Pβ (bottom); fill above 1.0 |
 
@@ -184,6 +195,12 @@ cursors (`mplcursors`).
 | pLDDT Profile | Per-residue confidence (0–100); requires Fetch AlphaFold |
 | Cα Distance Map | Pairwise distance heatmap; 8 Å contact contour; requires Fetch AlphaFold |
 | Domain Architecture | Multi-track: Pfam domains + Disorder + Low Complexity + TM Helices |
+
+### Phase Separation / IDP
+| Graph | Description |
+|-------|-------------|
+| Uversky Phase Plot | Mean \|net charge\| vs mean hydrophobicity; Uversky 2000 boundary line; IDP vs ordered classification |
+| Saturation Mutagenesis | 20×n heatmap of \|ΔGRAVY\| + \|ΔNCPR\| for all single substitutions; white dot = wild type (≤500 aa) |
 
 ---
 
