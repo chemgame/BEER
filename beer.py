@@ -237,7 +237,7 @@ LINEAR_MOTIFS = [
     ("RxxS/T (PKA)", r"R.{1,2}[ST]", "PKA consensus phosphorylation site (RxxS/T)"),
     ("SxIP (EB1)", r"[ST].IP", "Microtubule plus-end tracking via EB1"),
     ("WW domain ligand", r"PP.Y|P.{1,2}P", "WW-domain binding (PPxY / PxxP)"),
-    ("Caspase-3 cleavage", r"DEVD|DMQD|DEVD", "Caspase-3/7 cleavage site (DxxD)"),
+    ("Caspase-3 cleavage", r"DEVD|DMQD", "Caspase-3/7 cleavage site (DxxD)"),
     ("Glycosylation (N-linked)", r"N[^P][ST]", "N-linked glycosylation sequon (NxS/T, x≠P)"),
     ("SUMOylation", r"[VILMF]K.E", "SUMOylation consensus (ΨKxE)"),
     ("Phospho (CK2)", r"[ST].{2}[DE]", "CK2 phosphorylation consensus (S/TxxE/D)"),
@@ -1486,7 +1486,7 @@ class AnalysisTools:
             else:
                 i += 1
         n_cc_res = sum(e - s + 1 for s, e in cc_regions)
-        cc_frac  = n_cc_res / seq_length
+        cc_frac  = n_cc_res / seq_length if seq_length > 0 else 0.0
 
         # --- Linear motif scan ---
         motifs = scan_linear_motifs(seq)
@@ -2942,8 +2942,7 @@ class ExportTools:
         for sec in REPORT_SECTIONS:
             content = analysis_data["report_sections"].get(sec, "")
             # Strip inline <style> blocks already embedded per-section to avoid duplication
-            import re as _re
-            content = _re.sub(r"<style>[^<]*</style>", "", content, flags=_re.DOTALL)
+            content = re.sub(r"<style>[^<]*</style>", "", content, flags=re.DOTALL)
             html += content + "\n"
 
         html += "</body></html>"
@@ -2990,7 +2989,7 @@ def import_pdb_sequence(file_name: str) -> dict:
 def _calc_batch_stats(seq: str, data: dict) -> tuple:
     """Return (hydro%, hydrophil%, pos%, neg%, neu%) for a sequence."""
     length = len(seq)
-    hydro  = sum(1 for aa in seq if KYTE_DOOLITTLE[aa] > 0) / length * 100
+    hydro  = sum(1 for aa in seq if KYTE_DOOLITTLE.get(aa, 0.0) > 0) / length * 100
     pos    = sum(data["aa_counts"].get(k, 0) for k in ("K", "R", "H")) / length * 100
     neg    = sum(data["aa_counts"].get(k, 0) for k in ("D", "E")) / length * 100
     neu    = 100 - (pos + neg)
@@ -3086,7 +3085,7 @@ class PfamWorker(QThread):
             for result in data.get("results", []):
                 meta = result.get("metadata", {})
                 raw_name = meta.get("name", meta.get("accession", "Unknown"))
-                name = raw_name.get("name", raw_name) if isinstance(raw_name, dict) else raw_name
+                name = raw_name.get("name", "") if isinstance(raw_name, dict) else str(raw_name)
                 acc  = meta.get("accession", "")
                 for prot in result.get("proteins", []):
                     for loc in prot.get("entry_protein_locations", []):
@@ -4576,7 +4575,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         pdb_base = os.path.splitext(os.path.basename(file_name))[0]
         entries  = [(f"{pdb_base}_{cid}", seq) for cid, seq in chains.items()]
-        self._load_batch([(cid, seq) for cid, seq in chains.items()])
+        self._load_batch(entries)
         if not self.sequence_name:
             self.sequence_name = entries[0][0] if entries else pdb_base
 
@@ -5849,9 +5848,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             QMessageBox.warning(self, "Complex", "Paste at least one chain sequence.")
             return
         # Parse stoichiometry: e.g. "A2B1" → {A:2, B:1}
-        import re as _re2
         stoich_map = {}
-        for m in _re2.finditer(r"([A-Za-z]+)(\d*)", stoich):
+        for m in re.finditer(r"([A-Za-z]+)(\d*)", stoich):
             chain_id = m.group(1).upper()
             count    = int(m.group(2)) if m.group(2) else 1
             if chain_id:
