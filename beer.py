@@ -11,104 +11,19 @@ from io import BytesIO, StringIO
 import urllib.request
 import numpy as np
 
-# --- Optional new-feature module imports (graceful fallbacks) ---
-try:
-    from beer.analysis.aggregation import (
-        calc_aggregation_profile, predict_aggregation_hotspots,
-        calc_camsolmt_score, calc_solubility_stats, format_aggregation_report,
-    )
-    _HAS_AGGREGATION = True
-except ImportError:
-    _HAS_AGGREGATION = False
-
-try:
-    from beer.analysis.ptm import scan_ptm_sites, summarize_ptm_sites, format_ptm_report
-    _HAS_PTM = True
-except ImportError:
-    _HAS_PTM = False
-
-try:
-    from beer.analysis.signal_peptide import (
-        predict_signal_peptide, predict_gpi_anchor, format_signal_report,
-    )
-    _HAS_SIGNAL = True
-except ImportError:
-    _HAS_SIGNAL = False
-
-try:
-    from beer.analysis.amphipathic import (
-        calc_hydrophobic_moment_profile, predict_amphipathic_helices,
-        format_amphipathic_report, EISENBERG_SCALE,
-    )
-    _HAS_AMPHIPATHIC = True
-except ImportError:
-    _HAS_AMPHIPATHIC = False
-
-try:
-    from beer.analysis.scd import (
-        calc_scd, calc_scd_profile, calc_pos_neg_block_lengths, format_scd_report,
-    )
-    _HAS_SCD = True
-except ImportError:
-    _HAS_SCD = False
-
-try:
-    from beer.analysis.rnabinding import calc_rbp_score, calc_rbp_profile, format_rbp_report
-    _HAS_RBP = True
-except ImportError:
-    _HAS_RBP = False
-
-try:
-    from beer.analysis.tandem_repeats import (
-        find_tandem_repeats, find_direct_repeats, calc_repeat_stats,
-        format_repeats_report as format_tandem_repeats_report,
-    )
-    _HAS_TANDEM = True
-except ImportError:
-    _HAS_TANDEM = False
-
-try:
-    from beer.graphs.new_graphs import (
-        create_aggregation_profile_figure,
-        create_solubility_profile_figure,
-        create_hydrophobic_moment_figure,
-        create_pI_MW_gel_figure,
-        create_ptm_profile_figure,
-        create_rbp_profile_figure,
-        create_truncation_series_figure,
-        create_scd_profile_figure,
-        create_ramachandran_figure,
-        create_contact_network_figure,
-        create_msa_conservation_figure,
-        create_complex_mw_figure,
-    )
-    _HAS_NEW_GRAPHS = True
-except ImportError:
-    _HAS_NEW_GRAPHS = False
-
-try:
-    from beer.network.elm import ELMWorker
-    _HAS_ELM = True
-except ImportError:
-    _HAS_ELM = False
-
-try:
-    from beer.network.disprot import DisPRotWorker
-    _HAS_DISPROT = True
-except ImportError:
-    _HAS_DISPROT = False
-
-try:
-    from beer.network.phasepdb import PhaSepDBWorker
-    _HAS_PHASEPDB = True
-except ImportError:
-    _HAS_PHASEPDB = False
-
-try:
-    from beer.io.pdb import extract_phi_psi as _extract_phi_psi
-    _HAS_PHI_PSI = True
-except ImportError:
-    _HAS_PHI_PSI = False
+# All sub-modules are inlined below; flags always True
+_HAS_AGGREGATION = True
+_HAS_PTM         = True
+_HAS_SIGNAL      = True
+_HAS_AMPHIPATHIC = True
+_HAS_SCD         = True
+_HAS_RBP         = True
+_HAS_TANDEM      = True
+_HAS_NEW_GRAPHS  = True
+_HAS_ELM         = True
+_HAS_DISPROT     = True
+_HAS_PHASEPDB    = True
+_HAS_PHI_PSI     = True
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -143,6 +58,4107 @@ from Bio import SeqIO
 from Bio.PDB import PDBParser
 from Bio.PDB.Polypeptide import is_aa
 from Bio.SeqUtils import seq1
+
+# ===========================================================================
+# INLINED SUB-MODULES (single-file distribution)
+# ===========================================================================
+import urllib.error  # noqa (used by network workers)
+from collections import Counter  # noqa (used by tandem_repeats and new_graphs)
+import matplotlib.patches as mpatches
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
+import matplotlib.ticker as mticker
+from matplotlib.patches import FancyArrowPatch, Arc
+
+# Shared HTML report CSS
+_REPORT_CSS = """
+body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt;
+       color: #1a1a2e; margin: 0; padding: 0; line-height: 1.6; }
+h2 { font-size: 13pt; color: #4361ee; margin-top: 18px; margin-bottom: 8px; font-weight: 600; }
+h3 { font-size: 11pt; color: #4361ee; margin-top: 14px; margin-bottom: 4px; font-weight: 600; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0 16px 0; font-size: 10pt; }
+th { background-color: #4361ee; color: #ffffff; padding: 7px 12px;
+     text-align: left; font-weight: 600; }
+td { padding: 6px 12px; border-bottom: 1px solid #e8eaf0; color: #2d3748; }
+tr:nth-child(even) td { background-color: #f8f9fd; }
+tr:hover td { background-color: #eef0f8; }
+p.note { font-size: 9pt; color: #718096; font-style: italic; margin: 4px 0 12px 0; }
+"""
+
+
+# --- beer.analysis.aggregation ---
+
+# ---------------------------------------------------------------------------
+# Published per-residue scales
+# ---------------------------------------------------------------------------
+
+ZYGGREGATOR_PROPENSITY: dict[str, float] = {
+    'A':  0.67, 'R': -1.65, 'N': -0.43, 'D': -0.75,
+    'C':  0.50, 'Q': -0.51, 'E': -1.22, 'G': -0.59,
+    'H': -0.13, 'I':  1.29, 'L':  0.93, 'K': -1.42,
+    'M':  0.64, 'F':  1.26, 'P': -1.44, 'S': -0.39,
+    'T': -0.09, 'W':  0.96, 'Y':  0.74, 'V':  1.04,
+}
+"""Per-residue β-aggregation propensity scores (Tartaglia & Vendruscolo 2008)."""
+
+PASTA_ENERGY: dict[str, float] = {
+    'A': -0.22, 'R':  0.66, 'N':  0.14, 'D':  0.81,
+    'C': -0.65, 'Q': -0.04, 'E':  0.58, 'G':  0.08,
+    'H': -0.35, 'I': -1.46, 'L': -1.34, 'K':  0.59,
+    'M': -0.94, 'F': -1.47, 'P':  1.53, 'S':  0.10,
+    'T': -0.34, 'W': -1.35, 'Y': -1.04, 'V': -1.32,
+}
+"""Diagonal of PASTA pairwise β-strand interaction energy matrix (Trovato et al. 2007).
+More negative values indicate stronger self-pairing tendency."""
+
+CAMSOLMT_SCALE: dict[str, float] = {
+    'A':  0.238, 'R': -0.132, 'N':  0.047, 'D':  0.191,
+    'C':  0.238, 'Q':  0.047, 'E':  0.191, 'G':  0.024,
+    'H': -0.083, 'I': -0.387, 'L': -0.387, 'K': -0.065,
+    'M': -0.265, 'F': -0.386, 'P':  0.190, 'S':  0.264,
+    'T':  0.209, 'W': -0.380, 'Y': -0.241, 'V': -0.322,
+}
+"""CamSol intrinsic solubility scale (Sormanni et al. 2015, J Mol Biol)."""
+
+# Kyte-Doolittle defined locally to avoid circular imports
+KYTE_DOOLITTLE: dict[str, float] = {
+    'A':  1.8, 'R': -4.5, 'N': -3.5, 'D': -3.5,
+    'C':  2.5, 'Q': -3.5, 'E': -3.5, 'G': -0.4,
+    'H': -3.2, 'I':  4.5, 'L':  3.8, 'K': -3.9,
+    'M':  1.9, 'F':  2.8, 'P': -1.6, 'S': -0.8,
+    'T': -0.7, 'W': -0.9, 'Y': -1.3, 'V':  4.2,
+}
+
+# CSS injected into every HTML section for consistent styling
+
+
+
+# ---------------------------------------------------------------------------
+# Core computational functions
+# ---------------------------------------------------------------------------
+
+def calc_aggregation_profile(seq: str, window: int = 6) -> list[float]:
+    """Compute per-residue ZYGGREGATOR-style β-aggregation propensity profile.
+
+    A sliding window of length *window* is centred at each residue; the score
+    for that position is the arithmetic mean of ZYGGREGATOR_PROPENSITY values
+    over the window.  At sequence edges the window is truncated to the
+    available residues (partial windows are acceptable).
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    window:
+        Sliding window length (default 6 as in Tartaglia & Vendruscolo 2008).
+
+    Returns
+    -------
+    list[float]
+        Per-residue profile of length ``len(seq)``.
+
+    References
+    ----------
+    Tartaglia, G.G. & Vendruscolo, M. (2008) Chem. Biol. 15(9):1008-1018.
+    """
+    n = len(seq)
+    if n == 0:
+        return []
+
+    half = window // 2
+    profile: list[float] = []
+
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + (window - 2 * half))  # handle odd/even window
+        # For even window keep consistent: centre at i means [i-half, i-half+window)
+        lo = max(0, i - half)
+        hi = min(n, lo + window)
+        if hi == n:
+            lo = max(0, hi - window)
+        sub = seq[lo:hi]
+        vals = [ZYGGREGATOR_PROPENSITY.get(aa, 0.0) for aa in sub]
+        profile.append(sum(vals) / len(vals) if vals else 0.0)
+
+    return profile
+
+
+def predict_aggregation_hotspots(
+    seq: str,
+    window: int = 6,
+    threshold: float = 1.0,
+) -> list[dict]:
+    """Identify contiguous aggregation-prone regions using ZYGGREGATOR profile.
+
+    A hotspot is a contiguous stretch where the sliding-window aggregation
+    profile (see :func:`calc_aggregation_profile`) equals or exceeds *threshold*
+    for at least 4 consecutive residues.  For each hotspot, a PASTA energy score
+    is also computed as the mean of PASTA_ENERGY values over the hotspot
+    sequence (lower = more amyloidogenic).
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    window:
+        Window size forwarded to :func:`calc_aggregation_profile`.
+    threshold:
+        Minimum mean propensity to call a hotspot (default 1.0).
+
+    Returns
+    -------
+    list[dict]
+        Each dict contains:
+
+        ``start``
+            0-based start position.
+        ``end``
+            0-based exclusive end position.
+        ``seq``
+            Hotspot subsequence.
+        ``score``
+            Mean ZYGGREGATOR propensity over the hotspot.
+        ``pasta_score``
+            Mean PASTA_ENERGY diagonal score over the hotspot.
+
+    References
+    ----------
+    Tartaglia, G.G. & Vendruscolo, M. (2008) Chem. Biol. 15(9):1008-1018.
+    Trovato, A. et al. (2007) PLoS Comput. Biol. 3(2):e17.
+    """
+    profile = calc_aggregation_profile(seq, window=window)
+    n = len(seq)
+    hotspots: list[dict] = []
+    i = 0
+    while i < n:
+        if profile[i] >= threshold:
+            j = i
+            while j < n and profile[j] >= threshold:
+                j += 1
+            length = j - i
+            if length >= 4:
+                sub = seq[i:j]
+                mean_score = sum(profile[i:j]) / length
+                pasta = sum(PASTA_ENERGY.get(aa, 0.0) for aa in sub) / length
+                hotspots.append({
+                    'start': i,
+                    'end': j,
+                    'seq': sub,
+                    'score': mean_score,
+                    'pasta_score': pasta,
+                })
+            i = j
+        else:
+            i += 1
+    return hotspots
+
+
+def calc_camsolmt_score(seq: str) -> list[float]:
+    """Compute CamSol intrinsic per-residue solubility scores.
+
+    Returns raw per-residue scores from the CamSol intrinsic scale
+    (Sormanni et al. 2015).  No window averaging is applied at this stage;
+    use :func:`calc_solubility_stats` which also returns a smoothed profile.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+
+    Returns
+    -------
+    list[float]
+        Per-residue intrinsic CamSol scores (length = ``len(seq)``).
+        Positive values indicate higher intrinsic solubility; negative
+        values indicate lower intrinsic solubility (aggregation tendency).
+
+    References
+    ----------
+    Sormanni, P., Aprile, F.A. & Vendruscolo, M. (2015).
+    J. Mol. Biol. 427(2):478-490.
+    """
+    return [CAMSOLMT_SCALE.get(aa, 0.0) for aa in seq]
+
+
+def _smooth_profile(profile: list[float], window: int = 7) -> list[float]:
+    """Return a uniformly-windowed moving-average of *profile*."""
+    n = len(profile)
+    if n == 0:
+        return []
+    half = window // 2
+    smoothed: list[float] = []
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        chunk = profile[lo:hi]
+        smoothed.append(sum(chunk) / len(chunk))
+    return smoothed
+
+
+def calc_solubility_stats(seq: str) -> dict:
+    """Aggregate solubility and aggregation metrics for a protein sequence.
+
+    Combines CamSol intrinsic scores with ZYGGREGATOR-based hotspot analysis.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+
+    Returns
+    -------
+    dict
+        ``mean_camsolmt``
+            Mean CamSol intrinsic score across all residues.
+        ``fraction_insoluble``
+            Fraction of residues with CamSol score < -0.2.
+        ``fraction_soluble``
+            Fraction of residues with CamSol score > 0.2.
+        ``mean_aggregation_propensity``
+            Mean ZYGGREGATOR propensity (no windowing) across all residues.
+        ``n_hotspots``
+            Number of aggregation hotspots identified.
+        ``aggregation_hotspots``
+            List of hotspot dicts from :func:`predict_aggregation_hotspots`.
+        ``camsolmt_profile``
+            Raw per-residue CamSol scores.
+        ``camsolmt_smoothed``
+            7-residue moving-average smoothed CamSol profile.
+    """
+    n = len(seq)
+    if n == 0:
+        return {
+            'mean_camsolmt': 0.0, 'fraction_insoluble': 0.0,
+            'fraction_soluble': 0.0, 'mean_aggregation_propensity': 0.0,
+            'n_hotspots': 0, 'aggregation_hotspots': [],
+            'camsolmt_profile': [], 'camsolmt_smoothed': [],
+        }
+
+    camsolmt = calc_camsolmt_score(seq)
+    smoothed = _smooth_profile(camsolmt, window=7)
+    mean_cs = sum(camsolmt) / n
+    frac_insol = sum(1 for v in camsolmt if v < -0.2) / n
+    frac_sol = sum(1 for v in camsolmt if v > 0.2) / n
+
+    zygg_raw = [ZYGGREGATOR_PROPENSITY.get(aa, 0.0) for aa in seq]
+    mean_agg = sum(zygg_raw) / n
+
+    hotspots = predict_aggregation_hotspots(seq)
+
+    return {
+        'mean_camsolmt': mean_cs,
+        'fraction_insoluble': frac_insol,
+        'fraction_soluble': frac_sol,
+        'mean_aggregation_propensity': mean_agg,
+        'n_hotspots': len(hotspots),
+        'aggregation_hotspots': hotspots,
+        'camsolmt_profile': camsolmt,
+        'camsolmt_smoothed': smoothed,
+    }
+
+
+# ---------------------------------------------------------------------------
+# HTML report
+# ---------------------------------------------------------------------------
+
+def format_aggregation_report(seq: str, style_tag: str) -> str:
+    """Generate an HTML section summarising aggregation and solubility analysis.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    style_tag:
+        Accent colour hex string (e.g. ``"#4361ee"``) injected via the
+        ``style_tag`` convention used throughout the BEER report system.
+        If empty or ``None``, a default blue is used.
+
+    Returns
+    -------
+    str
+        Self-contained HTML fragment (includes ``<style>`` block).
+    """
+    accent = style_tag if style_tag else "#4361ee"
+    css = _REPORT_CSS.replace("#4361ee", accent)
+    _s = f"<style>{css}</style>"
+
+    stats = calc_solubility_stats(seq)
+    hotspots = stats['aggregation_hotspots']
+    n = len(seq)
+
+    # --- summary table ---
+    cs_mean = stats['mean_camsolmt']
+    cs_class = (
+        "good (soluble)" if cs_mean > 0.1 else
+        "borderline" if cs_mean > -0.1 else
+        "poor (aggregation-prone)"
+    )
+    agg_mean = stats['mean_aggregation_propensity']
+    agg_class = (
+        "low" if agg_mean < 0.3 else
+        "moderate" if agg_mean < 0.7 else
+        "high"
+    )
+
+    summary_rows = (
+        f"<tr><td>Sequence length</td><td>{n} aa</td></tr>"
+        f"<tr><td>Mean CamSol intrinsic score</td>"
+        f"<td>{cs_mean:.3f} &mdash; {cs_class}</td></tr>"
+        f"<tr><td>Fraction insoluble residues (CamSol &lt; &minus;0.2)</td>"
+        f"<td>{stats['fraction_insoluble']:.1%}</td></tr>"
+        f"<tr><td>Fraction soluble residues (CamSol &gt; 0.2)</td>"
+        f"<td>{stats['fraction_soluble']:.1%}</td></tr>"
+        f"<tr><td>Mean ZYGGREGATOR propensity</td>"
+        f"<td>{agg_mean:.3f} &mdash; {agg_class}</td></tr>"
+        f"<tr><td>Aggregation hotspots (&ge;4 aa, score &ge;1.0)</td>"
+        f"<td>{stats['n_hotspots']}</td></tr>"
+    )
+
+    summary_html = (
+        "<h2>Aggregation &amp; Solubility Summary</h2>"
+        "<table>"
+        "<tr><th>Property</th><th>Value</th></tr>"
+        f"{summary_rows}"
+        "</table>"
+        "<p class='note'>"
+        "CamSol: Sormanni et al. 2015 J Mol Biol 427:478. "
+        "ZYGGREGATOR: Tartaglia &amp; Vendruscolo 2008 Chem Biol 15:1008."
+        "</p>"
+    )
+
+    # --- hotspot table ---
+    if hotspots:
+        hs_header = (
+            "<tr><th>Start</th><th>End</th><th>Sequence</th>"
+            "<th>ZYGGREGATOR score</th><th>PASTA score</th><th>Length</th></tr>"
+        )
+        hs_rows = "".join(
+            f"<tr>"
+            f"<td>{hs['start'] + 1}</td>"
+            f"<td>{hs['end']}</td>"
+            f"<td><code>{hs['seq']}</code></td>"
+            f"<td>{hs['score']:.3f}</td>"
+            f"<td>{hs['pasta_score']:.3f}</td>"
+            f"<td>{hs['end'] - hs['start']}</td>"
+            f"</tr>"
+            for hs in hotspots
+        )
+        hotspot_html = (
+            "<h2>Aggregation Hotspots</h2>"
+            "<table>"
+            f"{hs_header}{hs_rows}"
+            "</table>"
+            "<p class='note'>"
+            "PASTA diagonal energies: Trovato et al. 2007 PLoS Comput Biol 3:e17. "
+            "More negative PASTA score = stronger amyloid propensity."
+            "</p>"
+        )
+    else:
+        hotspot_html = (
+            "<h2>Aggregation Hotspots</h2>"
+            "<p>No aggregation hotspots detected "
+            "(threshold: mean ZYGGREGATOR &ge; 1.0 over &ge; 4 residues).</p>"
+        )
+
+    return _s + summary_html + hotspot_html
+
+
+# --- beer.analysis.ptm ---
+
+# ---------------------------------------------------------------------------
+# CSS shared across all BEER HTML reports
+# ---------------------------------------------------------------------------
+
+
+
+# Confidence badge colours
+_CONF_COLOUR = {
+    "high":   "#16a34a",
+    "medium": "#ca8a04",
+    "low":    "#dc2626",
+}
+
+# ---------------------------------------------------------------------------
+# PTM scanner helpers
+# ---------------------------------------------------------------------------
+
+def _context(seq: str, pos: int, flank: int = 3) -> str:
+    """Return the sequence context ±flank around *pos* (0-based)."""
+    lo = max(0, pos - flank)
+    hi = min(len(seq), pos + flank + 1)
+    left = seq[lo:pos]
+    right = seq[pos + 1:hi]
+    centre = seq[pos]
+    # Pad to fixed width for alignment
+    pad_l = " " * (flank - (pos - lo))
+    pad_r = " " * (flank - (hi - pos - 1))
+    return f"{pad_l}{left}[{centre}]{right}{pad_r}"
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def scan_ptm_sites(seq: str) -> list[dict]:
+    """Scan a protein sequence for putative PTM sites using consensus rules.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+
+    Returns
+    -------
+    list[dict]
+        Each dict contains:
+
+        ``type``
+            PTM type string.
+        ``position_1based``
+            Residue position (1-based) of the modified residue.
+        ``context``
+            Sequence context (±3 residues) centred on the modified residue.
+        ``description``
+            Short human-readable description.
+        ``confidence``
+            ``"high"``, ``"medium"``, or ``"low"``.
+    """
+    results: list[dict] = []
+    n = len(seq)
+
+    def _add(ptm_type: str, pos0: int, desc: str, conf: str) -> None:
+        results.append({
+            'type': ptm_type,
+            'position_1based': pos0 + 1,
+            'context': _context(seq, pos0),
+            'description': desc,
+            'confidence': conf,
+        })
+
+    # ------------------------------------------------------------------
+    # (a) N-linked glycosylation: N[^P][ST]
+    # ------------------------------------------------------------------
+    for m in re.finditer(r'N[^P][ST]', seq):
+        _add(
+            'N-linked glycosylation',
+            m.start(),
+            f"NxS/T sequon (x={seq[m.start()+1]}, not Pro); "
+            f"acceptor Asn at position {m.start()+1}",
+            'high',
+        )
+
+    # ------------------------------------------------------------------
+    # (b) O-linked glycosylation (mucin-type): cluster ≥3 S/T in 5 aa
+    # ------------------------------------------------------------------
+    _nglyc_positions = {m.start() for m in re.finditer(r'N[^P][ST]', seq)}
+    reported_o = set()
+    for i in range(n - 4):
+        window5 = seq[i:i + 5]
+        st_count = sum(1 for aa in window5 if aa in 'ST')
+        if st_count >= 3:
+            # Report each S/T in this window that hasn't been flagged yet
+            for j in range(i, min(i + 5, n)):
+                if seq[j] in 'ST' and j not in reported_o:
+                    reported_o.add(j)
+                    _add(
+                        'O-linked glycosylation',
+                        j,
+                        f"Mucin-type cluster: {st_count} S/T within 5-aa window "
+                        f"at positions {i+1}-{i+5}",
+                        'medium',
+                    )
+
+    # ------------------------------------------------------------------
+    # (c) CK2 phosphorylation: [ST]xx[DE]
+    # ------------------------------------------------------------------
+    for m in re.finditer(r'[ST].{2}[DE]', seq):
+        _add(
+            'Phosphoserine/Thr (CK2)',
+            m.start(),
+            f"CK2 motif [S/T]xx[D/E]: phospho-{seq[m.start()]} at {m.start()+1}, "
+            f"acidic at +3 ({seq[m.start()+3]})",
+            'medium',
+        )
+
+    # ------------------------------------------------------------------
+    # (d) PKA phosphorylation: R[^P][^P][ST]
+    # ------------------------------------------------------------------
+    for m in re.finditer(r'R[^P][^P][ST]', seq):
+        st_pos = m.start() + 3
+        _add(
+            'Phosphoserine/Thr (PKA)',
+            st_pos,
+            f"PKA motif R..S/T: phospho-{seq[st_pos]} at {st_pos+1}",
+            'medium',
+        )
+
+    # ------------------------------------------------------------------
+    # (e) Phosphotyrosine (EGFR-like): Y near [DE] within ±3
+    # ------------------------------------------------------------------
+    for i in range(n):
+        if seq[i] == 'Y':
+            lo = max(0, i - 3)
+            hi = min(n, i + 4)
+            context_win = seq[lo:i] + seq[i + 1:hi]
+            if any(aa in 'DE' for aa in context_win):
+                _add(
+                    'Phosphotyrosine (EGFR-like)',
+                    i,
+                    f"Y at {i+1} flanked by D/E within ±3 residues "
+                    f"(acidic context promotes EGFR-family phosphorylation)",
+                    'low',
+                )
+
+    # ------------------------------------------------------------------
+    # (f) Ubiquitination (ΨKXE): [LVIMF]K.[DE]
+    # ------------------------------------------------------------------
+    for m in re.finditer(r'[LVIMF]K.[DE]', seq):
+        k_pos = m.start() + 1
+        _add(
+            'Ubiquitination (ΨKXE)',
+            k_pos,
+            f"ΨKXE ubiquitination motif: K at {k_pos+1}, "
+            f"Ψ={seq[m.start()]}, X={seq[m.start()+2]}, E/D={seq[m.start()+3]}",
+            'medium',
+        )
+
+    # ------------------------------------------------------------------
+    # (g) SUMOylation: [VILMF]K.E
+    # ------------------------------------------------------------------
+    for m in re.finditer(r'[VILMF]K.E', seq):
+        k_pos = m.start() + 1
+        _add(
+            'SUMOylation (ΨKxE)',
+            k_pos,
+            f"ΨKxE SUMOylation motif: K at {k_pos+1}, "
+            f"Ψ={seq[m.start()]}, x={seq[m.start()+2]}",
+            'medium',
+        )
+
+    # ------------------------------------------------------------------
+    # (h) N-terminal acetylation (NatA)
+    # ------------------------------------------------------------------
+    if n >= 2:
+        aa1, aa2 = seq[0], seq[1]
+        # NatA: initiator Met removed when followed by small aa (A/C/G/P/S/T/V)
+        # Then acetylates the new N-terminus.
+        if aa1 == 'M' and aa2 in 'ACGPSTV' and aa2 != 'P':
+            _add(
+                'N-terminal acetylation (NatA)',
+                1,  # new N-terminus after Met removal
+                f"NatA: Met(1) removed (followed by {aa2}); "
+                f"new N-terminal {aa2} at position 2 is acetylated",
+                'medium',
+            )
+        elif aa1 in 'SATGC':
+            _add(
+                'N-terminal acetylation (NatA)',
+                0,
+                f"NatA: N-terminal {aa1} at position 1 may be acetylated "
+                f"(no preceding Met removal)",
+                'medium',
+            )
+
+    # ------------------------------------------------------------------
+    # (i) Lysine acetylation (internal): KxxK or GKxx
+    # ------------------------------------------------------------------
+    for m in re.finditer(r'K.{2}K', seq):
+        # report the first K
+        _add(
+            'Lys acetylation (internal)',
+            m.start(),
+            f"KxxK motif: K at {m.start()+1} in context KxxK",
+            'low',
+        )
+    for m in re.finditer(r'GK.{2}', seq):
+        k_pos = m.start() + 1
+        _add(
+            'Lys acetylation (internal)',
+            k_pos,
+            f"GKxx motif: K at {k_pos+1} preceded by Gly",
+            'low',
+        )
+
+    # ------------------------------------------------------------------
+    # (j) Arginine methylation: RGG, RG, GR
+    # ------------------------------------------------------------------
+    for m in re.finditer(r'RGG', seq):
+        _add(
+            'Arg methylation (RGG)',
+            m.start(),
+            f"RGG box: R at {m.start()+1} (PRMT4/PRMT5 substrate motif)",
+            'medium',
+        )
+    for m in re.finditer(r'(?<!G)RG(?!G)', seq):
+        _add(
+            'Arg methylation (RG)',
+            m.start(),
+            f"RG motif: R at {m.start()+1}",
+            'medium',
+        )
+    for m in re.finditer(r'GR', seq):
+        _add(
+            'Arg methylation (GR)',
+            m.start() + 1,
+            f"GR motif: R at {m.start()+2}",
+            'medium',
+        )
+
+    # ------------------------------------------------------------------
+    # (k) Palmitoylation (DHHC target): C preceded by K/R within 3 positions
+    # ------------------------------------------------------------------
+    for i in range(n):
+        if seq[i] == 'C':
+            lo = max(0, i - 3)
+            upstream = seq[lo:i]
+            if any(aa in 'KR' for aa in upstream):
+                _add(
+                    'Palmitoylation (DHHC)',
+                    i,
+                    f"C at {i+1} preceded by basic residue within 3 positions "
+                    f"(DHHC acyltransferase target context)",
+                    'low',
+                )
+
+    # Sort by position, then type
+    results.sort(key=lambda d: (d['position_1based'], d['type']))
+    return results
+
+
+def summarize_ptm_sites(sites: list[dict]) -> dict:
+    """Count PTM sites by type.
+
+    Parameters
+    ----------
+    sites:
+        Output of :func:`scan_ptm_sites`.
+
+    Returns
+    -------
+    dict
+        Mapping ``{ptm_type: count, ..., "total": N}``.
+    """
+    counts: dict[str, int] = {}
+    for site in sites:
+        t = site['type']
+        counts[t] = counts.get(t, 0) + 1
+    counts['total'] = len(sites)
+    return counts
+
+
+# ---------------------------------------------------------------------------
+# HTML report
+# ---------------------------------------------------------------------------
+
+def format_ptm_report(seq: str, style_tag: str) -> str:
+    """Generate an HTML section summarising predicted PTM sites.
+
+    Produces a table grouped by PTM type with columns for position, sequence
+    context, confidence, and a description.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    style_tag:
+        Accent colour hex string (e.g. ``"#4361ee"``).
+
+    Returns
+    -------
+    str
+        Self-contained HTML fragment (includes ``<style>`` block).
+    """
+    accent = style_tag if style_tag else "#4361ee"
+    css = _REPORT_CSS.replace("#4361ee", accent)
+    _s = f"<style>{css}</style>"
+
+    sites = scan_ptm_sites(seq)
+    summary = summarize_ptm_sites(sites)
+    total = summary.pop('total', 0)
+
+    if not sites:
+        return (
+            _s
+            + "<h2>Post-Translational Modifications</h2>"
+            + "<p>No consensus PTM sites detected in this sequence.</p>"
+        )
+
+    # Group by type maintaining insertion order
+    by_type: dict[str, list[dict]] = {}
+    for site in sites:
+        by_type.setdefault(site['type'], []).append(site)
+
+    # Summary table
+    summary_rows = "".join(
+        f"<tr><td>{ptm_type}</td><td>{count}</td></tr>"
+        for ptm_type, count in sorted(summary.items())
+    )
+    summary_html = (
+        "<h2>Post-Translational Modifications</h2>"
+        "<table>"
+        "<tr><th>PTM Type</th><th>Count</th></tr>"
+        f"{summary_rows}"
+        f"<tr><td><strong>Total</strong></td><td><strong>{total}</strong></td></tr>"
+        "</table>"
+    )
+
+    # Per-type sub-tables
+    detail_parts: list[str] = []
+    header = (
+        "<tr><th>PTM Type</th><th>Position</th><th>Context (&#177;3 aa)</th>"
+        "<th>Confidence</th><th>Description</th></tr>"
+    )
+    for ptm_type, type_sites in by_type.items():
+        rows = "".join(
+            "<tr>"
+            f"<td>{site['type']}</td>"
+            f"<td>{site['position_1based']}</td>"
+            f"<td><code>{site['context'].strip()}</code></td>"
+            f"<td style='color:{_CONF_COLOUR.get(site['confidence'], '#000')};font-weight:600'>"
+            f"{site['confidence'].capitalize()}</td>"
+            f"<td>{site['description']}</td>"
+            "</tr>"
+            for site in type_sites
+        )
+        detail_parts.append(
+            f"<h3>{ptm_type}</h3>"
+            "<table>"
+            f"{header}{rows}"
+            "</table>"
+        )
+
+    detail_html = "".join(detail_parts)
+
+    note = (
+        "<p class='note'>"
+        "Predictions are sequence-based consensus motif scans only. "
+        "Experimental validation is required for confirmation. "
+        "Confidence: High = published sequon; Medium = established motif; "
+        "Low = contextual inference."
+        "</p>"
+    )
+
+    return _s + summary_html + detail_html + note
+
+
+# --- beer.analysis.signal_peptide ---
+
+# Imported for type hints only — no GUI, no circular dependency
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+KYTE_DOOLITTLE: dict[str, float] = {
+    'A':  1.8, 'R': -4.5, 'N': -3.5, 'D': -3.5,
+    'C':  2.5, 'Q': -3.5, 'E': -3.5, 'G': -0.4,
+    'H': -3.2, 'I':  4.5, 'L':  3.8, 'K': -3.9,
+    'M':  1.9, 'F':  2.8, 'P': -1.6, 'S': -0.8,
+    'T': -0.7, 'W': -0.9, 'Y': -1.3, 'V':  4.2,
+}
+"""Kyte-Doolittle hydropathy scale (Kyte & Doolittle 1982)."""
+
+# Small neutral residues allowed at signal-peptide cleavage (-3, -1) positions
+_SMALL_NEUTRAL = frozenset('AGSTC')
+
+# Small neutral residues for GPI ω site
+_OMEGA_AA = frozenset('ASTDNGC')
+
+
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _kd_mean(seq_sub: str) -> float:
+    """Mean Kyte-Doolittle score for a subsequence."""
+    if not seq_sub:
+        return 0.0
+    return sum(KYTE_DOOLITTLE.get(aa, 0.0) for aa in seq_sub) / len(seq_sub)
+
+
+def _find_best_hydrophobic_window(
+    seq: str,
+    start: int,
+    end: int,
+    min_win: int = 10,
+    max_win: int = 15,
+    kd_threshold: float = 1.4,
+) -> tuple[int, int, float]:
+    """Return (h_start, h_end, mean_kd) for the best hydrophobic window.
+
+    Searches all windows of length *min_win* to *max_win* within seq[start:end]
+    for the one with the highest mean KD score that also exceeds *kd_threshold*.
+    If no window exceeds the threshold the best window is still returned, but
+    the caller can check the score to determine if it qualifies.
+
+    Returns
+    -------
+    tuple (h_start, h_end, mean_kd)
+        All indices are into the *original* seq (not the sub-slice).
+    """
+    n = end - start
+    best_score = -999.0
+    best_start = start
+    best_end = start + min_win
+
+    for w in range(min_win, max_win + 1):
+        for i in range(start, end - w + 1):
+            score = _kd_mean(seq[i:i + w])
+            if score > best_score:
+                best_score = score
+                best_start = i
+                best_end = i + w
+
+    return best_start, best_end, best_score
+
+
+# ---------------------------------------------------------------------------
+# Signal peptide prediction
+# ---------------------------------------------------------------------------
+
+def predict_signal_peptide(seq: str) -> dict:
+    """Predict signal peptide using the von Heijne three-region (n, h, c) model.
+
+    Only the first 70 residues are analysed; signal peptides are N-terminal
+    features.  The algorithm follows the classic three-region description:
+
+    * **n-region** (positions 1–5): basic residues (K, R) provide a positive
+      charge that targets the ribosome-translocon.
+    * **h-region** (within the first 30 aa): the longest, most hydrophobic
+      stretch (10–15 aa with mean KD > 1.4).
+    * **c-region** (3–7 aa after h-region): ends with AXA or SXA (-3/-1 rule).
+    * **Cleavage site**: immediately C-terminal to the c-region.
+
+    Parameters
+    ----------
+    seq:
+        Full protein sequence in single-letter uppercase code.
+
+    Returns
+    -------
+    dict
+        Keys: ``score``, ``verdict``, ``n_end``, ``h_start``, ``h_end``,
+        ``c_start``, ``cleavage_site``, ``h_region_seq``, ``h_region_score``,
+        ``n_score``.
+
+    References
+    ----------
+    von Heijne, G. (1986) Nucleic Acids Res. 14(11):4683-4690.
+    """
+    region = seq[:70]
+    n = len(region)
+
+    # ---- n-region: count K/R in first 5 positions ----
+    n_end = min(5, n)
+    n_score_raw = sum(1 for aa in region[:n_end] if aa in 'KR')
+    n_score_norm = min(n_score_raw, 3) / 3.0  # normalise to [0,1] with max 3
+
+    # ---- h-region: best hydrophobic window within first 30 aa ----
+    h_search_end = min(30, n)
+    h_start, h_end, h_kd = _find_best_hydrophobic_window(
+        region, 0, h_search_end, min_win=7, max_win=15, kd_threshold=1.4
+    )
+    h_length = h_end - h_start
+    h_region_seq = region[h_start:h_end]
+    # Normalise h-region KD score (typical range 1.4 – 3.0)
+    h_score_norm = min(max(h_kd / 3.0, 0.0), 1.0)
+
+    # ---- c-region: 3–7 aa after h-region, look for AXA motif ----
+    c_start = h_end
+    c_end_max = min(c_start + 7, n)
+    # Search for best cleavage position: -3 and -1 must be small neutral
+    cleavage_site = -1
+    c_has_axa = False
+    for cs in range(c_start + 2, c_end_max + 1):
+        # positions -3 and -1 relative to cs (0-based)
+        pos_m3 = cs - 3
+        pos_m1 = cs - 1
+        if 0 <= pos_m3 < n and 0 <= pos_m1 < n:
+            if region[pos_m3] in _SMALL_NEUTRAL and region[pos_m1] in _SMALL_NEUTRAL:
+                c_has_axa = True
+                cleavage_site = cs  # cleavage after position cs (1-based: cs+1)
+                break
+
+    # If no AXA found, default cleavage site estimate is end of c-region
+    if cleavage_site == -1:
+        cleavage_site = min(c_start + 4, n)
+
+    c_region_score = 1.0 if c_has_axa else 0.0
+
+    # ---- Composite score ----
+    score = (
+        0.20 * n_score_norm
+        + 0.50 * h_score_norm
+        + 0.30 * c_region_score
+    )
+    score = round(min(max(score, 0.0), 1.0), 4)
+
+    verdict = (
+        "Signal peptide predicted"
+        if score >= 0.55 and h_length >= 7
+        else "No signal peptide predicted"
+    )
+
+    return {
+        'score': score,
+        'verdict': verdict,
+        'n_end': n_end,
+        'h_start': h_start,
+        'h_end': h_end,
+        'c_start': c_start,
+        'cleavage_site': cleavage_site,
+        'h_region_seq': h_region_seq,
+        'h_region_score': round(h_kd, 4),
+        'n_score': n_score_raw,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GPI anchor prediction
+# ---------------------------------------------------------------------------
+
+def predict_gpi_anchor(seq: str) -> dict:
+    """Predict GPI anchor signal using the Eisenhaber et al. 1999 model.
+
+    Analyses only the last 50 residues.  A GPI anchor requires three elements:
+
+    * **ω (omega) site**: small neutral amino acid at C-terminal −8 to −11.
+    * **Spacer**: 5–10 aa of moderate hydrophilicity after ω.
+    * **Hydrophobic tail**: last 8–15 aa with mean KD > 1.6.
+
+    Parameters
+    ----------
+    seq:
+        Full protein sequence in single-letter uppercase code.
+
+    Returns
+    -------
+    dict
+        Keys: ``score``, ``verdict``, ``omega_position``, ``omega_aa``,
+        ``tail_start``, ``tail_seq``, ``tail_kd_mean``.
+
+    References
+    ----------
+    Eisenhaber, B., Bork, P. & Eisenhaber, F. (1999) J. Mol. Biol.
+    292(3):741-758.
+    """
+    n = len(seq)
+    tail_region = seq[max(0, n - 50):]
+    offset = max(0, n - 50)  # offset into original seq
+    tn = len(tail_region)
+
+    # ---- Hydrophobic tail: last 8–15 aa ----
+    tail_len = min(15, tn)
+    tail_start_local = tn - tail_len
+    tail_seq = tail_region[tail_start_local:]
+    tail_kd = _kd_mean(tail_seq)
+    tail_ok = tail_kd > 1.6
+
+    # ---- ω-site: small neutral at positions -8 to -11 from the C-terminus ----
+    # In tail_region coordinates: positions tn-11 to tn-8
+    omega_pos_local = -1
+    omega_aa = ''
+    for rel in range(tn - 11, tn - 7):  # -11, -10, -9, -8
+        if 0 <= rel < tn and tail_region[rel] in _OMEGA_AA:
+            omega_pos_local = rel
+            omega_aa = tail_region[rel]
+            break  # take the most N-terminal (most conservative)
+
+    omega_found = omega_pos_local >= 0
+
+    # ---- Spacer: residues between ω and the hydrophobic tail ----
+    if omega_found:
+        spacer_len = tail_start_local - omega_pos_local - 1
+    else:
+        spacer_len = 0
+    spacer_ok = 5 <= spacer_len <= 10
+
+    # ---- Composite score ----
+    score = (
+        0.30 * float(omega_found)
+        + 0.50 * float(tail_ok)
+        + 0.20 * float(spacer_ok)
+    )
+    score = round(min(max(score, 0.0), 1.0), 4)
+
+    verdict = (
+        "GPI anchor signal predicted"
+        if score >= 0.6
+        else "No GPI anchor predicted"
+    )
+
+    omega_position = (offset + omega_pos_local + 1) if omega_found else -1
+    tail_start_global = offset + tail_start_local + 1  # 1-based
+
+    return {
+        'score': score,
+        'verdict': verdict,
+        'omega_position': omega_position,
+        'omega_aa': omega_aa,
+        'tail_start': tail_start_global,
+        'tail_seq': tail_seq,
+        'tail_kd_mean': round(tail_kd, 4),
+    }
+
+
+# ---------------------------------------------------------------------------
+# HTML report
+# ---------------------------------------------------------------------------
+
+def format_signal_report(seq: str, style_tag: str) -> str:
+    """Generate HTML section for signal peptide and GPI anchor predictions.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    style_tag:
+        Accent colour hex string (e.g. ``"#4361ee"``).
+
+    Returns
+    -------
+    str
+        Self-contained HTML fragment (includes ``<style>`` block).
+    """
+    accent = style_tag if style_tag else "#4361ee"
+    css = _REPORT_CSS.replace("#4361ee", accent)
+    _s = f"<style>{css}</style>"
+
+    sp = predict_signal_peptide(seq)
+    gpi = predict_gpi_anchor(seq)
+
+    # ---- Signal peptide table ----
+    sp_verdict_colour = "#16a34a" if "predicted" in sp['verdict'].lower() and "no" not in sp['verdict'].lower() else "#dc2626"
+    gpi_verdict_colour = "#16a34a" if "predicted" in gpi['verdict'].lower() and "no" not in gpi['verdict'].lower() else "#dc2626"
+
+    # Cleavage site display: highlight cleavage position in sequence context
+    if sp['cleavage_site'] > 0 and sp['cleavage_site'] <= len(seq):
+        cs = sp['cleavage_site']
+        cs_context = (
+            seq[max(0, cs - 5):cs] + " | " + seq[cs:min(len(seq), cs + 5)]
+        )
+    else:
+        cs_context = "N/A"
+
+    sp_rows = (
+        f"<tr><td>Verdict</td>"
+        f"<td style='color:{sp_verdict_colour};font-weight:600'>{sp['verdict']}</td></tr>"
+        f"<tr><td>Score (0&ndash;1)</td><td>{sp['score']:.3f}</td></tr>"
+        f"<tr><td>n-region basic residues (K,R in pos 1&ndash;5)</td><td>{sp['n_score']}</td></tr>"
+        f"<tr><td>h-region position</td>"
+        f"<td>{sp['h_start']+1}&ndash;{sp['h_end']} ({sp['h_end']-sp['h_start']} aa)</td></tr>"
+        f"<tr><td>h-region sequence</td><td><code>{sp['h_region_seq']}</code></td></tr>"
+        f"<tr><td>h-region mean KD</td><td>{sp['h_region_score']:.3f}</td></tr>"
+        f"<tr><td>Predicted cleavage site (after pos)</td>"
+        f"<td>{sp['cleavage_site']} &nbsp;[{cs_context}]</td></tr>"
+    )
+
+    sp_html = (
+        "<h2>Signal Peptide Prediction (von Heijne 1986)</h2>"
+        "<table>"
+        "<tr><th>Parameter</th><th>Value</th></tr>"
+        f"{sp_rows}"
+        "</table>"
+        "<p class='note'>"
+        "Method: three-region (n, h, c) model. "
+        "von Heijne, G. (1986) Nucleic Acids Res. 14:4683. "
+        "Score &ge; 0.55 and h-region &ge; 7 aa required for positive prediction."
+        "</p>"
+    )
+
+    # ---- GPI anchor table ----
+    gpi_rows = (
+        f"<tr><td>Verdict</td>"
+        f"<td style='color:{gpi_verdict_colour};font-weight:600'>{gpi['verdict']}</td></tr>"
+        f"<tr><td>Score (0&ndash;1)</td><td>{gpi['score']:.3f}</td></tr>"
+        f"<tr><td>&omega;-site position</td>"
+        f"<td>{'Position ' + str(gpi['omega_position']) + ' (' + gpi['omega_aa'] + ')' if gpi['omega_position'] > 0 else 'Not found'}</td></tr>"
+        f"<tr><td>Hydrophobic tail start</td><td>{gpi['tail_start']}</td></tr>"
+        f"<tr><td>Hydrophobic tail sequence</td><td><code>{gpi['tail_seq']}</code></td></tr>"
+        f"<tr><td>Tail mean KD</td><td>{gpi['tail_kd_mean']:.3f}</td></tr>"
+    )
+
+    gpi_html = (
+        "<h2>GPI Anchor Prediction (Eisenhaber et al. 1999)</h2>"
+        "<table>"
+        "<tr><th>Parameter</th><th>Value</th></tr>"
+        f"{gpi_rows}"
+        "</table>"
+        "<p class='note'>"
+        "Method: Eisenhaber, B., Bork, P. &amp; Eisenhaber, F. (1999) "
+        "J. Mol. Biol. 292:741. "
+        "Requires &omega;-site small neutral, 5&ndash;10 aa spacer, and "
+        "hydrophobic C-terminal tail (KD &gt; 1.6)."
+        "</p>"
+    )
+
+    return _s + sp_html + gpi_html
+
+
+# --- beer.analysis.amphipathic ---
+
+# ---------------------------------------------------------------------------
+# Published hydrophobicity scale
+# ---------------------------------------------------------------------------
+
+EISENBERG_SCALE: dict[str, float] = {
+    'A':  0.620, 'R': -2.530, 'N': -0.780, 'D': -0.900,
+    'C':  0.290, 'Q': -0.850, 'E': -0.740, 'G':  0.480,
+    'H': -0.400, 'I':  1.380, 'L':  1.060, 'K': -1.500,
+    'M':  0.640, 'F':  1.190, 'P':  0.120, 'S': -0.180,
+    'T': -0.050, 'W':  0.810, 'Y':  0.260, 'V':  1.080,
+}
+"""Eisenberg normalised consensus hydrophobicity scale (Eisenberg et al. 1984 PNAS)."""
+
+
+
+# ---------------------------------------------------------------------------
+# Core computation
+# ---------------------------------------------------------------------------
+
+def _hydrophobic_moment_window(
+    sub: str,
+    angle_deg: float = 100.0,
+) -> float:
+    """Compute μH for a single window sub-sequence.
+
+    μH = sqrt( [Σ Hi·sin(i·δ)]² + [Σ Hi·cos(i·δ)]² ) / n
+
+    where δ is the inter-residue angle (100° for α-helix, 160° for β-strand),
+    i is 0-indexed position within the window, and n = len(sub).
+
+    Parameters
+    ----------
+    sub:
+        Window sub-sequence.
+    angle_deg:
+        Angular increment per residue in degrees.
+
+    Returns
+    -------
+    float
+        Normalised hydrophobic moment (divided by window length).
+    """
+    n = len(sub)
+    if n == 0:
+        return 0.0
+    delta = math.radians(angle_deg)
+    sin_sum = 0.0
+    cos_sum = 0.0
+    for i, aa in enumerate(sub):
+        h = EISENBERG_SCALE.get(aa, 0.0)
+        angle = i * delta
+        sin_sum += h * math.sin(angle)
+        cos_sum += h * math.cos(angle)
+    return math.sqrt(sin_sum ** 2 + cos_sum ** 2) / n
+
+
+def calc_hydrophobic_moment(
+    seq: str,
+    window: int = 11,
+    angle_deg: float = 100.0,
+) -> list[float]:
+    """Compute the Eisenberg hydrophobic moment profile across a sequence.
+
+    For each residue position, the moment is computed for the window centred
+    at that position.  Edge positions use smaller windows (minimum 5 residues).
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    window:
+        Number of residues in each window (default 11).
+    angle_deg:
+        Angular increment per residue in degrees.
+        Use 100.0 for α-helix; 160.0 for β-strand.
+
+    Returns
+    -------
+    list[float]
+        Per-residue μH values; length == ``len(seq)``.
+
+    References
+    ----------
+    Eisenberg, D., Weiss, R.M. & Terwilliger, T.C. (1984)
+    Proc. Natl. Acad. Sci. USA 81:140-144.
+    """
+    n = len(seq)
+    if n == 0:
+        return []
+
+    half = window // 2
+    profile: list[float] = []
+
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        # Ensure minimum window of 5 residues at edges
+        if hi - lo < 5:
+            if i < half:
+                hi = min(n, lo + 5)
+            else:
+                lo = max(0, hi - 5)
+        sub = seq[lo:hi]
+        profile.append(_hydrophobic_moment_window(sub, angle_deg))
+
+    return profile
+
+
+def calc_hydrophobic_moment_profile(
+    seq: str,
+    angle_deg: float = 100.0,
+    window: int = 11,
+) -> list[float]:
+    """Alias for :func:`calc_hydrophobic_moment` with argument order matching
+    the public API signature (angle_deg before window).
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    angle_deg:
+        Angular increment per residue (default 100.0 for α-helix).
+    window:
+        Sliding window length.
+
+    Returns
+    -------
+    list[float]
+        Full per-residue μH profile.
+    """
+    return calc_hydrophobic_moment(seq, window=window, angle_deg=angle_deg)
+
+
+def predict_amphipathic_helices(
+    seq: str,
+    window: int = 11,
+    moment_threshold: float = 0.35,
+    min_length: int = 7,
+) -> list[dict]:
+    """Identify amphipathic helices using the Eisenberg hydrophobic moment.
+
+    A candidate helix is a contiguous run of residues where:
+
+    1. The sliding-window μH (α-helix, δ = 100°) ≥ *moment_threshold*.
+    2. The mean Eisenberg hydrophobicity of the same window is between
+       −0.5 and 1.5 (not purely hydrophobic, not purely hydrophilic).
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    window:
+        Window size for hydrophobic moment calculation.
+    moment_threshold:
+        Minimum mean μH to flag a region as amphipathic (default 0.35).
+    min_length:
+        Minimum contiguous run length (default 7 aa).
+
+    Returns
+    -------
+    list[dict]
+        Each dict contains:
+
+        ``start``
+            0-based start position.
+        ``end``
+            0-based exclusive end position.
+        ``seq``
+            Sub-sequence.
+        ``mean_moment``
+            Mean μH over the region.
+        ``mean_hydrophobicity``
+            Mean Eisenberg hydrophobicity over the region.
+        ``type``
+            ``"membrane-binding"`` if mean hydrophobicity > 0.2,
+            else ``"amphipathic"``.
+
+    References
+    ----------
+    Eisenberg, D., Weiss, R.M. & Terwilliger, T.C. (1984)
+    Proc. Natl. Acad. Sci. USA 81:140-144.
+    """
+    moment_profile = calc_hydrophobic_moment(seq, window=window, angle_deg=100.0)
+    hydro_vals = [EISENBERG_SCALE.get(aa, 0.0) for aa in seq]
+    n = len(seq)
+    helices: list[dict] = []
+    i = 0
+
+    while i < n:
+        mu = moment_profile[i]
+        h = hydro_vals[i]
+        if mu >= moment_threshold and -0.5 <= h <= 1.5:
+            j = i
+            while j < n:
+                mu_j = moment_profile[j]
+                h_j = hydro_vals[j]
+                if mu_j >= moment_threshold and -0.5 <= h_j <= 1.5:
+                    j += 1
+                else:
+                    break
+            length = j - i
+            if length >= min_length:
+                sub = seq[i:j]
+                mean_mu = sum(moment_profile[i:j]) / length
+                mean_h = sum(hydro_vals[i:j]) / length
+                helix_type = "membrane-binding" if mean_h > 0.2 else "amphipathic"
+                helices.append({
+                    'start': i,
+                    'end': j,
+                    'seq': sub,
+                    'mean_moment': round(mean_mu, 4),
+                    'mean_hydrophobicity': round(mean_h, 4),
+                    'type': helix_type,
+                })
+            i = j
+        else:
+            i += 1
+
+    return helices
+
+
+# ---------------------------------------------------------------------------
+# HTML report
+# ---------------------------------------------------------------------------
+
+def format_amphipathic_report(seq: str, style_tag: str) -> str:
+    """Generate HTML section for amphipathic helix analysis.
+
+    Reports mean μH for α-helix (δ = 100°) and β-strand (δ = 160°) angles,
+    a summary statistics table, and a table of predicted amphipathic helices.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    style_tag:
+        Accent colour hex string (e.g. ``"#4361ee"``).
+
+    Returns
+    -------
+    str
+        Self-contained HTML fragment (includes ``<style>`` block).
+    """
+    accent = style_tag if style_tag else "#4361ee"
+    css = _REPORT_CSS.replace("#4361ee", accent)
+    _s = f"<style>{css}</style>"
+
+    n = len(seq)
+    if n == 0:
+        return _s + "<h2>Amphipathic Helix Analysis</h2><p>Empty sequence.</p>"
+
+    mu_helix = calc_hydrophobic_moment(seq, window=11, angle_deg=100.0)
+    mu_strand = calc_hydrophobic_moment(seq, window=11, angle_deg=160.0)
+    mean_mu_helix = sum(mu_helix) / n
+    mean_mu_strand = sum(mu_strand) / n
+    max_mu_helix = max(mu_helix)
+    max_mu_strand = max(mu_strand)
+
+    mean_h = sum(EISENBERG_SCALE.get(aa, 0.0) for aa in seq) / n
+
+    helices = predict_amphipathic_helices(seq)
+    n_helices = len(helices)
+
+    # Amphipathicity class
+    if mean_mu_helix >= 0.35:
+        amph_class = "high (strong amphipathic character)"
+    elif mean_mu_helix >= 0.20:
+        amph_class = "moderate"
+    else:
+        amph_class = "low"
+
+    summary_rows = (
+        f"<tr><td>Mean &mu;H (&#945;-helix, &delta;=100&deg;)</td>"
+        f"<td>{mean_mu_helix:.4f} &mdash; {amph_class}</td></tr>"
+        f"<tr><td>Max &mu;H (&#945;-helix)</td><td>{max_mu_helix:.4f}</td></tr>"
+        f"<tr><td>Mean &mu;H (&beta;-strand, &delta;=160&deg;)</td>"
+        f"<td>{mean_mu_strand:.4f}</td></tr>"
+        f"<tr><td>Max &mu;H (&beta;-strand)</td><td>{max_mu_strand:.4f}</td></tr>"
+        f"<tr><td>Mean Eisenberg hydrophobicity</td><td>{mean_h:.4f}</td></tr>"
+        f"<tr><td>Predicted amphipathic regions</td><td>{n_helices}</td></tr>"
+    )
+
+    summary_html = (
+        "<h2>Amphipathic Helix Analysis (Eisenberg 1984)</h2>"
+        "<table>"
+        "<tr><th>Property</th><th>Value</th></tr>"
+        f"{summary_rows}"
+        "</table>"
+        "<p class='note'>"
+        "Hydrophobic moment: Eisenberg, Weiss &amp; Terwilliger (1984) "
+        "Proc. Natl. Acad. Sci. USA 81:140. "
+        "Window = 11 aa; &mu;H threshold = 0.35; min region = 7 aa."
+        "</p>"
+    )
+
+    if helices:
+        helix_header = (
+            "<tr><th>Start</th><th>End</th><th>Sequence</th>"
+            "<th>Mean &mu;H</th><th>Mean H</th><th>Type</th></tr>"
+        )
+        helix_rows = "".join(
+            f"<tr>"
+            f"<td>{h['start'] + 1}</td>"
+            f"<td>{h['end']}</td>"
+            f"<td><code>{h['seq']}</code></td>"
+            f"<td>{h['mean_moment']:.4f}</td>"
+            f"<td>{h['mean_hydrophobicity']:.4f}</td>"
+            f"<td>{h['type']}</td>"
+            f"</tr>"
+            for h in helices
+        )
+        helix_html = (
+            "<h2>Predicted Amphipathic Regions</h2>"
+            "<table>"
+            f"{helix_header}{helix_rows}"
+            "</table>"
+        )
+    else:
+        helix_html = (
+            "<h2>Predicted Amphipathic Regions</h2>"
+            "<p>No amphipathic regions detected "
+            "(&mu;H &ge; 0.35, hydrophobicity &minus;0.5 to 1.5, &ge; 7 aa).</p>"
+        )
+
+    return _s + summary_html + helix_html
+
+
+# --- beer.analysis.scd ---
+
+
+
+# ---------------------------------------------------------------------------
+# Charge assignment
+# ---------------------------------------------------------------------------
+
+def _charge_vector(seq: str) -> list[int]:
+    """Assign +1 (K, R), -1 (D, E), 0 (all others) to each position."""
+    result: list[int] = []
+    for aa in seq:
+        if aa in 'KR':
+            result.append(1)
+        elif aa in 'DE':
+            result.append(-1)
+        else:
+            result.append(0)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# SCD
+# ---------------------------------------------------------------------------
+
+def calc_scd(seq: str) -> float:
+    """Compute Sequence Charge Decoration (SCD).
+
+    SCD = (1/N) · Σ_{i<j} σ_i · σ_j · |i−j|^0.5
+
+    where σ_i = +1 for K/R, σ_i = −1 for D/E, σ_i = 0 otherwise, and N is
+    the sequence length.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+
+    Returns
+    -------
+    float
+        SCD value.  Positive: same-sign charge clustering; negative: mixed
+        polyampholyte-like patterning (Sawle & Ghosh 2015).
+
+    References
+    ----------
+    Sawle, L. & Ghosh, K. (2015) J. Chem. Phys. 143:085101.
+    """
+    n = len(seq)
+    if n < 2:
+        return 0.0
+    sigma = _charge_vector(seq)
+    total = 0.0
+    for i in range(n):
+        si = sigma[i]
+        if si == 0:
+            continue
+        for j in range(i + 1, n):
+            sj = sigma[j]
+            if sj == 0:
+                continue
+            total += si * sj * math.sqrt(j - i)
+    return total / n
+
+
+def calc_scd_profile(seq: str, window: int = 20) -> list[float]:
+    """Sliding-window SCD profile.
+
+    Computes SCD for each successive window of length *window* along the
+    sequence.  Returns one value per window start position.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    window:
+        Window length (default 20).
+
+    Returns
+    -------
+    list[float]
+        SCD values; length = max(0, len(seq) - window + 1).
+    """
+    n = len(seq)
+    if n < window:
+        return [calc_scd(seq)] if n > 0 else []
+    return [calc_scd(seq[i:i + window]) for i in range(n - window + 1)]
+
+
+# ---------------------------------------------------------------------------
+# Charge segregation score
+# ---------------------------------------------------------------------------
+
+def calc_charge_segregation_score(seq: str) -> float:
+    """Compute charge segregation score within a ±5 residue neighbourhood.
+
+    Score = (n_same_sign_pairs − n_opposite_sign_pairs) / total_charged_pairs
+
+    where pairs are all (i, j) with |i−j| ≤ 5 where both σ_i ≠ 0 and σ_j ≠ 0.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+
+    Returns
+    -------
+    float
+        Score in [−1, +1].  +1 = fully charge-segregated (polyelectrolyte);
+        −1 = perfectly mixed (polyampholyte).  Returns 0.0 for sequences with
+        < 2 charged residues.
+
+    References
+    ----------
+    Das, R.K. & Pappu, R.V. (2013) Proc. Natl. Acad. Sci. USA 110:13392.
+    """
+    sigma = _charge_vector(seq)
+    n = len(sigma)
+    n_same = 0
+    n_opp = 0
+    for i in range(n):
+        if sigma[i] == 0:
+            continue
+        for j in range(i + 1, min(i + 6, n)):
+            if sigma[j] == 0:
+                continue
+            if sigma[i] * sigma[j] > 0:
+                n_same += 1
+            else:
+                n_opp += 1
+    total = n_same + n_opp
+    if total == 0:
+        return 0.0
+    return (n_same - n_opp) / total
+
+
+# ---------------------------------------------------------------------------
+# Block length statistics
+# ---------------------------------------------------------------------------
+
+def calc_mean_block_length(seq: str, residue_set: set) -> float:
+    """Mean length of contiguous blocks of residues in *residue_set*.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    residue_set:
+        Set of single-letter amino acid codes defining the block type.
+
+    Returns
+    -------
+    float
+        Mean block length.  Returns 0.0 if no residues of the given type exist.
+    """
+    blocks: list[int] = []
+    current = 0
+    for aa in seq:
+        if aa in residue_set:
+            current += 1
+        else:
+            if current > 0:
+                blocks.append(current)
+                current = 0
+    if current > 0:
+        blocks.append(current)
+    return sum(blocks) / len(blocks) if blocks else 0.0
+
+
+def calc_pos_neg_block_lengths(seq: str) -> dict:
+    """Compute block length statistics for positive (K, R) and negative (D, E) residues.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+
+    Returns
+    -------
+    dict
+        ``mean_pos_block``
+            Mean length of contiguous K/R runs.
+        ``mean_neg_block``
+            Mean length of contiguous D/E runs.
+        ``max_pos_block``
+            Longest K/R run.
+        ``max_neg_block``
+            Longest D/E run.
+    """
+    def _block_lengths(s: str, rs: set) -> list[int]:
+        blocks: list[int] = []
+        cur = 0
+        for aa in s:
+            if aa in rs:
+                cur += 1
+            else:
+                if cur > 0:
+                    blocks.append(cur)
+                    cur = 0
+        if cur > 0:
+            blocks.append(cur)
+        return blocks
+
+    pos_blocks = _block_lengths(seq, {'K', 'R'})
+    neg_blocks = _block_lengths(seq, {'D', 'E'})
+
+    return {
+        'mean_pos_block': round(sum(pos_blocks) / len(pos_blocks), 3) if pos_blocks else 0.0,
+        'mean_neg_block': round(sum(neg_blocks) / len(neg_blocks), 3) if neg_blocks else 0.0,
+        'max_pos_block': max(pos_blocks) if pos_blocks else 0,
+        'max_neg_block': max(neg_blocks) if neg_blocks else 0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# HTML report
+# ---------------------------------------------------------------------------
+
+def _scd_interpretation(scd: float) -> str:
+    """Return a human-readable interpretation of the SCD value."""
+    if scd < -1.0:
+        return "well-mixed polyampholyte"
+    elif scd < 0.0:
+        return "mixed"
+    elif scd < 1.0:
+        return "mildly segregated"
+    else:
+        return "strongly charge-segregated"
+
+
+def format_scd_report(seq: str, style_tag: str) -> str:
+    """Generate HTML section for SCD and charge-patterning analysis.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    style_tag:
+        Accent colour hex string (e.g. ``"#4361ee"``).
+
+    Returns
+    -------
+    str
+        Self-contained HTML fragment (includes ``<style>`` block).
+    """
+    accent = style_tag if style_tag else "#4361ee"
+    css = _REPORT_CSS.replace("#4361ee", accent)
+    _s = f"<style>{css}</style>"
+
+    n = len(seq)
+    if n == 0:
+        return _s + "<h2>Charge Patterning (SCD)</h2><p>Empty sequence.</p>"
+
+    scd = calc_scd(seq)
+    interp = _scd_interpretation(scd)
+    seg_score = calc_charge_segregation_score(seq)
+    blocks = calc_pos_neg_block_lengths(seq)
+
+    sigma = _charge_vector(seq)
+    n_pos = sum(1 for s in sigma if s > 0)
+    n_neg = sum(1 for s in sigma if s < 0)
+    fcr = (n_pos + n_neg) / n if n > 0 else 0.0
+    ncpr = (n_pos - n_neg) / n if n > 0 else 0.0
+
+    seg_interp = (
+        "strongly segregated (+)" if seg_score > 0.5 else
+        "moderately segregated" if seg_score > 0.2 else
+        "well mixed" if seg_score > -0.2 else
+        "alternating / polyampholyte-like"
+    )
+
+    rows = (
+        f"<tr><td>Sequence Charge Decoration (SCD)</td>"
+        f"<td>{scd:.4f} &mdash; {interp}</td></tr>"
+        f"<tr><td>Charge Segregation Score (&#177;5 aa)</td>"
+        f"<td>{seg_score:.4f} &mdash; {seg_interp}</td></tr>"
+        f"<tr><td>Positive residues (K, R)</td><td>{n_pos} ({n_pos/n*100:.1f}%)</td></tr>"
+        f"<tr><td>Negative residues (D, E)</td><td>{n_neg} ({n_neg/n*100:.1f}%)</td></tr>"
+        f"<tr><td>FCR (fraction charged)</td><td>{fcr:.3f}</td></tr>"
+        f"<tr><td>NCPR (net charge per residue)</td><td>{ncpr:+.3f}</td></tr>"
+        f"<tr><td>Mean positive block length (K, R)</td>"
+        f"<td>{blocks['mean_pos_block']:.2f}</td></tr>"
+        f"<tr><td>Mean negative block length (D, E)</td>"
+        f"<td>{blocks['mean_neg_block']:.2f}</td></tr>"
+        f"<tr><td>Max positive block (K, R)</td><td>{blocks['max_pos_block']}</td></tr>"
+        f"<tr><td>Max negative block (D, E)</td><td>{blocks['max_neg_block']}</td></tr>"
+    )
+
+    html = (
+        "<h2>Sequence Charge Decoration (SCD)</h2>"
+        "<table>"
+        "<tr><th>Property</th><th>Value</th></tr>"
+        f"{rows}"
+        "</table>"
+        "<p class='note'>"
+        "SCD: Sawle &amp; Ghosh (2015) J. Chem. Phys. 143:085101. "
+        "Interpretation: SCD &lt; &minus;1 = well-mixed polyampholyte; "
+        "&minus;1 to 0 = mixed; 0 to 1 = mildly segregated; "
+        "&gt; 1 = strongly charge-segregated."
+        "</p>"
+    )
+
+    return _s + html
+
+
+# --- beer.analysis.rnabinding ---
+
+
+
+# ---------------------------------------------------------------------------
+# Published scales and motifs
+# ---------------------------------------------------------------------------
+
+RBP_RESIDUE_PROPENSITY: dict[str, float] = {
+    'K':  0.72, 'R':  0.80, 'Y':  0.44, 'F':  0.36,
+    'W':  0.51, 'G':  0.25, 'S':  0.10, 'T':  0.08,
+    'N':  0.06, 'H':  0.35, 'D': -0.15, 'E': -0.42,
+    'L': -0.20, 'I': -0.18, 'V': -0.12, 'A': -0.05,
+    'M':  0.12, 'C':  0.15, 'P': -0.25, 'Q': -0.08,
+}
+"""Per-residue RNA-binding propensity scores (Jeong et al. 2012, scaled to [−1, 1])."""
+
+# Build KH domain GXXG pattern once
+_KH_GXXG = r"[LIVMF].{2}G.{2}G"
+
+RNA_BINDING_MOTIFS: list[tuple[str, str, str]] = [
+    ("RGG box",          r"RGG",
+     "Arginine-glycine-glycine RNA-binding motif"),
+    ("RG repeat",        r"(RG){2,}",
+     "Poly-RG RNA-binding domain"),
+    ("KH domain core",   _KH_GXXG,
+     "KH domain GXXG loop (simplified)"),
+    ("SR repeat",        r"(SR|RS){2,}",
+     "Serine-arginine splicing factor"),
+    ("YGG/GGY",          r"YGG|GGY",
+     "Y-G-G RNA-binding motif"),
+    ("RRM RNP1",         r"[KR][^P]{2}[FY][^P]{2,3}[KR]",
+     "RRM RNP1 consensus: K/R..F/Y..K/R"),
+    ("Zinc finger (CCHH)", r"C.{2,4}C.{3}[LIVMFYW]{2}.{8}H.{3,5}H",
+     "Classic C2H2 zinc finger"),
+    ("DEAD-box motif",   r"DEAD|DEAH|DEXH",
+     "DEAD/DEAH-box helicase motif"),
+]
+"""List of (name, regex_pattern, description) tuples for RNA-binding motif scanning."""
+
+# ---------------------------------------------------------------------------
+# Core computation
+# ---------------------------------------------------------------------------
+
+def _scan_motifs(seq: str) -> list[dict]:
+    """Scan for all RNA-binding motifs in *seq*.
+
+    Returns
+    -------
+    list[dict]
+        Each dict: ``{name, start (0-based), end, match}``.
+    """
+    hits: list[dict] = []
+    for name, pattern, _desc in RNA_BINDING_MOTIFS:
+        for m in re.finditer(pattern, seq):
+            hits.append({
+                'name': name,
+                'start': m.start(),
+                'end': m.end(),
+                'match': m.group(),
+            })
+    hits.sort(key=lambda d: d['start'])
+    return hits
+
+
+def calc_rbp_score(seq: str) -> dict:
+    """Compute overall RNA-binding propensity score for a sequence.
+
+    Score formula::
+
+        score = 0.6 * min(mean_propensity + 0.3, 1.0)
+               + 0.4 * min(fraction_rbp_residues / 0.25, 1.0)
+
+    Clamped to [0, 1].
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+
+    Returns
+    -------
+    dict
+        ``score``
+            Overall RNA-binding score in [0, 1].
+        ``mean_propensity``
+            Mean per-residue RBP_RESIDUE_PROPENSITY across all residues.
+        ``fraction_rbp_residues``
+            Fraction of residues that are K, R, Y, F, or W.
+        ``motifs_found``
+            List of dicts ``{name, start, end, match}`` from motif scanning.
+        ``verdict``
+            ``"High RNA-binding propensity"`` if score > 0.6,
+            ``"Moderate RNA-binding propensity"`` if 0.35–0.6,
+            ``"Low RNA-binding propensity"`` if < 0.35.
+
+    References
+    ----------
+    Jeong, E. et al. (2012) Nucleic Acids Res.
+    """
+    n = len(seq)
+    if n == 0:
+        return {
+            'score': 0.0, 'mean_propensity': 0.0,
+            'fraction_rbp_residues': 0.0, 'motifs_found': [],
+            'verdict': 'Low RNA-binding propensity',
+        }
+
+    props = [RBP_RESIDUE_PROPENSITY.get(aa, 0.0) for aa in seq]
+    mean_prop = sum(props) / n
+
+    rbp_residues = sum(1 for aa in seq if aa in 'KRYWF')
+    frac_rbp = rbp_residues / n
+
+    motifs = _scan_motifs(seq)
+
+    score = (
+        0.6 * min(mean_prop + 0.3, 1.0)
+        + 0.4 * min(frac_rbp / 0.25, 1.0)
+    )
+    score = round(min(max(score, 0.0), 1.0), 4)
+
+    if score > 0.6:
+        verdict = "High RNA-binding propensity"
+    elif score >= 0.35:
+        verdict = "Moderate RNA-binding propensity"
+    else:
+        verdict = "Low RNA-binding propensity"
+
+    return {
+        'score': score,
+        'mean_propensity': round(mean_prop, 4),
+        'fraction_rbp_residues': round(frac_rbp, 4),
+        'motifs_found': motifs,
+        'verdict': verdict,
+    }
+
+
+def calc_rbp_profile(seq: str, window: int = 11) -> list[float]:
+    """Sliding-window mean RNA-binding propensity profile.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    window:
+        Window size (default 11).
+
+    Returns
+    -------
+    list[float]
+        Mean RBP propensity per window; length = max(0, len(seq) - window + 1).
+    """
+    n = len(seq)
+    if n == 0:
+        return []
+    props = [RBP_RESIDUE_PROPENSITY.get(aa, 0.0) for aa in seq]
+    w = min(window, n)
+    result: list[float] = []
+    for i in range(n - w + 1):
+        result.append(sum(props[i:i + w]) / w)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# HTML report
+# ---------------------------------------------------------------------------
+
+def format_rbp_report(seq: str, style_tag: str) -> str:
+    """Generate HTML section for RNA-binding propensity analysis.
+
+    Produces a summary statistics table and a table of found RNA-binding motifs.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    style_tag:
+        Accent colour hex string (e.g. ``"#4361ee"``).
+
+    Returns
+    -------
+    str
+        Self-contained HTML fragment (includes ``<style>`` block).
+    """
+    accent = style_tag if style_tag else "#4361ee"
+    css = _REPORT_CSS.replace("#4361ee", accent)
+    _s = f"<style>{css}</style>"
+
+    result = calc_rbp_score(seq)
+    score = result['score']
+    motifs = result['motifs_found']
+    n = len(seq)
+
+    # Verdict colour
+    if score > 0.6:
+        vcolour = "#16a34a"
+    elif score >= 0.35:
+        vcolour = "#ca8a04"
+    else:
+        vcolour = "#dc2626"
+
+    kr_n = sum(1 for aa in seq if aa in 'KR')
+    y_n = sum(1 for aa in seq if aa == 'Y')
+    f_n = sum(1 for aa in seq if aa == 'F')
+    w_n = sum(1 for aa in seq if aa == 'W')
+
+    summary_rows = (
+        f"<tr><td>Verdict</td>"
+        f"<td style='color:{vcolour};font-weight:600'>{result['verdict']}</td></tr>"
+        f"<tr><td>Overall RBP score (0&ndash;1)</td><td>{score:.3f}</td></tr>"
+        f"<tr><td>Mean per-residue propensity</td>"
+        f"<td>{result['mean_propensity']:.4f}</td></tr>"
+        f"<tr><td>Fraction K+R+Y+F+W residues</td>"
+        f"<td>{result['fraction_rbp_residues']:.3f} "
+        f"({result['fraction_rbp_residues']*100:.1f}%)</td></tr>"
+        f"<tr><td>K+R (basic, RNA-backbone contacts)</td>"
+        f"<td>{kr_n} ({kr_n/n*100:.1f}%)</td></tr>"
+        f"<tr><td>Y residues (stacking contacts)</td>"
+        f"<td>{y_n} ({y_n/n*100:.1f}%)</td></tr>"
+        f"<tr><td>F residues</td>"
+        f"<td>{f_n} ({f_n/n*100:.1f}%)</td></tr>"
+        f"<tr><td>W residues</td>"
+        f"<td>{w_n} ({w_n/n*100:.1f}%)</td></tr>"
+        f"<tr><td>RNA-binding motifs found</td><td>{len(motifs)}</td></tr>"
+    )
+
+    summary_html = (
+        "<h2>RNA-Binding Propensity</h2>"
+        "<table>"
+        "<tr><th>Property</th><th>Value</th></tr>"
+        f"{summary_rows}"
+        "</table>"
+        "<p class='note'>"
+        "Propensity scores: Jeong et al. (2012) Nucleic Acids Res. "
+        "Score = 0.6 &times; min(mean_prop + 0.3, 1) "
+        "+ 0.4 &times; min(f_KRYWF / 0.25, 1), clamped to [0,1]."
+        "</p>"
+    )
+
+    if motifs:
+        motif_header = (
+            "<tr><th>Motif</th><th>Start</th><th>End</th>"
+            "<th>Matched Sequence</th></tr>"
+        )
+        motif_rows = "".join(
+            f"<tr>"
+            f"<td>{m['name']}</td>"
+            f"<td>{m['start'] + 1}</td>"
+            f"<td>{m['end']}</td>"
+            f"<td><code>{m['match']}</code></td>"
+            f"</tr>"
+            for m in motifs
+        )
+        # Add descriptions from RNA_BINDING_MOTIFS lookup
+        desc_lookup = {name: desc for name, _, desc in RNA_BINDING_MOTIFS}
+        motif_rows_with_desc = "".join(
+            f"<tr>"
+            f"<td>{m['name']}</td>"
+            f"<td>{m['start'] + 1}</td>"
+            f"<td>{m['end']}</td>"
+            f"<td><code>{m['match']}</code></td>"
+            f"<td>{desc_lookup.get(m['name'], '')}</td>"
+            f"</tr>"
+            for m in motifs
+        )
+        motif_html = (
+            "<h2>RNA-Binding Motifs Detected</h2>"
+            "<table>"
+            "<tr><th>Motif</th><th>Start</th><th>End</th>"
+            "<th>Sequence</th><th>Description</th></tr>"
+            f"{motif_rows_with_desc}"
+            "</table>"
+        )
+    else:
+        motif_html = (
+            "<h2>RNA-Binding Motifs Detected</h2>"
+            "<p>No consensus RNA-binding motifs found in this sequence.</p>"
+        )
+
+    note = (
+        "<p class='note'>"
+        "Motifs: RGG (Thandapani et al. 2013 Mol Cell 50:613); "
+        "KH GXXG (Valverde et al. 2008 FEBS J 275:2712); "
+        "SR repeats (Graveley &amp; Maniatis 1998 Mol Cell 1:765); "
+        "RRM RNP1 (Maris et al. 2005 FEBS J 272:2118)."
+        "</p>"
+    )
+
+    return _s + summary_html + motif_html + note
+
+
+# --- beer.analysis.tandem_repeats ---
+
+
+
+# ---------------------------------------------------------------------------
+# Tandem repeat detection
+# ---------------------------------------------------------------------------
+
+def find_tandem_repeats(
+    seq: str,
+    min_unit: int = 2,
+    max_unit: int = 8,
+    min_copies: int = 2,
+) -> list[dict]:
+    """Find exact tandem repeats by k-mer extension.
+
+    For every starting position and every unit length in [*min_unit*, *max_unit*],
+    the repeat unit ``seq[i:i+k]`` is extended greedily as long as the next
+    k-mer matches exactly.  Overlapping candidates are resolved by keeping the
+    longest repeat (by total covered length).
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    min_unit:
+        Minimum repeat unit length (default 2).
+    max_unit:
+        Maximum repeat unit length (default 8).
+    min_copies:
+        Minimum number of consecutive copies (default 2).
+
+    Returns
+    -------
+    list[dict]
+        Each dict:
+
+        ``start_1based``
+            1-based start position of the repeat.
+        ``end_1based``
+            1-based end position (inclusive).
+        ``unit``
+            Repeat unit sequence.
+        ``unit_length``
+            Length of the repeat unit.
+        ``n_copies``
+            Number of exact consecutive copies.
+        ``total_length``
+            Total length covered (unit_length * n_copies).
+
+    Sorted by *total_length* descending.  Overlapping repeats (same positions)
+    are deduplicated; only the longest non-overlapping set is returned.
+    """
+    n = len(seq)
+    candidates: list[dict] = []
+
+    for k in range(min_unit, max_unit + 1):
+        i = 0
+        while i <= n - k * min_copies:
+            unit = seq[i:i + k]
+            copies = 1
+            j = i + k
+            while j + k <= n and seq[j:j + k] == unit:
+                copies += 1
+                j += k
+            if copies >= min_copies:
+                candidates.append({
+                    'start_1based': i + 1,
+                    'end_1based': i + k * copies,
+                    'unit': unit,
+                    'unit_length': k,
+                    'n_copies': copies,
+                    'total_length': k * copies,
+                })
+                # advance past this repeat to avoid partial overlaps at same k
+                i += k * copies
+            else:
+                i += 1
+
+    # Sort by total length descending
+    candidates.sort(key=lambda d: d['total_length'], reverse=True)
+
+    # Deduplicate: remove intervals that are fully contained in already-kept repeats
+    kept: list[dict] = []
+    used_positions: set[int] = set()
+    for cand in candidates:
+        s0 = cand['start_1based'] - 1  # 0-based
+        e0 = cand['end_1based']        # 0-based exclusive
+        pos_set = set(range(s0, e0))
+        # keep if it doesn't overlap >50% with already-kept intervals
+        if not pos_set.intersection(used_positions):
+            kept.append(cand)
+            used_positions.update(pos_set)
+
+    kept.sort(key=lambda d: d['total_length'], reverse=True)
+    return kept
+
+
+# ---------------------------------------------------------------------------
+# Direct repeat detection
+# ---------------------------------------------------------------------------
+
+def find_direct_repeats(
+    seq: str,
+    min_length: int = 4,
+    max_gap: int = 30,
+) -> list[dict]:
+    """Find pairs of identical subsequences separated by ≤ *max_gap* residues.
+
+    Uses an O(n²) approach: for each position *i*, look ahead to positions
+    *j* within ``[i + min_length, i + min_length + max_gap]`` and check
+    whether ``seq[i:i+L]`` == ``seq[j:j+L]`` for increasing L.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    min_length:
+        Minimum repeat length to report (default 4).
+    max_gap:
+        Maximum gap (in residues) between the two copies (default 30).
+
+    Returns
+    -------
+    list[dict]
+        Each dict:
+
+        ``seq1_start_1based``
+            1-based start of the first copy.
+        ``seq2_start_1based``
+            1-based start of the second copy.
+        ``repeat_seq``
+            Shared repeat sequence.
+        ``length``
+            Length of the shared sequence.
+        ``gap``
+            Number of residues between the two copies.
+    """
+    n = len(seq)
+    results: list[dict] = []
+
+    for i in range(n - min_length):
+        for j in range(i + min_length, min(i + min_length + max_gap + 1, n - min_length + 1)):
+            gap = j - i - min_length  # gap after end of first copy
+            # Actually gap = j - (i + L); we'll compute for the actual matched length
+            # Extend match
+            L = 0
+            max_L = min(n - i, n - j)
+            while L < max_L and seq[i + L] == seq[j + L]:
+                L += 1
+            if L >= min_length:
+                actual_gap = j - (i + L)
+                if actual_gap < 0:
+                    # copies overlap — skip
+                    continue
+                if actual_gap > max_gap:
+                    continue
+                results.append({
+                    'seq1_start_1based': i + 1,
+                    'seq2_start_1based': j + 1,
+                    'repeat_seq': seq[i:i + L],
+                    'length': L,
+                    'gap': actual_gap,
+                })
+
+    # Remove duplicates (same seq2_start, same repeat)
+    seen: set[tuple] = set()
+    unique: list[dict] = []
+    for r in results:
+        key = (r['seq1_start_1based'], r['seq2_start_1based'], r['repeat_seq'])
+        if key not in seen:
+            seen.add(key)
+            unique.append(r)
+
+    unique.sort(key=lambda d: d['length'], reverse=True)
+    return unique
+
+
+# ---------------------------------------------------------------------------
+# Compositional (low-complexity) repeat detection
+# ---------------------------------------------------------------------------
+
+def find_compositional_repeats(
+    seq: str,
+    window: int = 10,
+    step: int = 5,
+    n_top: int = 3,
+) -> list[dict]:
+    """Find windows with unusually low compositional diversity.
+
+    A window is flagged as low-complexity (LC) if the fraction contributed by
+    the top-*n_top* most frequent amino acids exceeds 0.70.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    window:
+        Window length (default 10).
+    step:
+        Step size between window starts (default 5).
+    n_top:
+        Number of most-frequent amino acids to consider (default 3).
+
+    Returns
+    -------
+    list[dict]
+        Each dict:
+
+        ``start``
+            0-based start of window.
+        ``end``
+            0-based exclusive end.
+        ``dominant_aa``
+            The single most frequent amino acid in the window.
+        ``fraction``
+            Combined fraction of the top-*n_top* amino acids.
+        ``seq_window``
+            The window sub-sequence.
+    """
+    n = len(seq)
+    results: list[dict] = []
+
+    for i in range(0, n - window + 1, step):
+        sub = seq[i:i + window]
+        counts = Counter(sub)
+        top_counts = sorted(counts.values(), reverse=True)[:n_top]
+        top_fraction = sum(top_counts) / window
+        if top_fraction > 0.70:
+            dominant_aa = counts.most_common(1)[0][0]
+            results.append({
+                'start': i,
+                'end': i + window,
+                'dominant_aa': dominant_aa,
+                'fraction': round(top_fraction, 3),
+                'seq_window': sub,
+            })
+
+    # Merge overlapping LC windows
+    if not results:
+        return results
+
+    merged: list[dict] = [results[0]]
+    for r in results[1:]:
+        prev = merged[-1]
+        if r['start'] <= prev['end']:
+            # Extend previous window
+            merged[-1] = {
+                'start': prev['start'],
+                'end': r['end'],
+                'dominant_aa': prev['dominant_aa'],
+                'fraction': max(prev['fraction'], r['fraction']),
+                'seq_window': seq[prev['start']:r['end']],
+            }
+        else:
+            merged.append(r)
+
+    return merged
+
+
+# ---------------------------------------------------------------------------
+# Aggregate statistics
+# ---------------------------------------------------------------------------
+
+def calc_repeat_stats(seq: str) -> dict:
+    """Compute comprehensive repeat statistics for a protein sequence.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+
+    Returns
+    -------
+    dict
+        ``n_tandem_repeats``
+            Total number of non-overlapping tandem repeats.
+        ``total_tandem_coverage``
+            Fraction of sequence covered by tandem repeats.
+        ``n_direct_repeats``
+            Number of direct-repeat pairs (capped at reporting first 100).
+        ``largest_tandem_unit``
+            Repeat unit of the longest tandem repeat.
+        ``largest_tandem_copies``
+            Copy number of the longest tandem repeat.
+        ``tandem_repeats``
+            Full list from :func:`find_tandem_repeats`.
+        ``direct_repeats``
+            First 10 entries from :func:`find_direct_repeats`.
+    """
+    n = len(seq)
+    tandem = find_tandem_repeats(seq)
+    direct = find_direct_repeats(seq)
+
+    # Coverage
+    covered: set[int] = set()
+    for tr in tandem:
+        covered.update(range(tr['start_1based'] - 1, tr['end_1based']))
+    coverage = len(covered) / n if n > 0 else 0.0
+
+    largest = tandem[0] if tandem else None
+
+    return {
+        'n_tandem_repeats': len(tandem),
+        'total_tandem_coverage': round(coverage, 4),
+        'n_direct_repeats': len(direct),
+        'largest_tandem_unit': largest['unit'] if largest else '',
+        'largest_tandem_copies': largest['n_copies'] if largest else 0,
+        'tandem_repeats': tandem,
+        'direct_repeats': direct[:10],
+    }
+
+
+# ---------------------------------------------------------------------------
+# HTML report
+# ---------------------------------------------------------------------------
+
+def format_repeats_report(seq: str, style_tag: str) -> str:
+    """Generate HTML section for tandem and direct repeat analysis.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence in single-letter uppercase code.
+    style_tag:
+        Accent colour hex string (e.g. ``"#4361ee"``).
+
+    Returns
+    -------
+    str
+        Self-contained HTML fragment (includes ``<style>`` block).
+    """
+    accent = style_tag if style_tag else "#4361ee"
+    css = _REPORT_CSS.replace("#4361ee", accent)
+    _s = f"<style>{css}</style>"
+
+    stats = calc_repeat_stats(seq)
+    lc = find_compositional_repeats(seq)
+
+    summary_rows = (
+        f"<tr><td>Tandem repeats</td><td>{stats['n_tandem_repeats']}</td></tr>"
+        f"<tr><td>Tandem repeat coverage</td>"
+        f"<td>{stats['total_tandem_coverage']:.1%}</td></tr>"
+        f"<tr><td>Largest tandem unit</td>"
+        f"<td><code>{stats['largest_tandem_unit'] or 'N/A'}</code> "
+        f"({stats['largest_tandem_copies']} copies)</td></tr>"
+        f"<tr><td>Direct repeats (&ge;4 aa, gap &le;30)</td>"
+        f"<td>{stats['n_direct_repeats']}</td></tr>"
+        f"<tr><td>Low-complexity windows</td><td>{len(lc)}</td></tr>"
+    )
+
+    summary_html = (
+        "<h2>Sequence Repeats</h2>"
+        "<table>"
+        "<tr><th>Property</th><th>Value</th></tr>"
+        f"{summary_rows}"
+        "</table>"
+    )
+
+    # Tandem repeat table
+    if stats['tandem_repeats']:
+        tr_header = (
+            "<tr><th>Start</th><th>End</th><th>Unit</th>"
+            "<th>Unit length</th><th>Copies</th><th>Total length</th></tr>"
+        )
+        tr_rows = "".join(
+            f"<tr>"
+            f"<td>{tr['start_1based']}</td>"
+            f"<td>{tr['end_1based']}</td>"
+            f"<td><code>{tr['unit']}</code></td>"
+            f"<td>{tr['unit_length']}</td>"
+            f"<td>{tr['n_copies']}</td>"
+            f"<td>{tr['total_length']}</td>"
+            f"</tr>"
+            for tr in stats['tandem_repeats']
+        )
+        tandem_html = (
+            "<h2>Tandem Repeats</h2>"
+            "<table>"
+            f"{tr_header}{tr_rows}"
+            "</table>"
+            "<p class='note'>"
+            "Exact k-mer extension algorithm; unit lengths 2&ndash;8; "
+            "minimum 2 copies; non-overlapping."
+            "</p>"
+        )
+    else:
+        tandem_html = (
+            "<h2>Tandem Repeats</h2>"
+            "<p>No exact tandem repeats found "
+            "(unit 2&ndash;8 aa, &ge;2 copies).</p>"
+        )
+
+    # Direct repeat table (first 10)
+    if stats['direct_repeats']:
+        dr_header = (
+            "<tr><th>Copy 1 start</th><th>Copy 2 start</th>"
+            "<th>Sequence</th><th>Length</th><th>Gap</th></tr>"
+        )
+        dr_rows = "".join(
+            f"<tr>"
+            f"<td>{dr['seq1_start_1based']}</td>"
+            f"<td>{dr['seq2_start_1based']}</td>"
+            f"<td><code>{dr['repeat_seq']}</code></td>"
+            f"<td>{dr['length']}</td>"
+            f"<td>{dr['gap']}</td>"
+            f"</tr>"
+            for dr in stats['direct_repeats']
+        )
+        direct_html = (
+            "<h2>Direct Repeats (top 10 by length)</h2>"
+            "<table>"
+            f"{dr_header}{dr_rows}"
+            "</table>"
+            "<p class='note'>"
+            "Direct repeats: identical sequence pairs separated by &le;30 residues, "
+            "minimum match length 4 aa."
+            "</p>"
+        )
+    else:
+        direct_html = (
+            "<h2>Direct Repeats</h2>"
+            "<p>No direct repeats found (&ge;4 aa, gap &le;30).</p>"
+        )
+
+    # LC table
+    if lc:
+        lc_header = (
+            "<tr><th>Start</th><th>End</th>"
+            "<th>Dominant AA</th><th>Top-3 fraction</th><th>Sequence</th></tr>"
+        )
+        lc_rows = "".join(
+            f"<tr>"
+            f"<td>{w['start'] + 1}</td>"
+            f"<td>{w['end']}</td>"
+            f"<td>{w['dominant_aa']}</td>"
+            f"<td>{w['fraction']:.1%}</td>"
+            f"<td><code>{w['seq_window']}</code></td>"
+            f"</tr>"
+            for w in lc
+        )
+        lc_html = (
+            "<h2>Low-Complexity Windows</h2>"
+            "<table>"
+            f"{lc_header}{lc_rows}"
+            "</table>"
+            "<p class='note'>"
+            "Window = 10 aa; step = 5; flagged when top-3 AAs &gt; 70% of window. "
+            "Wootton &amp; Federhen (1993) Comput. Chem. 17:149."
+            "</p>"
+        )
+    else:
+        lc_html = (
+            "<h2>Low-Complexity Windows</h2>"
+            "<p>No low-complexity windows detected.</p>"
+        )
+
+    return _s + summary_html + tandem_html + direct_html + lc_html
+
+format_tandem_repeats_report = format_repeats_report  # alias expected by beer.py
+
+
+# --- beer.graphs.new_graphs (RBP bug fixed) ---
+
+# ---------------------------------------------------------------------------
+# Module-level constants (no imports from beer.py)
+# ---------------------------------------------------------------------------
+AGGREGATION_THRESHOLD = 1.0
+SOLUBILITY_NEUTRAL = 0.0
+HM_THRESHOLD = 0.35
+RBP_THRESHOLD = 0.3
+
+PTM_COLORS = {
+    "phospho": "#1f77b4",
+    "glycosylation": "#2ca02c",
+    "ubiquitination": "#ff7f0e",
+    "sumo": "#9467bd",
+    "acetylation": "#17becf",
+    "methylation": "#e377c2",
+    "palmitoylation": "#8c564b",
+}
+
+MW_STANDARDS_KDA = [10, 15, 20, 25, 37, 50, 75, 100, 150, 250]
+
+
+# ---------------------------------------------------------------------------
+# Helper utilities
+# ---------------------------------------------------------------------------
+
+def _apply_font_sizes(ax, label_font: int, tick_font: int) -> None:
+    """Apply consistent label and tick font sizes to an Axes object."""
+    ax.xaxis.label.set_fontsize(label_font)
+    ax.yaxis.label.set_fontsize(label_font)
+    ax.title.set_fontsize(label_font)
+    ax.tick_params(axis="both", labelsize=tick_font)
+
+
+def _residue_x(seq: str) -> np.ndarray:
+    """Return 1-based residue position array for a sequence string."""
+    return np.arange(1, len(seq) + 1, dtype=float)
+
+
+# ---------------------------------------------------------------------------
+# 1. Aggregation profile
+# ---------------------------------------------------------------------------
+
+def create_aggregation_profile_figure(
+    seq: str,
+    aggregation_profile: list,
+    hotspots: list,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Line plot of per-residue β-aggregation propensity (Zyggregator).
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence string (used for x-axis length).
+    aggregation_profile:
+        Per-residue aggregation score (same length as seq).
+    hotspots:
+        List of (start, end) tuples (1-based, inclusive) marking hotspot
+        regions to shade in red.
+    label_font, tick_font:
+        Font sizes for axis labels/titles and tick labels.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    x = _residue_x(seq)
+    y = np.asarray(aggregation_profile, dtype=float)
+
+    fig = Figure(figsize=(10, 4), tight_layout=True)
+    ax = fig.add_subplot(111)
+
+    ax.plot(x, y, color="steelblue", linewidth=1.5, label="Aggregation propensity")
+
+    # Fill orange where y > threshold
+    ax.fill_between(x, AGGREGATION_THRESHOLD, y, where=(y > AGGREGATION_THRESHOLD),
+                    interpolate=True, color="orange", alpha=0.6,
+                    label=f"Above threshold ({AGGREGATION_THRESHOLD})")
+
+    # Dashed threshold line
+    ax.axhline(AGGREGATION_THRESHOLD, color="black", linestyle="--", linewidth=1.0,
+               label=f"Threshold ({AGGREGATION_THRESHOLD})")
+
+    # Red hotspot rectangles
+    y_min, y_max = ax.get_ylim()
+    for idx, hs in enumerate(hotspots):
+        start, end = hs[0], hs[1]
+        label_hs = "Hotspot" if idx == 0 else "_nolegend_"
+        rect = Rectangle(
+            (start - 0.5, y_min),
+            (end - start + 1),
+            y_max - y_min,
+            linewidth=0,
+            edgecolor="none",
+            facecolor="red",
+            alpha=0.25,
+            label=label_hs,
+            zorder=0,
+        )
+        ax.add_patch(rect)
+
+    ax.set_xlabel("Residue Position", fontsize=label_font)
+    ax.set_ylabel("β-Aggregation Propensity", fontsize=label_font)
+    ax.set_title("β-Aggregation Propensity Profile (Zyggregator)", fontsize=label_font)
+    ax.set_xlim(x[0], x[-1])
+    ax.tick_params(axis="both", labelsize=tick_font)
+    ax.legend(fontsize=tick_font, loc="upper right")
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 2. CamSol solubility profile
+# ---------------------------------------------------------------------------
+
+def create_solubility_profile_figure(
+    seq: str,
+    camsolmt_profile: list,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Per-residue CamSol intrinsic solubility profile.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence string.
+    camsolmt_profile:
+        Per-residue CamSol scores (same length as seq).
+    label_font, tick_font:
+        Font sizes.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    x = _residue_x(seq)
+    y = np.asarray(camsolmt_profile, dtype=float)
+
+    fig = Figure(figsize=(10, 4), tight_layout=True)
+    ax = fig.add_subplot(111)
+
+    ax.plot(x, y, color="black", linewidth=1.2, label="CamSol score")
+
+    ax.fill_between(x, 0, y, where=(y >= 0), interpolate=True,
+                    color="green", alpha=0.5, label="Soluble (>0)")
+    ax.fill_between(x, 0, y, where=(y < 0), interpolate=True,
+                    color="red", alpha=0.5, label="Insoluble (<0)")
+
+    ax.axhline(0.0, color="black", linestyle="--", linewidth=1.0)
+
+    ax.set_xlabel("Residue Position", fontsize=label_font)
+    ax.set_ylabel("CamSol Score", fontsize=label_font)
+    ax.set_title("CamSol Intrinsic Solubility Profile", fontsize=label_font)
+    ax.set_xlim(x[0], x[-1])
+    ax.tick_params(axis="both", labelsize=tick_font)
+    ax.legend(fontsize=tick_font, loc="upper right")
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 3. Hydrophobic moment profile
+# ---------------------------------------------------------------------------
+
+def create_hydrophobic_moment_figure(
+    seq: str,
+    moment_alpha: list,
+    moment_beta: list,
+    amphipathic_regions: list,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Hydrophobic moment profile for α-helix and β-strand windows.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence string.
+    moment_alpha:
+        μH values for α-helix (δ=100°) per residue position.
+    moment_beta:
+        μH values for β-strand (δ=160°) per residue position.
+    amphipathic_regions:
+        List of (start, end) tuples (1-based) marking amphipathic regions.
+    label_font, tick_font:
+        Font sizes.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    x = _residue_x(seq)
+    ya = np.asarray(moment_alpha, dtype=float)
+    yb = np.asarray(moment_beta, dtype=float)
+
+    fig = Figure(figsize=(10, 4), tight_layout=True)
+    ax = fig.add_subplot(111)
+
+    ax.plot(x, ya, color="blue", linewidth=1.5,
+            label="μH (α-helix, δ=100°)")
+    ax.plot(x, yb, color="red", linewidth=1.5,
+            label="μH (β-strand, δ=160°)")
+
+    ax.axhline(HM_THRESHOLD, color="grey", linestyle="--", linewidth=1.0,
+               label=f"Threshold ({HM_THRESHOLD})")
+
+    # Green rectangles for amphipathic regions
+    y_min, y_max = 0, max(np.max(ya), np.max(yb)) * 1.15 + 0.1
+    for idx, region in enumerate(amphipathic_regions):
+        start, end = region[0], region[1]
+        label_amp = "Amphipathic" if idx == 0 else "_nolegend_"
+        rect = Rectangle(
+            (start - 0.5, 0),
+            (end - start + 1),
+            y_max,
+            linewidth=0,
+            facecolor="green",
+            alpha=0.20,
+            label=label_amp,
+            zorder=0,
+        )
+        ax.add_patch(rect)
+
+    ax.set_xlabel("Residue Position", fontsize=label_font)
+    ax.set_ylabel("μH", fontsize=label_font)
+    ax.set_title("Hydrophobic Moment Profile", fontsize=label_font)
+    ax.set_xlim(x[0], x[-1])
+    ax.set_ylim(bottom=0)
+    ax.tick_params(axis="both", labelsize=tick_font)
+    ax.legend(fontsize=tick_font, loc="upper right")
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 4. pI / MW 2D gel map
+# ---------------------------------------------------------------------------
+
+def create_pI_MW_gel_figure(
+    proteins_data: list,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """2D scatter plot of pI vs log10(MW) — SDS-PAGE proxy.
+
+    Parameters
+    ----------
+    proteins_data:
+        List of dicts with keys: ``name``, ``pI``, ``mol_weight`` (Da),
+        and optional ``color``.
+    label_font, tick_font:
+        Font sizes.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig = Figure(figsize=(9, 6), tight_layout=True)
+    ax = fig.add_subplot(111)
+
+    single = len(proteins_data) == 1
+
+    # MW standard dashed lines
+    for mw_kda in MW_STANDARDS_KDA:
+        log_mw = math.log10(mw_kda * 1000)
+        ax.axhline(log_mw, color="lightgrey", linestyle="--", linewidth=0.8, zorder=0)
+        ax.text(13.8, log_mw, f"{mw_kda} kDa", va="center", ha="right",
+                fontsize=max(tick_font - 3, 7), color="grey")
+
+    # Vertical reference lines
+    ax.axvline(7.0, color="grey", linestyle="--", linewidth=0.8, zorder=0)
+    ax.axvline(4.0, color="lightblue", linestyle=":", linewidth=0.8, zorder=0)
+    ax.axvline(10.0, color="lightcoral", linestyle=":", linewidth=0.8, zorder=0)
+
+    scatter_artists = []
+    for pdata in proteins_data:
+        pI_val = float(pdata["pI"])
+        mw_val = float(pdata["mol_weight"])
+        log_mw = math.log10(mw_val)
+        color = pdata.get("color", "steelblue")
+        marker = "*" if single else "o"
+        ms = 18 if single else 10
+        sc = ax.scatter(pI_val, log_mw, color=color, marker=marker,
+                        s=ms**2, zorder=5, edgecolors="black", linewidths=0.5)
+        ax.annotate(
+            pdata["name"],
+            xy=(pI_val, log_mw),
+            xytext=(4, 4),
+            textcoords="offset points",
+            fontsize=max(tick_font - 2, 8),
+        )
+        scatter_artists.append(sc)
+
+    # mplcursors tooltip showing name, pI, MW
+    if scatter_artists:
+        try:
+            cursor = mplcursors.cursor(scatter_artists, hover=True)
+
+            @cursor.connect("add")
+            def on_add(sel):
+                idx = sel.index
+                if idx < len(proteins_data):
+                    p = proteins_data[idx]
+                    sel.annotation.set_text(
+                        f"{p['name']}\npI={p['pI']:.2f}\nMW={p['mol_weight']:.0f} Da"
+                    )
+        except Exception:
+            pass  # mplcursors may not function outside a GUI event loop
+
+    # Y-axis ticks: show kDa labels at standard positions
+    std_log_ticks = [math.log10(mw * 1000) for mw in MW_STANDARDS_KDA]
+    ax.set_yticks(std_log_ticks)
+    ax.set_yticklabels([f"{mw} kDa" for mw in MW_STANDARDS_KDA], fontsize=tick_font)
+
+    ax.set_xlabel("Isoelectric Point (pI)", fontsize=label_font)
+    ax.set_ylabel("Molecular Weight", fontsize=label_font)
+    ax.set_title("pI / MW 2D Map (SDS-PAGE Proxy)", fontsize=label_font)
+    ax.set_xlim(0, 14)
+    ax.tick_params(axis="x", labelsize=tick_font)
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 5. PTM profile (lollipop)
+# ---------------------------------------------------------------------------
+
+def create_ptm_profile_figure(
+    seq: str,
+    ptm_sites: list,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Lollipop/stem plot of predicted PTM sites.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence string.
+    ptm_sites:
+        List of dicts: {``position`` (1-based int), ``ptm_type`` (str)}.
+        PTM types: phospho, glycosylation, ubiquitination, sumo,
+        acetylation, methylation, palmitoylation.
+    label_font, tick_font:
+        Font sizes.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    # Collect all PTM types present
+    ptm_types_present = []
+    for site in ptm_sites:
+        pt = site.get("ptm_type", "unknown")
+        if pt not in ptm_types_present:
+            ptm_types_present.append(pt)
+
+    # Assign y-index per PTM type
+    ptm_y_map = {pt: i for i, pt in enumerate(ptm_types_present)}
+    n_types = max(len(ptm_types_present), 1)
+
+    fig = Figure(figsize=(12, max(3, n_types * 1.2 + 1.5)), tight_layout=True)
+    ax = fig.add_subplot(111)
+
+    for site in ptm_sites:
+        pos = site.get("position", 1)
+        pt = site.get("ptm_type", "unknown")
+        y_idx = ptm_y_map.get(pt, 0)
+        color = PTM_COLORS.get(pt, "#7f7f7f")
+
+        # Vertical stem
+        ax.plot([pos, pos], [y_idx - 0.35, y_idx], color=color,
+                linewidth=1.0, zorder=2)
+        # Dot
+        ax.scatter([pos], [y_idx], color=color, s=60, zorder=3,
+                   edgecolors="black", linewidths=0.4)
+
+    # Y-axis labels = PTM types
+    ax.set_yticks(list(ptm_y_map.values()))
+    ax.set_yticklabels(list(ptm_y_map.keys()), fontsize=tick_font)
+    ax.set_ylim(-0.8, n_types - 0.2)
+
+    ax.set_xlabel("Residue Position", fontsize=label_font)
+    ax.set_ylabel("PTM Type", fontsize=label_font)
+    ax.set_title("Post-Translational Modification Sites (Predicted)", fontsize=label_font)
+    ax.set_xlim(0, len(seq) + 1)
+    ax.tick_params(axis="x", labelsize=tick_font)
+
+    # Legend patches
+    legend_patches = [
+        mpatches.Patch(color=PTM_COLORS.get(pt, "#7f7f7f"), label=pt)
+        for pt in ptm_types_present
+    ]
+    if legend_patches:
+        ax.legend(handles=legend_patches, fontsize=tick_font,
+                  loc="upper right", title="PTM Type",
+                  title_fontsize=tick_font)
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 6. RNA-binding propensity profile
+# ---------------------------------------------------------------------------
+
+def create_rbp_profile_figure(
+    seq: str,
+    rbp_profile: list,
+    rbp_motifs: list,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Sliding-window RNA-binding propensity profile.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence string.
+    rbp_profile:
+        Per-residue RBP propensity scores (same length as seq).
+    rbp_motifs:
+        List of dicts: {``start``, ``end``, ``motif_name``, optional ``color``}.
+    label_font, tick_font:
+        Font sizes.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    x = _residue_x(seq)
+    y = np.asarray(rbp_profile, dtype=float)
+    if len(x) != len(y):  # sliding window produces shorter array
+        x = x[:len(y)]
+
+    fig = Figure(figsize=(10, 4), tight_layout=True)
+    ax = fig.add_subplot(111)
+
+    ax.plot(x, y, color="teal", linewidth=1.4, label="RBP propensity")
+
+    ax.fill_between(x, RBP_THRESHOLD, y, where=(y > RBP_THRESHOLD),
+                    interpolate=True, color="teal", alpha=0.4,
+                    label=f"Above threshold ({RBP_THRESHOLD})")
+
+    ax.axhline(RBP_THRESHOLD, color="black", linestyle="--", linewidth=1.0,
+               label=f"Threshold ({RBP_THRESHOLD})")
+
+    # RBP motif colored spans
+    motif_colors = [
+        "#e6194b", "#3cb44b", "#ffe119", "#4363d8", "#f58231",
+        "#911eb4", "#42d4f4", "#f032e6",
+    ]
+    for i, motif in enumerate(rbp_motifs):
+        start = motif.get("start", 1)
+        end = motif.get("end", start)
+        mcolor = motif.get("color", motif_colors[i % len(motif_colors)])
+        mname = motif.get("motif_name", f"Motif {i+1}")
+        ax.axvspan(start - 0.5, end + 0.5, color=mcolor, alpha=0.25,
+                   label=mname, zorder=0)
+
+    ax.set_xlabel("Residue Position", fontsize=label_font)
+    ax.set_ylabel("RBP Propensity", fontsize=label_font)
+    ax.set_title("RNA-Binding Propensity Profile", fontsize=label_font)
+    ax.set_xlim(x[0], x[-1])
+    ax.tick_params(axis="both", labelsize=tick_font)
+    ax.legend(fontsize=tick_font, loc="upper right")
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 7. Truncation series analysis (2×3 multi-panel)
+# ---------------------------------------------------------------------------
+
+def create_truncation_series_figure(
+    truncation_data: dict,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Multi-panel (2×3) figure showing how 6 properties change with truncation.
+
+    Parameters
+    ----------
+    truncation_data:
+        Dict with keys ``n_trunc`` and ``c_trunc``, each a list of dicts:
+        {``pct``, ``pI``, ``gravy``, ``fcr``, ``ncpr``, ``net_charge_7``,
+        ``disorder_frac``}.
+    label_font, tick_font:
+        Font sizes.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    panels = [
+        ("pI", "pI"),
+        ("gravy", "GRAVY"),
+        ("fcr", "FCR"),
+        ("ncpr", "NCPR"),
+        ("net_charge_7", "Net Charge (pH 7)"),
+        ("disorder_frac", "Disorder Fraction"),
+    ]
+
+    n_trunc = truncation_data.get("n_trunc", [])
+    c_trunc = truncation_data.get("c_trunc", [])
+
+    def extract(data_list, key):
+        return (
+            [d.get("pct", 0) for d in data_list],
+            [d.get(key, 0) for d in data_list],
+        )
+
+    fig = Figure(figsize=(14, 8), tight_layout=True)
+    fig.suptitle("Truncation Series Analysis", fontsize=label_font + 2)
+
+    for panel_idx, (key, ylabel) in enumerate(panels):
+        ax = fig.add_subplot(2, 3, panel_idx + 1)
+
+        nx, ny = extract(n_trunc, key)
+        cx, cy = extract(c_trunc, key)
+
+        if nx:
+            ax.plot(nx, ny, color="blue", linewidth=1.5, marker="o",
+                    markersize=4, label="N-terminal")
+        if cx:
+            ax.plot(cx, cy, color="red", linewidth=1.5, marker="s",
+                    markersize=4, label="C-terminal")
+
+        ax.set_xlabel("Truncation (%)", fontsize=label_font - 2)
+        ax.set_ylabel(ylabel, fontsize=label_font - 2)
+        ax.tick_params(axis="both", labelsize=tick_font - 1)
+        ax.set_xlim(0, 90)
+
+        if panel_idx == 0:
+            ax.legend(fontsize=tick_font - 2, loc="best")
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 8. SCD profile
+# ---------------------------------------------------------------------------
+
+def create_scd_profile_figure(
+    seq: str,
+    scd_profile: list,
+    window: int,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Sliding-window SCD (Sequence Charge Decoration) profile.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence string.
+    scd_profile:
+        Per-window SCD values.  Length may be <= len(seq).
+    window:
+        Window size used for the SCD calculation (for title display).
+    label_font, tick_font:
+        Font sizes.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    x = np.arange(1, len(scd_profile) + 1, dtype=float)
+    y = np.asarray(scd_profile, dtype=float)
+
+    fig = Figure(figsize=(10, 4), tight_layout=True)
+    ax = fig.add_subplot(111)
+
+    ax.plot(x, y, color="black", linewidth=1.2)
+
+    ax.fill_between(x, 0, y, where=(y > 0), interpolate=True,
+                    color="red", alpha=0.5, label="Segregated charges (+)")
+    ax.fill_between(x, 0, y, where=(y < 0), interpolate=True,
+                    color="blue", alpha=0.5, label="Mixed charges (−)")
+
+    ax.axhline(0.0, color="black", linestyle="--", linewidth=0.8)
+
+    ax.set_xlabel("Residue Position", fontsize=label_font)
+    ax.set_ylabel("SCD", fontsize=label_font)
+    ax.set_title(
+        f"SCD Profile (Sequence Charge Decoration, window={window})",
+        fontsize=label_font,
+    )
+    ax.set_xlim(x[0], x[-1])
+    ax.tick_params(axis="both", labelsize=tick_font)
+    ax.legend(fontsize=tick_font, loc="upper right")
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 9. Ramachandran plot
+# ---------------------------------------------------------------------------
+
+def create_ramachandran_figure(
+    phi_psi_data: list,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Classical Ramachandran plot coloured by secondary structure.
+
+    Parameters
+    ----------
+    phi_psi_data:
+        List of dicts: {``phi``, ``psi``, ``resname``, ``resnum``, ``ss``}.
+        ``ss`` values: 'H' = helix, 'E' = sheet, 'C' = coil.
+    label_font, tick_font:
+        Font sizes.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    SS_COLORS = {"H": "#1f77b4", "E": "#d62728", "C": "#aaaaaa"}
+    SS_LABELS = {"H": "α-Helix", "E": "β-Sheet", "C": "Coil"}
+
+    fig = Figure(figsize=(7, 6), tight_layout=True)
+    ax = fig.add_subplot(111)
+
+    # ---- Allowed/generous regions as filled rectangles ----
+    # Core α-helix
+    ax.add_patch(Rectangle((-80, -60), 32, 40, color="#555555", alpha=0.25,
+                            zorder=0, label="_helix_region"))
+    # Core β-sheet
+    ax.add_patch(Rectangle((-150, 90), 60, 70, color="#888888", alpha=0.20,
+                            zorder=0, label="_sheet_region"))
+    # Left-handed helix (positive phi)
+    ax.add_patch(Rectangle((40, 20), 40, 40, color="#bbbbbb", alpha=0.20,
+                            zorder=0, label="_lh_region"))
+
+    # Crosshairs
+    ax.axhline(0, color="grey", linewidth=0.6, linestyle="-")
+    ax.axvline(0, color="grey", linewidth=0.6, linestyle="-")
+
+    # Plot residues
+    plotted_ss = set()
+    for res in phi_psi_data:
+        phi = res.get("phi")
+        psi = res.get("psi")
+        ss = res.get("ss", "C")
+        if phi is None or psi is None:
+            continue
+        color = SS_COLORS.get(ss, "#aaaaaa")
+        label = SS_LABELS.get(ss, ss) if ss not in plotted_ss else "_nolegend_"
+        plotted_ss.add(ss)
+        ax.scatter(phi, psi, color=color, s=12, alpha=0.7,
+                   edgecolors="none", label=label, zorder=3)
+
+    # Allowed region annotation patches for legend
+    helix_patch = mpatches.Patch(color="#555555", alpha=0.4, label="Core α-helix region")
+    sheet_patch = mpatches.Patch(color="#888888", alpha=0.35, label="Core β-sheet region")
+    lh_patch = mpatches.Patch(color="#bbbbbb", alpha=0.35, label="Left-handed helix")
+
+    # Build legend
+    handles, labels = ax.get_legend_handles_labels()
+    # Filter out internal labels
+    visible = [(h, l) for h, l in zip(handles, labels) if not l.startswith("_")]
+    visible_h, visible_l = zip(*visible) if visible else ([], [])
+    ax.legend(
+        list(visible_h) + [helix_patch, sheet_patch, lh_patch],
+        list(visible_l) + ["Core α-helix", "Core β-sheet", "Left-handed helix"],
+        fontsize=tick_font,
+        loc="upper right",
+        markerscale=1.5,
+    )
+
+    ax.set_xlim(-180, 180)
+    ax.set_ylim(-180, 180)
+    ax.set_xlabel("φ (°)", fontsize=label_font)
+    ax.set_ylabel("ψ (°)", fontsize=label_font)
+    ax.set_title("Ramachandran Plot (from PDB structure)", fontsize=label_font)
+    ax.tick_params(axis="both", labelsize=tick_font)
+    ax.set_xticks(range(-180, 181, 60))
+    ax.set_yticks(range(-180, 181, 60))
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 10. Residue contact network
+# ---------------------------------------------------------------------------
+
+def _circular_layout(n: int) -> np.ndarray:
+    """Return (n, 2) xy positions for n nodes evenly spaced on a unit circle."""
+    angles = np.linspace(0, 2 * math.pi, n, endpoint=False)
+    return np.column_stack([np.cos(angles), np.sin(angles)])
+
+
+def _spring_layout(adj: np.ndarray, n_iter: int = 200,
+                   seed: int = 42) -> np.ndarray:
+    """Fruchterman-Reingold spring layout (pure numpy).
+
+    Parameters
+    ----------
+    adj:
+        (n, n) boolean adjacency matrix.
+    n_iter:
+        Number of iterations.
+
+    Returns
+    -------
+    pos : np.ndarray of shape (n, 2)
+    """
+    n = adj.shape[0]
+    rng = np.random.default_rng(seed)
+    pos = rng.random((n, 2)) * 2 - 1  # uniform in [-1, 1]
+
+    k = 1.0 / math.sqrt(n) if n > 0 else 1.0
+    t = 0.1  # initial temperature
+
+    for _ in range(n_iter):
+        delta = pos[:, np.newaxis, :] - pos[np.newaxis, :, :]  # (n,n,2)
+        dist = np.linalg.norm(delta, axis=2)  # (n,n)
+        np.fill_diagonal(dist, 1e-9)
+
+        # Repulsive forces
+        rep = k**2 / dist  # (n, n)
+        rep_force = np.einsum("ij,ijk->ik", rep / dist, delta)  # (n, 2)
+
+        # Attractive forces (only connected pairs)
+        att = (dist**2 / k) * adj
+        att_force = np.einsum("ij,ijk->ik", att / dist, -delta)  # (n, 2)
+
+        displacement = rep_force + att_force
+        # Cap displacement by temperature
+        disp_len = np.linalg.norm(displacement, axis=1, keepdims=True)
+        disp_len = np.maximum(disp_len, 1e-9)
+        pos += displacement / disp_len * np.minimum(disp_len, t)
+
+        t *= 0.95  # cool down
+
+    # Normalise to [-1, 1]
+    pos -= pos.min(axis=0)
+    pos /= pos.max(axis=0) + 1e-9
+    pos = pos * 2 - 1
+
+    return pos
+
+
+def create_contact_network_figure(
+    seq: str,
+    dist_matrix: np.ndarray,
+    cutoff_angstrom: float = 8.0,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Residue contact network derived from Cα distance matrix.
+
+    Parameters
+    ----------
+    seq:
+        Protein sequence string.
+    dist_matrix:
+        n×n numpy array of Cα pairwise distances (Å).
+    cutoff_angstrom:
+        Distance cutoff for defining contacts.
+    label_font, tick_font:
+        Font sizes.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    n = len(seq)
+    dist_matrix = np.asarray(dist_matrix, dtype=float)
+
+    # Build adjacency (ignore self-contacts and sequence neighbours ±1)
+    adj = np.zeros((n, n), dtype=bool)
+    for i in range(n):
+        for j in range(i + 2, n):
+            if dist_matrix[i, j] <= cutoff_angstrom:
+                adj[i, j] = True
+                adj[j, i] = True
+
+    degree = adj.sum(axis=1).astype(float)  # (n,)
+    max_deg = degree.max() if degree.max() > 0 else 1.0
+
+    large_protein = n > 100
+    top_n = 30
+
+    if large_protein:
+        # Show only top-30 by degree
+        top_idx = np.argsort(degree)[-top_n:]
+        sub_n = len(top_idx)
+        idx_map = {old: new for new, old in enumerate(top_idx)}
+        sub_degree = degree[top_idx]
+        sub_adj = adj[np.ix_(top_idx, top_idx)]
+        sub_seq = [seq[i] for i in top_idx]
+        pos = _circular_layout(sub_n)
+        node_degrees = sub_degree
+        plot_adj = sub_adj
+        residue_labels = [f"{top_idx[i]+1}" for i in range(sub_n)]
+    else:
+        pos = _spring_layout(adj.astype(float))
+        node_degrees = degree
+        plot_adj = adj
+        sub_n = n
+        residue_labels = [str(i + 1) for i in range(n)]
+
+    # Degree centrality: normalise by (n-1)
+    norm_n = (n - 1) if n > 1 else 1
+    centrality = node_degrees / norm_n
+
+    fig = Figure(figsize=(9, 8), tight_layout=True)
+    ax = fig.add_subplot(111)
+
+    cmap = cm.get_cmap("viridis")
+    norm = mcolors.Normalize(vmin=0, vmax=centrality.max() if centrality.max() > 0 else 1)
+
+    # Draw edges
+    for i in range(sub_n):
+        for j in range(i + 1, sub_n):
+            if plot_adj[i, j]:
+                # Get original indices for distance lookup
+                if large_protein:
+                    orig_i = top_idx[i]
+                    orig_j = top_idx[j]
+                else:
+                    orig_i, orig_j = i, j
+                d = dist_matrix[orig_i, orig_j]
+                lw = max(0.2, 2.0 / (d + 1e-9) * cutoff_angstrom)
+                ax.plot(
+                    [pos[i, 0], pos[j, 0]],
+                    [pos[i, 1], pos[j, 1]],
+                    color="lightgrey",
+                    linewidth=min(lw, 2.0),
+                    zorder=1,
+                )
+
+    # Draw nodes
+    node_sizes = 50 + (node_degrees / max_deg) * 250
+    scatter = ax.scatter(
+        pos[:, 0], pos[:, 1],
+        c=centrality, cmap="viridis", norm=norm,
+        s=node_sizes, zorder=3, edgecolors="black", linewidths=0.4,
+    )
+
+    # Node labels (only if small protein)
+    if not large_protein and n <= 50:
+        for i in range(sub_n):
+            ax.text(pos[i, 0], pos[i, 1], residue_labels[i],
+                    ha="center", va="center",
+                    fontsize=max(tick_font - 4, 6), zorder=4)
+
+    # Colorbar
+    cbar = fig.colorbar(scatter, ax=ax, fraction=0.03, pad=0.02)
+    cbar.set_label("Degree Centrality", fontsize=label_font - 2)
+    cbar.ax.tick_params(labelsize=tick_font - 2)
+
+    ax.set_aspect("equal")
+    ax.axis("off")
+    subtitle = ""
+    if large_protein:
+        subtitle = f" — Top {top_n} residues by degree"
+    ax.set_title(
+        f"Residue Contact Network (Cα ≤ {cutoff_angstrom} Å){subtitle}",
+        fontsize=label_font,
+    )
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 11. MSA conservation profile
+# ---------------------------------------------------------------------------
+
+def _shannon_entropy(column_chars: list) -> float:
+    """Shannon entropy (bits) for a list of characters (including gaps)."""
+    total = len(column_chars)
+    if total == 0:
+        return 0.0
+    counts = Counter(column_chars)
+    probs = [c / total for c in counts.values()]
+    h = -sum(p * math.log2(p) for p in probs if p > 0)
+    return h
+
+
+def create_msa_conservation_figure(
+    sequences: list,
+    names: list,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Per-column conservation bar chart from a multiple sequence alignment.
+
+    Parameters
+    ----------
+    sequences:
+        List of equal-length strings (aligned sequences; gaps = '-').
+    names:
+        Sequence names (same length as sequences; used in tooltip/legend).
+    label_font, tick_font:
+        Font sizes.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if not sequences:
+        fig = Figure(figsize=(10, 4))
+        ax = fig.add_subplot(111)
+        ax.set_title("MSA Conservation Profile (no data)", fontsize=label_font)
+        return fig
+
+    n_seq = len(sequences)
+    aln_len = len(sequences[0])
+    positions = np.arange(1, aln_len + 1)
+
+    conservation = np.zeros(aln_len)
+    dominant_aa = [""] * aln_len
+
+    for col in range(aln_len):
+        chars = [sequences[s][col] for s in range(n_seq)
+                 if col < len(sequences[s])]
+        h = _shannon_entropy(chars)
+        n_distinct = len(set(chars))
+        if n_distinct > 1:
+            conservation[col] = max(0.0, 1.0 - h / math.log2(n_distinct))
+        else:
+            conservation[col] = 1.0  # perfectly conserved
+
+        # Most common character (excluding gaps for dominant AA display)
+        non_gap = [c for c in chars if c != "-"]
+        if non_gap:
+            dominant_aa[col] = Counter(non_gap).most_common(1)[0][0]
+        else:
+            dominant_aa[col] = "-"
+
+    fig = Figure(figsize=(max(10, aln_len * 0.15), 4), tight_layout=True)
+    ax = fig.add_subplot(111)
+
+    ax.bar(positions, conservation, color="steelblue", width=0.8, zorder=2)
+
+    # Dominant AA text overlay where conservation > 0.7
+    for col in range(aln_len):
+        if conservation[col] > 0.7 and dominant_aa[col] not in ("-", ""):
+            ax.text(
+                positions[col], conservation[col] + 0.02,
+                dominant_aa[col],
+                ha="center", va="bottom",
+                fontsize=max(tick_font - 4, 6),
+                color="darkblue",
+            )
+
+    ax.axhline(0.7, color="red", linestyle="--", linewidth=0.8,
+               label="Conservation = 0.7")
+
+    ax.set_xlabel("Alignment Position", fontsize=label_font)
+    ax.set_ylabel("Conservation", fontsize=label_font)
+    ax.set_title("MSA Conservation Profile", fontsize=label_font)
+    ax.set_xlim(0.5, aln_len + 0.5)
+    ax.set_ylim(0, 1.15)
+    ax.tick_params(axis="both", labelsize=tick_font)
+    ax.legend(fontsize=tick_font, loc="upper right")
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 12. Protein complex MW bar chart
+# ---------------------------------------------------------------------------
+
+def create_complex_mw_figure(
+    chains_data: list,
+    stoichiometry_str: str,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Bar chart of individual chain MWs and the assembled complex MW.
+
+    Parameters
+    ----------
+    chains_data:
+        List of dicts: {``chain_id`` (str), ``mol_weight`` (Da), ``color`` (optional str)}.
+    stoichiometry_str:
+        Stoichiometry string, e.g. ``"A2B1"``.  Used for title/annotation.
+    label_font, tick_font:
+        Font sizes.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+
+    # Parse stoichiometry string like "A2B1" → {A: 2, B: 1}
+    stoich_map: dict = {}
+    for match in re.finditer(r"([A-Za-z]+)(\d*)", stoichiometry_str):
+        chain_id = match.group(1)
+        count_str = match.group(2)
+        count = int(count_str) if count_str else 1
+        if chain_id:
+            stoich_map[chain_id] = count
+
+    # Build labels and heights
+    chain_ids = [c["chain_id"] for c in chains_data]
+    chain_mws = [float(c["mol_weight"]) for c in chains_data]
+    default_colors = [
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
+        "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
+    ]
+    chain_colors = [
+        c.get("color", default_colors[i % len(default_colors)])
+        for i, c in enumerate(chains_data)
+    ]
+
+    # Total complex MW = sum(n_copies * mw) for each chain
+    total_mw = 0.0
+    for chain in chains_data:
+        cid = chain["chain_id"]
+        n_copies = stoich_map.get(cid, 1)
+        total_mw += n_copies * float(chain["mol_weight"])
+
+    bar_labels = chain_ids + ["Complex"]
+    bar_heights = chain_mws + [total_mw]
+    bar_colors_all = chain_colors + ["#333333"]
+
+    fig = Figure(figsize=(max(6, len(bar_labels) * 1.2 + 2), 5), tight_layout=True)
+    ax = fig.add_subplot(111)
+
+    bars = ax.bar(
+        range(len(bar_labels)),
+        [mw / 1000 for mw in bar_heights],  # convert to kDa
+        color=bar_colors_all,
+        edgecolor="black",
+        linewidth=0.6,
+    )
+
+    # Annotate bars with values
+    for bar_obj, height_kda in zip(bars, [h / 1000 for h in bar_heights]):
+        ax.text(
+            bar_obj.get_x() + bar_obj.get_width() / 2,
+            bar_obj.get_height() + 0.5,
+            f"{height_kda:.1f} kDa",
+            ha="center", va="bottom",
+            fontsize=max(tick_font - 2, 8),
+        )
+
+    # Total complex annotation
+    ax.annotate(
+        f"Total Complex: {total_mw/1000:.1f} kDa\n(Stoichiometry: {stoichiometry_str})",
+        xy=(len(bar_labels) - 1, total_mw / 1000),
+        xytext=(-60, 20),
+        textcoords="offset points",
+        arrowprops=dict(arrowstyle="->", color="black"),
+        fontsize=tick_font,
+        bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="grey"),
+    )
+
+    ax.set_xticks(range(len(bar_labels)))
+    ax.set_xticklabels(bar_labels, fontsize=tick_font)
+    ax.set_ylabel("Molecular Weight (kDa)", fontsize=label_font)
+    ax.set_title("Protein Complex Mass Composition", fontsize=label_font)
+    ax.tick_params(axis="y", labelsize=tick_font)
+
+    return fig
+
+
+# --- beer.network.elm ---
+
+_ELM_BASE_URL = "https://elm.eu.org/instances.json"
+_TIMEOUT_SECONDS = 30
+
+
+class ELMWorker(QThread):
+    """Query ELM database for a sequence to find experimentally validated linear motifs.
+
+    Uses ELM REST API: https://elm.eu.org/
+    Endpoint: GET https://elm.eu.org/instances.json?q={uniprot_id}
+
+    Signals
+    -------
+    finished(list):
+        Emitted on success with a list of dicts, each containing:
+        - elm_identifier (str)
+        - start (int)
+        - end (int)
+        - logic (str)          "positive" | "negative" | "neutral"
+        - toGo (str)           GO term(s)
+        - primary_reference_pmed_id (str)
+        - accession (str)      copy of the queried accession
+    error(str):
+        Emitted if the query fails, with a human-readable error message.
+    progress(str):
+        Emitted with status updates during the query.
+    """
+
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+    progress = pyqtSignal(str)
+
+    def __init__(self, accession: str, seq: str = ""):
+        """Initialise the worker.
+
+        Parameters
+        ----------
+        accession:
+            UniProt accession (e.g. ``"P04637"``).  Will be stripped and
+            upper-cased before use.
+        seq:
+            Protein sequence string (currently unused; reserved for future
+            sequence-based search support).
+        """
+        super().__init__()
+        self.accession = accession.strip().upper()
+        self.seq = seq
+
+    # ------------------------------------------------------------------
+    def run(self) -> None:
+        """Fetch ELM instances for the stored accession.
+
+        Builds the query URL, performs an HTTP GET request, parses the JSON
+        response, and emits ``finished`` with the list of motif dicts.
+        On any error (network, HTTP, JSON), emits ``error`` with a
+        descriptive message.
+        """
+        if not self.accession:
+            self.error.emit("ELM query failed: no accession provided.")
+            return
+
+        url = f"{_ELM_BASE_URL}?q={self.accession}"
+        self.progress.emit(f"Querying ELM database for {self.accession}…")
+
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "BEER-biophysics/1.0 (scientific software)",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as response:
+                raw = response.read().decode("utf-8")
+
+        except urllib.error.HTTPError as exc:
+            self.error.emit(
+                f"ELM HTTP error {exc.code} for accession '{self.accession}': {exc.reason}"
+            )
+            return
+        except urllib.error.URLError as exc:
+            self.error.emit(
+                f"ELM network error for accession '{self.accession}': {exc.reason}"
+            )
+            return
+        except Exception as exc:
+            self.error.emit(f"ELM query failed for '{self.accession}': {exc}")
+            return
+
+        # Parse JSON
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            self.error.emit(
+                f"ELM returned invalid JSON for '{self.accession}': {exc}"
+            )
+            return
+
+        # Extract instances list — ELM may return the list directly or nested
+        if isinstance(data, list):
+            raw_instances = data
+        elif isinstance(data, dict):
+            # Top-level key may be "instances" or the accession itself
+            raw_instances = (
+                data.get("instances")
+                or data.get("Instances")
+                or []
+            )
+            # Some ELM responses wrap results per-accession
+            if not isinstance(raw_instances, list):
+                raw_instances = []
+        else:
+            raw_instances = []
+
+        if not raw_instances:
+            self.progress.emit(
+                f"No ELM instances found for accession '{self.accession}'."
+            )
+            self.finished.emit([])
+            return
+
+        instances: list = []
+        for item in raw_instances:
+            if not isinstance(item, dict):
+                continue
+            instances.append(
+                {
+                    "elm_identifier": item.get("elm_identifier", item.get("elm_type", "")),
+                    "start": _safe_int(item.get("start", item.get("Start", 0))),
+                    "end": _safe_int(item.get("end", item.get("End", 0))),
+                    "logic": item.get("logic", item.get("Logic", "")),
+                    "toGo": item.get("toGo", item.get("to_go", "")),
+                    "primary_reference_pmed_id": item.get(
+                        "primary_reference_pmed_id",
+                        item.get("pmed_id", ""),
+                    ),
+                    "accession": self.accession,
+                    # Preserve any extra fields returned by ELM
+                    "raw": item,
+                }
+            )
+
+        self.progress.emit(
+            f"ELM: found {len(instances)} instance(s) for '{self.accession}'."
+        )
+        self.finished.emit(instances)
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _safe_int(value, default: int = 0) -> int:
+    """Convert *value* to int, returning *default* on failure."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+# --- beer.network.disprot ---
+
+_DISPROT_API_BASE = "https://disprot.org/api"
+_TIMEOUT_SECONDS = 30
+
+
+class DisPRotWorker(QThread):
+    """Query DisProt database for disorder annotations of a UniProt accession.
+
+    REST API: GET https://disprot.org/api/{uniprot_id}
+
+    Signals
+    -------
+    finished(dict):
+        Emitted on success (including the case of a valid 404 / not found).
+        Dict keys:
+        - found (bool)              False if the protein is not in DisProt
+        - disprot_id (str)
+        - protein_name (str)
+        - accession (str)           Echo of the queried accession
+        - sequence_length (int)     Total protein length (0 if unknown)
+        - regions (list)            List of dicts: {start, end, type}
+        - n_disordered_aa (int)     Total disordered residues (may overlap)
+        - fraction_disordered (float)  n_disordered_aa / sequence_length
+    error(str):
+        Emitted on network/parse errors with a human-readable message.
+    """
+
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, accession: str):
+        """Initialise the worker.
+
+        Parameters
+        ----------
+        accession:
+            UniProt accession (e.g. ``"P04637"``).  Stripped and upper-cased.
+        """
+        super().__init__()
+        self.accession = accession.strip().upper()
+
+    # ------------------------------------------------------------------
+    def run(self) -> None:
+        """Fetch DisProt disorder annotations for the stored accession.
+
+        On success emits ``finished`` with a populated result dict.
+        If the protein is not found in DisProt, emits ``finished`` with
+        ``{"found": False}``.
+        On network / parse errors emits ``error``.
+        """
+        if not self.accession:
+            self.error.emit("DisProt query failed: no accession provided.")
+            return
+
+        url = f"{_DISPROT_API_BASE}/{self.accession}"
+
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "BEER-biophysics/1.0 (scientific software)",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as response:
+                raw = response.read().decode("utf-8")
+
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                # Protein not in DisProt — not an error, just not found
+                self.finished.emit({"found": False, "accession": self.accession})
+                return
+            self.error.emit(
+                f"DisProt HTTP error {exc.code} for '{self.accession}': {exc.reason}"
+            )
+            return
+        except urllib.error.URLError as exc:
+            self.error.emit(
+                f"DisProt network error for '{self.accession}': {exc.reason}"
+            )
+            return
+        except Exception as exc:
+            self.error.emit(f"DisProt query failed for '{self.accession}': {exc}")
+            return
+
+        # Parse JSON
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            self.error.emit(
+                f"DisProt returned invalid JSON for '{self.accession}': {exc}"
+            )
+            return
+
+        if not data:
+            self.finished.emit({"found": False, "accession": self.accession})
+            return
+
+        # Extract fields — DisProt API may use slightly different key names
+        disprot_id = data.get("disprot_id", data.get("id", ""))
+        protein_name = data.get("protein_name", data.get("name", ""))
+        sequence_length = int(data.get("length", data.get("sequence_length", 0)))
+
+        # Parse disorder regions
+        raw_regions = data.get("regions", [])
+        regions: list = []
+        for reg in raw_regions:
+            if not isinstance(reg, dict):
+                continue
+            start = _safe_int(reg.get("start", reg.get("Start", 0)))
+            end = _safe_int(reg.get("end", reg.get("End", 0)))
+            rtype = (
+                reg.get("type_name", reg.get("type", reg.get("term", "disorder")))
+            )
+            if isinstance(rtype, dict):
+                rtype = rtype.get("name", rtype.get("term", "disorder"))
+            regions.append({"start": start, "end": end, "type": str(rtype)})
+
+        # Count disordered residues using a coverage set to handle overlaps
+        disordered_positions: set = set()
+        for reg in regions:
+            for pos in range(reg["start"], reg["end"] + 1):
+                disordered_positions.add(pos)
+
+        n_disordered_aa = len(disordered_positions)
+        fraction_disordered = (
+            n_disordered_aa / sequence_length if sequence_length > 0 else 0.0
+        )
+
+        result = {
+            "found": True,
+            "disprot_id": disprot_id,
+            "protein_name": protein_name,
+            "accession": self.accession,
+            "sequence_length": sequence_length,
+            "regions": regions,
+            "n_disordered_aa": n_disordered_aa,
+            "fraction_disordered": fraction_disordered,
+        }
+
+        self.finished.emit(result)
+
+
+
+# _safe_int helper (shared by network workers)
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+# --- beer.network.phasepdb ---
+
+_PHASEPDB_BASE = "https://phasepdb.org/api/protein"
+_TIMEOUT_SECONDS = 10
+
+
+class PhaSepDBWorker(QThread):
+    """Query PhaSepDB for phase separation data.
+
+    Uses the PhaSepDB REST API.  If the queried accession is not in the
+    database, emits ``finished({"found": False})`` rather than an error.
+
+    Signals
+    -------
+    finished(dict):
+        Emitted when the query completes (success or not-found).
+        Keys on success:
+        - found (bool)            True
+        - source (str)            "PhaSepDB"
+        - accession (str)         Echo of queried accession
+        - gene_name (str)
+        - protein_name (str)
+        - category (str)          e.g. "scaffold", "client", "regulator"
+        - evidence_type (str)     e.g. "in vitro", "in vivo", "prediction"
+        - organism (str)
+        - references (list)       List of dicts: {pmid, title}
+        Keys when not found:
+        - found (bool)            False
+        - accession (str)
+    error(str):
+        Emitted on genuine network / parse failures.
+    """
+
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, accession: str):
+        """Initialise the worker.
+
+        Parameters
+        ----------
+        accession:
+            UniProt accession (e.g. ``"P04637"``).  Stripped and upper-cased.
+        """
+        super().__init__()
+        self.accession = accession.strip().upper()
+
+    # ------------------------------------------------------------------
+    def run(self) -> None:
+        """Try PhaSepDB and emit results.
+
+        Performs a single GET request to PhaSepDB.  Emits ``finished`` with
+        ``found=True`` on success, ``found=False`` on HTTP 404 / empty
+        response, or ``error`` on genuine failures (network errors, malformed
+        JSON, etc.).
+        """
+        if not self.accession:
+            self.error.emit("PhaSepDB query failed: no accession provided.")
+            return
+
+        url = f"{_PHASEPDB_BASE}/{self.accession}"
+
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "BEER-biophysics/1.0 (scientific software)",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as response:
+                raw = response.read().decode("utf-8")
+
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                # Protein not in PhaSepDB — this is a valid outcome
+                self.finished.emit({"found": False, "accession": self.accession})
+                return
+            self.error.emit(
+                f"PhaSepDB HTTP error {exc.code} for '{self.accession}': {exc.reason}"
+            )
+            return
+        except urllib.error.URLError as exc:
+            self.error.emit(
+                f"PhaSepDB network error for '{self.accession}': {exc.reason}"
+            )
+            return
+        except Exception as exc:
+            self.error.emit(f"PhaSepDB query failed for '{self.accession}': {exc}")
+            return
+
+        # Parse JSON
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            self.error.emit(
+                f"PhaSepDB returned invalid JSON for '{self.accession}': {exc}"
+            )
+            return
+
+        # Handle empty or missing data
+        if not data:
+            self.finished.emit({"found": False, "accession": self.accession})
+            return
+
+        # PhaSepDB may return a list (multiple entries) or a single object
+        if isinstance(data, list):
+            if len(data) == 0:
+                self.finished.emit({"found": False, "accession": self.accession})
+                return
+            # Take the first match (most relevant)
+            entry = data[0]
+        elif isinstance(data, dict):
+            entry = data
+        else:
+            self.finished.emit({"found": False, "accession": self.accession})
+            return
+
+        # Extract fields robustly
+        references = entry.get("references", entry.get("refs", []))
+        if not isinstance(references, list):
+            references = []
+
+        parsed_refs: list = []
+        for ref in references:
+            if isinstance(ref, dict):
+                parsed_refs.append(
+                    {
+                        "pmid": str(ref.get("pmid", ref.get("PubMed", ""))),
+                        "title": ref.get("title", ref.get("Title", "")),
+                    }
+                )
+            elif isinstance(ref, str):
+                parsed_refs.append({"pmid": ref, "title": ""})
+
+        result = {
+            "found": True,
+            "source": "PhaSepDB",
+            "accession": self.accession,
+            "gene_name": entry.get("gene_name", entry.get("gene", "")),
+            "protein_name": entry.get(
+                "protein_name", entry.get("name", entry.get("protein", ""))
+            ),
+            "category": entry.get("category", entry.get("Category", "")),
+            "evidence_type": entry.get(
+                "evidence_type", entry.get("evidence", entry.get("Evidence", ""))
+            ),
+            "organism": entry.get("organism", entry.get("Organism", "")),
+            "references": parsed_refs,
+        }
+
+        self.finished.emit(result)
+
+
+# --- beer.io.pdb: extract_phi_psi ---
+def extract_phi_psi(pdb_str: str) -> list:
+    """Extract φ/ψ dihedral angles for each residue from a PDB string.
+
+    Returns list of dicts: {phi, psi, resname, resnum, chain_id, ss}
+    ss: 'H' (helix) or 'E' (sheet) or 'C' (coil) - estimated from phi/psi values.
+    Uses Biopython's PPBuilder.
+    """
+    import io
+    from Bio.PDB import PDBParser, PPBuilder
+    parser = PDBParser(QUIET=True)
+    struct = parser.get_structure("x", io.StringIO(pdb_str))
+    ppb = PPBuilder()
+    result = []
+    for model in struct:
+        for pp in ppb.build_peptides(model):
+            phi_psi = pp.get_phi_psi_list()
+            for i, (residue, (phi, psi)) in enumerate(zip(pp, phi_psi)):
+                if phi is None or psi is None:
+                    continue
+                phi_deg = math.degrees(phi)
+                psi_deg = math.degrees(psi)
+                # Estimate secondary structure from dihedral angles
+                if -160 <= phi_deg <= -45 and -60 <= psi_deg <= 50:
+                    ss = 'H'
+                elif phi_deg <= -90 and (psi_deg >= 90 or psi_deg <= -150):
+                    ss = 'E'
+                else:
+                    ss = 'C'
+                result.append({
+                    "phi": phi_deg,
+                    "psi": psi_deg,
+                    "resname": residue.get_resname(),
+                    "resnum": residue.get_id()[1],
+                    "chain_id": residue.get_parent().get_id(),
+                    "ss": ss,
+                })
+        break  # first model only
+    return result
+
+_extract_phi_psi = extract_phi_psi  # alias used by beer.py
+
 
 # --- Constants ---
 
