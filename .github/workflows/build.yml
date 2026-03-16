@@ -63,7 +63,7 @@ jobs:
             --collect-submodules Bio \
             --collect-submodules matplotlib \
             --collect-submodules mplcursors \
-            beer/__main__.py
+            beer.py
 
       - name: Build with PyInstaller (Windows)
         if: runner.os == 'Windows'
@@ -82,7 +82,7 @@ jobs:
             --collect-submodules Bio `
             --collect-submodules matplotlib `
             --collect-submodules mplcursors `
-            beer/__main__.py
+            beer.py
 
       - name: Upload artifact (Linux/macOS)
         if: runner.os != 'Windows'
