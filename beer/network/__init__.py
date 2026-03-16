@@ -1,1 +1,0 @@
-"""BEER network package."""
