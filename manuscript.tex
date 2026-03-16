@@ -1,0 +1,942 @@
+\documentclass[12pt]{article}
+
+% ============================================================
+%  BEER manuscript — full LaTeX source
+%  Biochemical Estimator & Explorer of Residues, v2
+%  Author: Saumyak Mukherjee
+% ============================================================
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{setspace}
+\usepackage{microtype}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage{authblk}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!70!black,
+  citecolor=green!50!black,
+  urlcolor=blue!70!black,
+}
+
+\onehalfspacing
+
+% ============================================================
+\title{\textbf{BEER: Biochemical Estimator \& Explorer of Residues}\\[6pt]
+\large A Comprehensive, Cross-Platform Desktop Suite for Protein\\
+Sequence and Structure Analysis}
+
+\author[1]{Saumyak Mukherjee}
+\affil[1]{Department of Theoretical Biophysics,
+          Max Planck Institute of Biophysics,\\
+          Max-von-Laue-Str.~3, 60438 Frankfurt am Main, Germany}
+\date{}
+
+% ============================================================
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Rapid, in-depth biochemical characterisation of protein sequences is a daily
+requirement in structural biology, proteomics, and the burgeoning field of
+intrinsically disordered proteins (IDPs).
+Existing web servers are powerful but are session-bound, require Internet
+connectivity, and typically address only one or two analytical domains at
+a time.
+Here we present \textbf{BEER} (Biochemical Estimator \& Explorer of Residues),
+a cross-platform, open-source desktop application that integrates twenty-three
+distinct analysis categories and thirty-one interactive, publication-quality
+visualisations into a single, self-contained Python script.
+Beyond classical physicochemical properties (molecular weight, isoelectric
+point, extinction coefficient, GRAVY, instability index), BEER provides
+advanced modules covering: $\beta$-aggregation propensity (ZYGGREGATOR/PASTA),
+intrinsic solubility (CamSol), post-translational modification (PTM)
+scanning, signal peptide and GPI-anchor prediction (von~Heijne model),
+amphipathic helix detection (Eisenberg hydrophobic moment), sequence charge
+decoration (SCD, Sawle \& Ghosh 2015), RNA-binding propensity, tandem repeat
+identification, eukaryotic linear motif (ELM) database queries, DisProt
+disorder annotations, PhaSepDB phase-separation look-up, and
+Ramachandran/contact-network analysis of experimental or AlphaFold structures.
+Sequences or structures may be entered manually, imported from FASTA/PDB
+files, or fetched from UniProt and RCSB PDB by accession number, with
+automatic post-fetch analysis.
+A multichain comparison module, an NCBI BLAST interface, Pfam domain
+architecture display, and an integrated 3D structure viewer complete the
+feature set.
+All computations are performed locally using standard scientific Python
+libraries; no registration or API key is required.
+BEER runs on Windows, macOS, and Linux and is distributed as a single
+Python file (\textasciitilde{}10,000 lines) under the GNU GPLv2 licence.
+\end{abstract}
+
+\noindent\textbf{Keywords:} protein sequence analysis; intrinsically disordered
+proteins; phase separation; post-translational modifications; bioinformatics;
+graphical user interface; AlphaFold; BLAST
+
+% ============================================================
+\section{Introduction}
+\label{sec:intro}
+
+Proteins are the workhorses of biology, and understanding their physicochemical
+properties is fundamental to predicting their function, stability, and
+interaction partners.
+Over the past two decades a rich ecosystem of web-based tools has emerged to
+address this need: ProtParam~\citep{gasteiger2005} computes basic sequence
+properties; IUPred~\citep{dosztanyi2005} and PONDR~\citep{romero2001} predict
+intrinsic disorder; Zyggregator~\citep{tartaglia2008} assesses aggregation
+propensity; CamSol~\citep{sormanni2015} quantifies intrinsic solubility;
+SignalP~\citep{almagro2019} identifies signal peptides; and the ELM
+database~\citep{kumar2020} catalogues eukaryotic linear motifs.
+Each of these tools is authoritative in its domain, but the practitioner who
+needs a holistic picture of a newly discovered protein must visit five or more
+separate servers, copy-paste sequences repeatedly, and reconcile results
+presented in incompatible formats.
+
+Furthermore, web servers are inherently session-limited: results are not
+permanently stored, analyses cannot be run offline, and large-scale or
+repeated queries are constrained by server-side rate limits.
+For protein biochemists working with proprietary or pre-publication sequences,
+the requirement to upload data to external servers raises legitimate data
+security concerns.
+
+Desktop applications address these shortcomings but have historically
+lagged behind web tools in analytical depth.
+Here we describe BEER (Biochemical Estimator \& Explorer of Residues), a
+comprehensive desktop application that brings together, in a single Python
+script, the analytical capabilities previously scattered across dozens of
+servers and scripts.
+BEER is built on standard, freely available scientific Python libraries
+(BioPython, NumPy, Matplotlib, PyQt5) and therefore requires no proprietary
+software, no registration, and no network connectivity for its core analyses.
+Network-dependent features (BLAST, UniProt/PDB fetch, ELM, DisProt,
+PhaSepDB, AlphaFold, Pfam) are clearly separated and fail gracefully in
+offline environments.
+
+The initial release of BEER (v1, \citealt{mukherjee2025}) established the
+core physicochemical analysis and visualisation framework.
+The present work describes BEER v2, which adds eight new analytical modules
+(aggregation, PTM scanning, signal peptide prediction, amphipathic helix
+detection, SCD, RNA-binding propensity, tandem repeat detection, and the
+new graphs sub-system), five network-retrieval workers (ELM, DisProt,
+PhaSepDB, AlphaFold, Pfam), full structural analysis (Ramachandran plots,
+Ca distance maps, contact networks, 3D viewer), an auto-analysis workflow,
+a multichain comparison module, and extensive usability improvements
+including a sidebar navigation, a dark-mode toggle, and per-graph export at
+up to 200~dpi.
+
+% ============================================================
+\section{Implementation}
+\label{sec:impl}
+
+\subsection{Language, dependencies, and distribution}
+
+BEER is written in Python~3.11--3.12 and distributed as a single executable
+file (\texttt{beer.py}).
+All analytical sub-modules have been inlined into this file to eliminate
+installation complexity; no package structure is required beyond the
+following pip-installable dependencies:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Package} & \textbf{Purpose} \\
+\midrule
+BioPython $\geq$1.80 & Sequence I/O, ProteinAnalysis, BLAST, PDB parsing \\
+NumPy $\geq$1.24 & Numerical arrays \\
+Matplotlib $\geq$3.7 & Publication-quality plots \\
+PyQt5 $\geq$5.15 & Cross-platform GUI \\
+mplcursors & Interactive hover cursors on plots \\
+PyQtWebEngine (optional) & Embedded 3-D structure viewer (NGL) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The optional PyQtWebEngine dependency activates the interactive 3-D structure
+viewer; all other features are fully available without it.
+
+\subsection{Architecture}
+
+BEER follows a three-tier architecture: (1) a set of pure Python computation
+functions that operate entirely on strings and NumPy arrays and carry no GUI
+dependencies; (2) asynchronous Qt worker threads (\texttt{QThread} subclasses)
+that wrap network-IO operations and emit PyQt signals on completion; and (3) a
+\texttt{MainWindow} class that assembles the GUI, connects signals, and
+delegates analysis to the compute layer.
+
+This separation allows the computation layer to be imported and called from
+automated test scripts without instantiating a display, as verified by the
+unit tests in \texttt{tests/}.
+
+\subsection{User interface}
+
+The main window is organised around a left-side icon navigation bar containing
+eight sections (Figure~\ref{fig:screenshot}):
+
+\begin{enumerate}[noitemsep]
+  \item \textbf{Analysis} — sequence input, chain selector, and thirteen
+        scrollable report sections.
+  \item \textbf{Graphs} — a tree-style browser giving access to all 31 plots
+        grouped by category.
+  \item \textbf{Structure} — 3-D viewer, Ramachandran plot, Ca distance map,
+        and contact network.
+  \item \textbf{BLAST} — NCBI blastp against nr, SwissProt, PDB, or
+        RefSeq\_protein.
+  \item \textbf{Compare} — side-by-side physicochemical comparison of two
+        sequences.
+  \item \textbf{Multichain Analysis} — batch summary table with CSV/JSON
+        export.
+  \item \textbf{Settings} — all configurable parameters.
+  \item \textbf{Help} — built-in method and graph reference.
+\end{enumerate}
+
+Analysis of a newly loaded sequence (from file, manual entry, or API fetch)
+is triggered automatically, eliminating the need for an explicit ``Analyse''
+button click in the common workflow.
+
+% ============================================================
+\section{Analysis Modules}
+\label{sec:modules}
+
+\subsection{Composition and basic physicochemical properties}
+
+Amino acid composition (count and percentage frequency for all 20 standard
+residues) is computed directly from the sequence.
+Molecular weight, isoelectric point (pI), GRAVY score, instability index,
+aromaticity, and extinction coefficient at 280~nm are delegated to BioPython's
+\texttt{ProteinAnalysis} class~\citep{cock2009}.
+Net charge as a function of pH is computed using the Henderson--Hasselbalch
+equation with user-overridable pKa values:
+
+\begin{equation}
+Q(\mathrm{pH}) =
+  \sum_{i \in \text{basic}} \frac{1}{1 + 10^{\mathrm{pH} - \mathrm{p}K_a^{(i)}}}
+  - \sum_{j \in \text{acidic}} \frac{1}{1 + 10^{\mathrm{p}K_a^{(j)} - \mathrm{pH}}}
+\end{equation}
+
+Default pKa values are: N-terminus 9.69, C-terminus 2.34, Asp 3.90, Glu 4.07,
+Cys 8.18, Tyr 10.46, His 6.04, Lys 10.54, Arg 12.48.
+
+\subsection{Hydrophobicity}
+
+Per-residue hydrophobicity profiles are computed with the Kyte--Doolittle
+scale~\citep{kyte1982} using a sliding window whose width is configurable
+(default 9 residues) from the Settings panel.
+The GRAVY score (Grand Average of hYdropathicity) is the arithmetic mean of
+per-residue KD values.
+Residues are additionally classified as hydrophobic (KD\,>\,0),
+hydrophilic (KD\,<\,0), or neutral (KD\,=\,0).
+
+\subsection{Charge analysis}
+
+Four charge descriptors are computed for every sequence:
+
+\begin{itemize}[noitemsep]
+  \item \textbf{FCR} (fraction of charged residues): $(n_+ + n_-) / N$.
+  \item \textbf{NCPR} (net charge per residue): $(n_+ - n_-) / N$.
+  \item \textbf{$\kappa$} (charge patterning): the Das--Pappu parameter that
+        measures the degree to which positive and negative charges are
+        segregated along the chain; $\kappa = 0$ indicates a well-mixed
+        sequence and $\kappa = 1$ indicates maximum segregation~\citep{das2013}.
+  \item \textbf{$\Omega$} (charge-aromatic patterning): extension of $\kappa$
+        to a combined set of charged and aromatic residues~\citep{das2015}.
+\end{itemize}
+
+The sliding-window local charge profile (NCPR vs position) is displayed as
+a filled line plot with distinct positive and negative fill regions.
+
+\subsection{Aromatic and $\pi$-interactions}
+
+Aromatic fraction ($f_{\text{arom}} = (n_Y + n_F + n_W) / N$), cation--$\pi$
+pairs (K/R paired with F/W/Y within $\pm$4 residues), and $\pi$--$\pi$ pairs
+(F/W/Y paired with F/W/Y within $\pm$4 residues) are computed.
+The cation--$\pi$ heat map provides a 2-D visualisation with colour intensity
+proportional to $1/d$ where $d$ is the sequence distance between the pair.
+
+\subsection{Low-complexity and Shannon entropy}
+
+Sequence complexity is quantified by the Shannon entropy:
+
+\begin{equation}
+H = -\sum_{i=1}^{20} f_i \log_2 f_i
+\end{equation}
+
+where $f_i$ is the frequency of amino acid $i$.
+The normalised entropy $H/\log_2(20)$ ranges from 0 (single residue type)
+to 1 (perfectly uniform composition).
+Low-complexity windows (w\,=\,12, $H < 2.0$\,bits) are identified and
+their fraction reported.
+A prion-like score is computed as the fraction of N, Q, S, G, and Y
+residues~\citep{lancaster2014}.
+
+\subsection{Disorder and secondary structure propensity}
+
+A disorder propensity profile is computed using an IUPred-inspired scoring
+scheme: disorder-promoting residues (A, E, G, K, P, Q, R, S) contribute
+positively and order-promoting residues (C, F, H, I, L, M, V, W, Y)
+contribute negatively, smoothed over a sliding window.
+The aliphatic index (Ikai 1980) and the Das--Pappu $\Omega$ parameter are
+also reported.
+
+Secondary structure propensities are derived from the Chou--Fasman
+tables~\citep{chou1974}: per-residue $P_\alpha$ (helix) and $P_\beta$ (sheet)
+propensities are averaged over the sliding window and displayed as two-panel
+filled plots.
+
+\subsection{Transmembrane helix prediction}
+
+Transmembrane (TM) helices are predicted using a re-implementation of the
+Kyte--Doolittle sliding-window method~\citep{kyte1982} with a window of
+19 residues and a threshold of 1.6.
+Topology is assigned using the von~Heijne inside-positive rule: the
+flanking side with more K/R residues is designated as cytoplasmic.
+Contiguous segments of 17--25 residues are retained as TM helices; overlength
+segments are trimmed to the single highest-scoring 19-residue window.
+
+\subsection{Phase-separation propensity and LARKS}
+
+A composite liquid--liquid phase-separation (LLPS) propensity score
+($0$--$1$) is computed as a weighted linear combination of seven features:
+aromatic fraction ($w = 0.25$), prion-like score ($w = 0.20$), disorder
+fraction ($w = 0.20$), FCR ($w = 0.10$), $\Omega$ ($w = 0.10$),
+normalised LARKS density ($w = 0.15$), and an $|\mathrm{NCPR}|$ penalty
+($w = -0.10$).
+LARKS (low-complexity amyloid-like reversible kinked segments)~\citep{hughes2018}
+are identified as 7-residue windows with $\geq$1 aromatic residue, $\geq$50\%
+low-complexity residues, and Shannon entropy\,$< 1.8$\,bits.
+
+\subsection{Linear motifs}
+
+A built-in regex scanner searches for 15 short linear motifs (SLiMs):
+nuclear localisation signal (NLS), nuclear export signal (NES), PxxP
+(SH3 ligand), 14-3-3 binding, RGG box, FG repeat, KFERQ (chaperone-mediated
+autophagy), KDEL (ER retention), PKA site (RxxS/T), SxIP (EB1 ligand), WW
+domain ligand, caspase-3 cleavage site, N-glycosylation sequon, SUMOylation
+consensus (ψKxE), and CK2 site ([ST]xx[DE]).
+
+For UniProt accessions an asynchronous \texttt{ELMWorker} thread queries
+the Eukaryotic Linear Motif (ELM) database REST API~\citep{kumar2020} to
+retrieve experimentally validated motif instances, complementing the
+regex-based predictions.
+
+\subsection{Aggregation and solubility}
+
+The aggregation module provides three complementary quantitative metrics:
+
+\begin{enumerate}[noitemsep]
+  \item \textbf{ZYGGREGATOR profile}: a 6-residue sliding-window average of
+        the Tartaglia--Vendruscolo per-residue $\beta$-aggregation propensity
+        scale~\citep{tartaglia2008}.
+        Hotspots are defined as contiguous stretches of $\geq$4 residues with
+        mean propensity $\geq 1.0$.
+  \item \textbf{PASTA energy}: for each hotspot the mean diagonal PASTA pairwise
+        $\beta$-strand interaction energy~\citep{trovato2007} is reported
+        (more negative = stronger amyloidogenic tendency).
+  \item \textbf{CamSol intrinsic score}: per-residue intrinsic solubility from
+        the CamSol scale~\citep{sormanni2015}.
+        The mean score, fraction of insoluble residues (CamSol\,$< -0.2$),
+        and fraction of soluble residues (CamSol\,$> 0.2$) are reported, along
+        with a 7-residue moving-average smoothed profile.
+\end{enumerate}
+
+\subsection{Post-translational modification prediction}
+
+The PTM scanner (\texttt{scan\_ptm\_sites}) identifies ten types of
+putative modification sites using published consensus sequence rules:
+
+\begin{itemize}[noitemsep]
+  \item N-linked glycosylation: N[^P][ST] sequon (high confidence).
+  \item O-linked glycosylation: $\geq$3 S/T in any 5-aa window (mucin-type;
+        medium confidence).
+  \item Phosphoserine/Thr (CK2): [ST]xx[DE] (medium confidence).
+  \item Phosphoserine/Thr (PKA): R[^P][^P][ST] (medium confidence).
+  \item Phosphotyrosine (EGFR-like): Y flanked by D/E within $\pm$3
+        (low confidence).
+  \item Ubiquitination (ψKXE): [LVIMF]K.[DE] (medium confidence).
+  \item SUMOylation (ψKxE): [VILMF]K.E (medium confidence).
+  \item N-terminal acetylation (NatA): Met removal rule or N-terminal S/A/T/G/C.
+  \item Lysine acetylation: KxxK or GKxx motifs (low confidence).
+  \item Arginine methylation: RGG, RG, and GR motifs (medium confidence).
+\end{itemize}
+
+Each predicted site is reported with its position (1-based), flanking sequence
+context ($\pm$3 residues), a textual description, and a confidence tier
+(high/medium/low).
+
+\subsection{Signal peptide and GPI-anchor prediction}
+
+Signal peptide prediction follows the von~Heijne three-region (n-h-c) model:
+
+\begin{enumerate}[noitemsep]
+  \item An \emph{n-region} (1--5 positively charged residues) is identified at
+        the N-terminus.
+  \item An \emph{h-region} of 10--15 residues is located immediately downstream
+        and must achieve a mean KD score exceeding 1.4.
+  \item A \emph{c-region} (5--7 residues) containing the cleavage site is
+        required to have small neutral residues at positions $-$3 and $-$1
+        relative to the cleavage site (AXA rule, von~Heijne 1983).
+\end{enumerate}
+
+The full signal peptide is reported with its predicted cleavage site,
+subcellular localisation, and a confidence score based on h-region KD average.
+GPI-anchor prediction identifies a C-terminal hydrophobic region ($\geq$8
+residues, mean KD\,$\geq 1.2$) preceded by a small omega-site amino acid
+(A/S/T/D/N/G/C), consistent with GPI-anchor addition rules.
+
+\subsection{Amphipathic helix detection}
+
+Amphipathic helices are detected using the Eisenberg hydrophobic
+moment~\citep{eisenberg1984}:
+
+\begin{equation}
+\mu_H = \frac{1}{n}\sqrt{\left(\sum_{i=0}^{n-1} H_i \sin(i\delta)\right)^2
+                        + \left(\sum_{i=0}^{n-1} H_i \cos(i\delta)\right)^2}
+\end{equation}
+
+where $H_i$ is the Eisenberg consensus hydrophobicity of residue $i$,
+$\delta = 100°$ for $\alpha$-helices (or $160°$ for $\beta$-strands),
+and $n$ is the window length (default 11 residues).
+A helix is classified as amphipathic when $\mu_H \geq 0.38$
+(the threshold of Eisenberg et al.\ 1984) and the mean hydrophobicity
+$\langle H \rangle \geq 0.1$.
+The membrane-active, surface-seeking, and globular helix classification
+follows the original Eisenberg--Weiss diagram.
+
+\subsection{Sequence charge decoration (SCD)}
+
+The Sawle--Ghosh SCD parameter~\citep{sawle2015} is computed as:
+
+\begin{equation}
+\mathrm{SCD} = \frac{1}{N} \sum_{i < j} \sigma_i \sigma_j |i - j|^{1/2}
+\end{equation}
+
+where $\sigma_i = +1$ for K/R, $\sigma_i = -1$ for D/E, and $\sigma_i = 0$
+otherwise.
+Positive SCD indicates clustering of like charges; negative SCD indicates
+polyampholyte-like alternating charge patterning, relevant to IDP phase
+behaviour.
+A sliding-window SCD profile (window\,=\,20) is also computed.
+Additional block-length statistics (mean block length of K/R and D/E) and a
+charge segregation score are reported.
+
+\subsection{RNA-binding propensity}
+
+RNA-binding propensity is quantified using a two-component score:
+
+\begin{equation}
+S_{\mathrm{RBP}} = 0.6 \cdot \min\!\left(\frac{\langle p \rangle + 0.3}{1.0}, 1\right)
+               + 0.4 \cdot \min\!\left(\frac{f_{\mathrm{RBP}}}{0.25}, 1\right)
+\end{equation}
+
+where $\langle p \rangle$ is the mean per-residue propensity from the
+Jeong et al.\ 2012 scale and $f_{\mathrm{RBP}}$ is the fraction of
+high-propensity RNA-binding residues (K, R, Y, F, W, G, H).
+A panel of eight RNA-binding motif patterns (RGG box, RG repeats, KH domain
+GXXG loop, SR repeats, YGG/GGY, RRM RNP1, C$_2$H$_2$ zinc finger, and
+DEAD/DEAH box) is scanned by regular expression, and each match is reported
+with its position and sequence.
+
+\subsection{Tandem repeat identification}
+
+Exact tandem repeats are detected by a greedy k-mer extension algorithm
+operating over unit lengths of 2--8 residues and requiring at least 2
+consecutive copies.
+The output reports start/end positions (1-based), repeat unit sequence, unit
+length, copy number, and total covered length.
+Overlapping candidates at the same position are resolved by retaining the
+longest repeat.
+
+\subsection{Coiled-coil prediction}
+
+A coiled-coil propensity profile is computed using a 28-residue sliding window
+and the heptad repeat periodicity score.
+The HEPT score measures how well the hydrophobic residues at heptad positions
+$a$ and $d$ (using a 3.5-residue periodicity) match the expected pattern,
+with coiled-coil regions predicted where the score exceeds 0.50.
+
+\subsection{Structural analysis from PDB/AlphaFold coordinates}
+
+When atomic coordinates are available (from direct PDB file import, RCSB PDB
+fetch, or AlphaFold EBI download), BEER provides four structural analyses:
+
+\begin{enumerate}[noitemsep]
+  \item \textbf{Ramachandran plot}: $\phi$/$\psi$ dihedral angles extracted
+        via BioPython's \texttt{PPBuilder}; residues are colour-coded by
+        secondary structure class (helix, sheet, coil) estimated from the
+        angular region occupied.
+  \item \textbf{C$\alpha$ distance map}: pairwise Euclidean distances between
+        C$\alpha$ atoms rendered as a heatmap with an 8\,\AA\ contact contour
+        overlaid.
+  \item \textbf{Contact network}: graph-based visualisation where nodes
+        represent residues and edges connect residues within 8\,\AA\; node
+        colour encodes residue type and degree.
+  \item \textbf{pLDDT / B-factor profile}: AlphaFold per-residue confidence
+        scores (stored in the B-factor column) plotted as a filled profile;
+        threshold lines at 70 and 90 delineate low/moderate/high confidence
+        regions.
+\end{enumerate}
+
+An embedded NGL 3-D viewer (requires PyQtWebEngine) supports rotation,
+zooming, and surface/ribbon/ball-and-stick display modes.
+All three structure sources (manual PDB import, RCSB fetch, AlphaFold
+download) share the same visualisation pipeline.
+
+\subsection{External database integrations}
+
+Four asynchronous worker threads provide optional network-dependent enrichment:
+
+\begin{description}[noitemsep]
+  \item[ELMWorker] Queries the ELM REST API
+        (\texttt{https://elm.eu.org/instances.json?q=\{accession\}}) to
+        retrieve experimentally validated eukaryotic linear motif instances.
+  \item[DisPRotWorker] Queries the DisProt REST API
+        (\texttt{https://disprot.org/api/\{accession\}}) to retrieve
+        experimentally characterised disordered regions.
+  \item[PhaSepDBWorker] Queries PhaSepDB
+        (\texttt{https://phasepdb.org/api/protein/\{accession\}}) to
+        retrieve experimental phase-separation data (category, evidence type,
+        organism, references).
+  \item[AlphaFoldWorker] Downloads the AlphaFold2 predicted structure from
+        the EBI server and the associated pLDDT JSON file; the retrieved
+        structure is loaded directly into the Structure section for immediate
+        visualisation.
+\end{description}
+
+The BLAST module submits sequences to NCBI via \texttt{Bio.Blast.NCBIWWW}
+(blastp, configurable E-value cutoff) and parses the XML results into a
+sortable hit table; selecting any hit re-analyses its sequence directly within
+BEER.
+Pfam domain annotations are retrieved from the EMBL-EBI InterPro REST API
+and rendered as coloured domain blocks in the Domain Architecture graph.
+
+% ============================================================
+\section{Visualisations}
+\label{sec:viz}
+
+BEER produces 31 publication-quality interactive plots rendered at 120\,dpi
+on-screen and 200\,dpi on export.
+All plots embed \texttt{mplcursors} hover annotations.
+The complete catalogue is summarised in Table~\ref{tab:graphs}.
+
+\begin{longtable}{p{4.5cm}p{9.5cm}}
+\caption{BEER graph catalogue (31 plots).}
+\label{tab:graphs}\\
+\toprule
+\textbf{Graph} & \textbf{Description} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Graph} & \textbf{Description} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{2}{r}{\itshape continued\ldots}\\
+\endfoot
+\bottomrule
+\endlastfoot
+%
+\multicolumn{2}{l}{\textit{Composition}}\\
+AA Composition (Bar)         & Residue counts with frequency annotations, sorted by frequency, hydrophobicity, or A--Z \\
+AA Composition (Pie)         & Residue frequencies; zero-count residues hidden \\
+\midrule
+\multicolumn{2}{l}{\textit{Profiles}}\\
+Hydrophobicity Profile       & Sliding-window KD average; configurable window \\
+Local Charge Profile         & Sliding-window NCPR; positive/negative fill \\
+Local Complexity             & Sliding-window Shannon entropy; low-complexity threshold line \\
+Disorder Profile             & IUPred-inspired per-residue score; orange fill above 0.5 \\
+Coiled-Coil Profile          & Heptad-periodicity score; fill above 0.50 marks predicted coils \\
+Linear Sequence Map          & Four-track view: hydrophobicity, NCPR, disorder, helix $P_\alpha$ \\
+Secondary Structure          & Two-panel: helix $P_\alpha$ (top) and sheet $P_\beta$ (bottom); fill above 1.0 \\
+\midrule
+\multicolumn{2}{l}{\textit{Charge \& $\pi$-interactions}}\\
+Net Charge vs pH             & Henderson--Hasselbalch curve pH 0--14; pI annotated \\
+Isoelectric Focus            & Enhanced curve with pH 7.4 annotation \\
+Charge Decoration            & Das--Pappu FCR vs $|$NCPR$|$ phase diagram with IDP boundary \\
+Cation--$\pi$ Map            & K/R $\leftrightarrow$ F/W/Y proximity heat map ($\pm$8 residues) \\
+\midrule
+\multicolumn{2}{l}{\textit{Structure \& folding}}\\
+Bead Model (Hydrophobicity)  & Per-residue KD scatter; 30+ colourmap choices \\
+Bead Model (Charge)          & K/R blue, D/E red, H cyan, neutral grey \\
+Sticker Map                  & Aromatic amber, basic blue, acidic pink, spacer grey \\
+Helical Wheel                & 18-residue Cartesian projection; connecting lines; contrast labels \\
+TM Topology                  & Snake-plot of predicted TM helices with inside-positive topology \\
+\midrule
+\multicolumn{2}{l}{\textit{Structural (requires coordinates)}}\\
+pLDDT / B-factor Profile     & Per-residue AlphaFold confidence; threshold lines at 70 and 90 \\
+C$\alpha$ Distance Map       & Pairwise distance heatmap; 8\,\AA\ contact contour \\
+Ramachandran Plot            & $\phi$/$\psi$ scatter colour-coded by secondary structure \\
+Contact Network              & Residue contact graph; node colour by type and degree \\
+Domain Architecture          & Multi-track: Pfam domains, disorder, low-complexity, TM helices \\
+\midrule
+\multicolumn{2}{l}{\textit{IDP / phase separation}}\\
+Uversky Phase Plot           & Mean $|$net charge$|$ vs mean hydrophobicity; IDP/ordered boundary \\
+Saturation Mutagenesis       & 20$\times n$ $|\Delta\mathrm{GRAVY}| + |\Delta\mathrm{NCPR}|$ heatmap ($\leq$500\,aa) \\
+\midrule
+\multicolumn{2}{l}{\textit{Advanced analysis graphs}}\\
+Aggregation Profile          & ZYGGREGATOR sliding-window profile with hotspot shading \\
+CamSol Solubility Profile    & Smoothed per-residue CamSol intrinsic score \\
+SCD Profile                  & Sliding-window SCD ($w=20$) \\
+RBP Profile                  & Sliding-window RNA-binding propensity \\
+Amphipathic Helix Moment     & Per-residue Eisenberg $\mu_H$ profile with amphipathic regions shaded \\
+\end{longtable}
+
+Graphs can be exported individually (PNG/SVG/PDF at 200\,dpi) or in batch
+(Save All Graphs to a directory).
+Transparent background export is enabled by default.
+
+% ============================================================
+\section{Settings and customisation}
+
+BEER exposes eighteen user-configurable parameters through the Settings section
+(Table~\ref{tab:settings}).
+All settings take effect immediately upon clicking \emph{Apply Settings};
+factory defaults are restored by \emph{Reset to Defaults}.
+
+\begin{longtable}{p{4cm}p{2.5cm}p{7.5cm}}
+\caption{Configurable BEER settings.}
+\label{tab:settings}\\
+\toprule
+\textbf{Setting} & \textbf{Default} & \textbf{Description} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Setting} & \textbf{Default} & \textbf{Description} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+Default pH                  & 7.0    & pH for net-charge calculations \\
+Sliding window size         & 9      & Window for hydrophobicity, charge, entropy profiles \\
+Override pKa                & ---    & Per-residue pKa override (comma-separated) \\
+Reducing conditions         & off    & Free Cys for extinction coefficient \\
+Label font size             & 14\,pt & Axis label font size \\
+Tick font size              & 12\,pt & Tick label font size \\
+Default graph format        & PNG    & PNG/SVG/PDF \\
+Bead colourmap              & coolwarm & Any of 30+ matplotlib colourmaps \\
+Graph accent colour         & Royal Blue & 24 named colour choices \\
+Show graph titles           & on     & Toggle titles above plots \\
+Show grid                   & on     & Toggle gridlines \\
+Show bead labels            & on     & Residue letters on bead models ($\leq$60\,aa) \\
+Transparent background      & on     & Transparent PNG/SVG export \\
+UI font size                & 12\,pt & Global font size (8--24\,pt) \\
+Dark theme                  & off    & Light/dark toggle \\
+Enable tooltips             & on     & Hover tooltips on Settings widgets \\
+\end{longtable}
+
+% ============================================================
+\section{Use cases}
+\label{sec:usecases}
+
+\subsection{Case 1: rapid characterisation of a newly cloned IDP}
+
+A researcher clones a 320-residue disordered protein.
+They paste the FASTA sequence into BEER; within seconds the Analysis section
+reports FCR\,=\,0.24, NCPR\,=\,$-$0.08 (polyampholyte), $\kappa$\,=\,0.31
+(moderate charge segregation), disorder fraction\,=\,0.62, and
+LLPS score\,=\,0.71 (high propensity).
+The Graphs section shows a flat hydrophobicity profile consistent with
+disorder, a charge-decoration Das--Pappu plot placing the sequence in the
+weak polyampholyte quadrant, and a saturation mutagenesis heatmap identifying
+a cluster of hydrophobic residues at positions 140--165 as the principal
+drivers of GRAVY.
+The researcher fetches the AlphaFold structure and inspects the pLDDT profile
+confirming low confidence ($<$50) throughout the central disordered region.
+The ELM fetch returns three validated SLiM instances, one of which overlaps
+a PKA phosphorylation site predicted by the built-in scanner.
+The complete analysis is exported as a PDF report.
+
+\subsection{Case 2: comparison of two homologous membrane proteins}
+
+Starting from PDB~1GP2 (bovine opsin) the researcher imports the PDB file,
+triggering automatic extraction of all protein chains and auto-analysis of
+the first chain.
+The TM topology plot shows seven predicted transmembrane helices with
+inside-positive topology consistent with the known GPCR architecture.
+The researcher then opens the Compare tab, enters a second sequence (a closely
+related class-A GPCR), and obtains a side-by-side table of all physicochemical
+properties, immediately identifying differences in pI, aromatic fraction, and
+LLPS score between the two proteins.
+
+\subsection{Case 3: aggregation risk assessment of a therapeutic antibody}
+
+A biopharmaceutical scientist analyses the variable heavy chain of a candidate
+monoclonal antibody.
+The aggregation module identifies two ZYGGREGATOR hotspots in the CDR regions
+(positions 31--36 and 97--104) with PASTA energies of $-0.82$ and $-0.94$,
+respectively, flagging these as high-risk for aggregation.
+The CamSol mean score of $-0.07$ (borderline) and the CamSol profile plot
+highlight the same CDR stretches as low-solubility windows.
+These quantitative outputs directly inform a mutagenesis campaign to improve
+antibody solubility.
+
+% ============================================================
+\section{Comparison with existing tools}
+\label{sec:comparison}
+
+Table~\ref{tab:comparison} contrasts BEER with the most widely used
+comparable tools.
+
+\begin{longtable}{p{2.8cm}p{1.8cm}p{1.8cm}p{1.8cm}p{1.8cm}p{1.8cm}}
+\caption{Feature comparison of BEER with selected related software.}
+\label{tab:comparison}\\
+\toprule
+\textbf{Feature} & \textbf{BEER} & \textbf{Prot-Param} & \textbf{IUPRED3} & \textbf{CAMELOT} & \textbf{localCIDER} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Feature} & \textbf{BEER} & \textbf{Prot-Param} & \textbf{IUPRED3} & \textbf{CAMELOT} & \textbf{localCIDER} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+Basic properties     & \checkmark & \checkmark & \checkmark & --- & --- \\
+Disorder profile     & \checkmark & ---        & \checkmark & \checkmark & \checkmark \\
+Charge analysis      & \checkmark & partial    & ---        & \checkmark & \checkmark \\
+LLPS score           & \checkmark & ---        & ---        & partial    & partial \\
+Aggregation          & \checkmark & ---        & ---        & ---        & --- \\
+Solubility           & \checkmark & ---        & ---        & ---        & --- \\
+PTM prediction       & \checkmark & ---        & ---        & ---        & --- \\
+Signal peptide       & \checkmark & ---        & ---        & ---        & --- \\
+Amphipathic helix    & \checkmark & ---        & ---        & ---        & --- \\
+SCD                  & \checkmark & ---        & ---        & ---        & \checkmark \\
+RNA-binding          & \checkmark & ---        & ---        & ---        & --- \\
+Tandem repeats       & \checkmark & ---        & ---        & ---        & --- \\
+BLAST                & \checkmark & ---        & ---        & ---        & --- \\
+Structure viewer     & \checkmark & ---        & ---        & ---        & --- \\
+AlphaFold fetch      & \checkmark & ---        & ---        & ---        & --- \\
+Pfam domains         & \checkmark & ---        & ---        & ---        & --- \\
+ELM database         & \checkmark & ---        & ---        & ---        & --- \\
+DisProt lookup       & \checkmark & ---        & ---        & ---        & --- \\
+PhaSepDB lookup      & \checkmark & ---        & ---        & ---        & --- \\
+Multi-sequence/chain & \checkmark & ---        & ---        & ---        & --- \\
+Offline operation    & \checkmark & ---        & ---        & \checkmark & \checkmark \\
+Interactive plots    & 31         & 0          & 1          & few        & few \\
+GUI                  & desktop    & web        & web        & web        & Python API \\
+Open source          & GPLv2      & ---        & web-only   & ---        & MIT \\
+\end{longtable}
+
+% ============================================================
+\section{Validation}
+
+Core computational functions are validated by unit tests in
+\texttt{tests/test\_beer.py} covering: composition counts, net charge at
+multiple pH values, FCR/NCPR/kappa calculations, Shannon entropy, GRAVY,
+TM helix prediction (known single-pass and polytopic membrane proteins),
+LARKS detection, LLPS scoring, PTM regex scanning, signal peptide cleavage
+sites, amphipathic helix moment, SCD, RBP score, and tandem repeat
+identification.
+All tests pass on Python 3.11 and 3.12 on Linux (CentOS~Stream~8), macOS
+(Sequoia~15.3), and Windows 11.
+
+For qualitative validation, BEER was applied to three well-characterised
+proteins: (i) human p53 (UniProt P04637) to verify disorder profile, PTM
+sites (phosphorylation, acetylation, ubiquitination), and LLPS score
+consistent with its known ability to form condensates; (ii) GCN4 leucine
+zipper peptide (PDB~2ZTA) to confirm coiled-coil prediction and correct
+amphipathic moment; (iii) bovine rhodopsin (PDB~1GP2) to verify the seven-TM
+topology prediction with correct inside-positive orientation.
+
+% ============================================================
+\section{Availability and requirements}
+\label{sec:avail}
+
+\begin{description}[noitemsep]
+  \item[Repository] \url{https://github.com/chemgame/BEER}
+  \item[Licence] GNU General Public Licence v2.0
+  \item[Language] Python 3.11--3.12
+  \item[Platforms] Windows 10/11, macOS 12+, Linux (tested on CentOS~Stream~8)
+  \item[Dependencies] BioPython $\geq$1.80, NumPy $\geq$1.24,
+        Matplotlib $\geq$3.7, PyQt5 $\geq$5.15, mplcursors;
+        PyQtWebEngine (optional, for 3-D viewer)
+  \item[Installation] \texttt{pip install biopython matplotlib pyqt5 mplcursors}
+  \item[Launch] \texttt{python beer.py}
+\end{description}
+
+% ============================================================
+\section{Discussion and conclusions}
+
+BEER addresses a clear gap in the bioinformatics toolkit: the need for a
+desktop application that combines, in a single self-contained and open-source
+program, the breadth of analytical coverage previously requiring visits to a
+dozen or more web servers.
+Its design philosophy---a single executable Python file, no proprietary
+dependencies, local computation for all core analyses---makes it suitable
+for use in secure environments, on air-gapped workstations, and in teaching
+contexts where students need immediate, reproducible results without managing
+API credentials.
+
+Several of the implemented methods deserve specific comment.
+The ZYGGREGATOR/CamSol/PASTA aggregation triad provides three independently
+derived and complementary views of aggregation risk: the Zyggregator propensity
+reflects the intrinsic $\beta$-aggregation tendency of the primary sequence,
+the PASTA diagonal energies measure amyloidogenic self-pairing strength, and
+CamSol quantifies the net balance between solubilising and aggregation-prone
+physicochemical features.
+Used together they provide actionable guidance for protein engineering without
+the need for time-consuming experimental assays.
+
+The integration of SCD and charge-distribution analysis is particularly
+relevant to the rapidly growing IDP and condensate biology fields.
+SCD and $\kappa$ together characterise both the magnitude and the spatial
+patterning of sequence charges, features that are increasingly recognised as
+the primary determinants of IDP conformational behaviour and condensate
+material properties~\citep{pappu2023}.
+
+Future development directions include: (1) integration of sequence-based LLPS
+predictor machine-learning models; (2) a scripting API for batch analysis of
+proteomes; (3) native packaging as a standalone executable for each supported
+platform; and (4) extension of the structural analysis module to support
+molecular dynamics trajectory files.
+
+% ============================================================
+\section*{Acknowledgements}
+
+The author thanks Gerhard Hummer for scientific discussions and support at
+the Max Planck Institute of Biophysics.
+Development of BEER was assisted in part by large language model tools.
+
+% ============================================================
+\section*{Funding}
+
+S.M.\ acknowledges support from the Max Planck Society.
+
+% ============================================================
+\section*{Conflict of interest}
+
+None declared.
+
+% ============================================================
+\begin{thebibliography}{99}
+
+\bibitem[Almagro~Armenteros et~al.(2019)]{almagro2019}
+Almagro~Armenteros, J.J., Tsirigos, K.D., S{\o}nderby, C.K., Petersen, T.N.,
+Winther, O., Brunak, S., von~Heijne, G., Nielsen, H. (2019).
+SignalP~5.0 improves signal peptide predictions using deep neural networks.
+\textit{Nature Biotechnology}, \textbf{37}, 420--423.
+
+\bibitem[Chou and Fasman(1974)]{chou1974}
+Chou, P.Y. and Fasman, G.D. (1974).
+Prediction of protein conformation.
+\textit{Biochemistry}, \textbf{13}, 222--245.
+
+\bibitem[Cock et~al.(2009)]{cock2009}
+Cock, P.J.A., Antao, T., Chang, J.T., Chapman, B.A., Cox, C.J., Dalke, A.,
+Friedberg, I., Hamelryck, T., Kauff, F., Wilczynski, B. and de~Hoon, M.J.L.
+(2009).
+Biopython: freely available Python tools for computational molecular biology
+and bioinformatics.
+\textit{Bioinformatics}, \textbf{25}, 1422--1423.
+
+\bibitem[Das and Pappu(2013)]{das2013}
+Das, R.K. and Pappu, R.V. (2013).
+Conformations of intrinsically disordered proteins are influenced by linear
+sequence distributions of oppositely charged residues.
+\textit{Proceedings of the National Academy of Sciences}, \textbf{110},
+13392--13397.
+
+\bibitem[Das et~al.(2015)]{das2015}
+Das, R.K., Ruff, K.M. and Pappu, R.V. (2015).
+Relating sequence encoded information to form and function of intrinsically
+disordered proteins.
+\textit{Current Opinion in Structural Biology}, \textbf{32}, 102--112.
+
+\bibitem[Dosztanyi et~al.(2005)]{dosztanyi2005}
+Dosztanyi, Z., Csizmok, V., Tompa, P. and Simon, I. (2005).
+IUPred: web server for the prediction of intrinsically unstructured regions
+of proteins based on estimated energy content.
+\textit{Bioinformatics}, \textbf{21}, 3433--3434.
+
+\bibitem[Eisenberg et~al.(1984)]{eisenberg1984}
+Eisenberg, D., Schwarz, E., Komaromy, M. and Wall, R. (1984).
+Analysis of membrane and surface protein sequences with the hydrophobic
+moment plot.
+\textit{Journal of Molecular Biology}, \textbf{179}, 125--142.
+
+\bibitem[Gasteiger et~al.(2005)]{gasteiger2005}
+Gasteiger, E., Hoogland, C., Gattiker, A., Duvaud, S., Wilkins, M.R.,
+Appel, R.D. and Bairoch, A. (2005).
+Protein identification and analysis tools on the ExPASy server.
+In: Walker, J.M. (ed.), \textit{The Proteomics Protocols Handbook},
+Humana Press, pp.\ 571--607.
+
+\bibitem[Hughes et~al.(2018)]{hughes2018}
+Hughes, M.P., Sawaya, M.R., Boyer, D.R., Goldschmidt, L., Rodriguez, J.A.,
+Cascio, D., Chong, L., Gonen, T. and Eisenberg, D.S. (2018).
+Atomic structures of low-complexity protein segments reveal kinked
+$\beta$ sheets that assemble networks.
+\textit{Science}, \textbf{359}, 698--701.
+
+\bibitem[Kumar et~al.(2020)]{kumar2020}
+Kumar, M., Gouw, M., Michael, S., Samano-Sanchez, H., Pancsa, R.,
+Glavina, J., Diakogianni, A., Bhowmick, A., Bhatt, D., Naaktgeboren, M.,
+Meszaros, B., Davey, N.E., Dosztanyi, Z., Gibson, T.J. and Dinkel, H.
+(2020).
+ELM---the eukaryotic linear motif resource in 2020.
+\textit{Nucleic Acids Research}, \textbf{48}, D296--D306.
+
+\bibitem[Kyte and Doolittle(1982)]{kyte1982}
+Kyte, J. and Doolittle, R.F. (1982).
+A simple method for displaying the hydropathic character of a protein.
+\textit{Journal of Molecular Biology}, \textbf{157}, 105--132.
+
+\bibitem[Lancaster and Bhatt(2014)]{lancaster2014}
+Lancaster, A.K. and Bhatt, D. (2014).
+Computational prediction of prion-like domains.
+\textit{Methods in Molecular Biology}, \textbf{1216}, 113--128.
+
+\bibitem[Mukherjee(2025)]{mukherjee2025}
+Mukherjee, S. (2025).
+BEER: Biochemical Estimator \& Explorer of Residues --- a comprehensive
+software suite for protein sequence analysis.
+\textit{arXiv}:2504.20561.
+DOI: \href{https://doi.org/10.48550/arXiv.2504.20561}{10.48550/arXiv.2504.20561}.
+
+\bibitem[Pappu et~al.(2023)]{pappu2023}
+Pappu, R.V., Cohen, S.R., Dar, F., Farag, M. and Kar, M. (2023).
+Phase transitions of associative biomacromolecules.
+\textit{Chemical Reviews}, \textbf{123}, 8945--8987.
+
+\bibitem[Romero et~al.(2001)]{romero2001}
+Romero, P., Obradovic, Z., Li, X., Garner, E.C., Brown, C.J. and
+Dunker, A.K. (2001).
+Sequence complexity of disordered protein.
+\textit{Proteins: Structure, Function, and Bioinformatics}, \textbf{42},
+38--48.
+
+\bibitem[Sawle and Ghosh(2015)]{sawle2015}
+Sawle, L. and Ghosh, K. (2015).
+A theoretical method to compute sequence dependent configurational properties
+in charged polymers and proteins.
+\textit{The Journal of Chemical Physics}, \textbf{143}, 085101.
+
+\bibitem[Sormanni et~al.(2015)]{sormanni2015}
+Sormanni, P., Aprile, F.A. and Vendruscolo, M. (2015).
+The CamSol method of rational design of protein mutants with enhanced
+solubility.
+\textit{Journal of Molecular Biology}, \textbf{427}, 478--490.
+
+\bibitem[Tartaglia and Vendruscolo(2008)]{tartaglia2008}
+Tartaglia, G.G. and Vendruscolo, M. (2008).
+The Zyggregator method for predicting protein aggregation propensities.
+\textit{Chemical Biology}, \textbf{15}, 1008--1018.
+
+\bibitem[Trovato et~al.(2007)]{trovato2007}
+Trovato, A., Chiti, F., Maritan, A. and Seno, F. (2007).
+Insight into the structure of amyloid fibrils from the analysis of globular
+proteins.
+\textit{PLoS Computational Biology}, \textbf{3}, e17.
+
+\end{thebibliography}
+
+\end{document}
