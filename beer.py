@@ -6,8 +6,10 @@ Requirements:
   pip install biopython matplotlib PyQt5 mplcursors
 """
 
-import sys, math, os, base64, json, csv, subprocess, re
+import sys, math, os, base64, json, csv, subprocess, re, difflib, importlib.util
+import warnings
 from io import BytesIO, StringIO
+from math import log2
 import urllib.request
 import numpy as np
 
@@ -33,6 +35,7 @@ from PyQt5.QtWidgets import (
     QSplitter, QScrollArea, QFrame, QDialog, QDialogButtonBox,
     QSpinBox, QProgressDialog, QAbstractItemView,
     QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QStackedWidget,
+    QInputDialog,
 )
 from PyQt5.QtGui import QFont, QKeySequence
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
@@ -53,10 +56,15 @@ import matplotlib.pyplot as plt
 plt.style.use("default")
 import mplcursors
 
+# Suppress known harmless warnings from matplotlib and Qt font fallback
+warnings.filterwarnings("ignore", message="Setting the 'color' property will override")
+warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
+
 from Bio.SeqUtils.ProtParam import ProteinAnalysis as BPProteinAnalysis
 from Bio import SeqIO
-from Bio.PDB import PDBParser, PDBIO, Select as PDBSelect
+from Bio.PDB import PDBParser, PDBIO, Select as PDBSelect, PPBuilder
 from Bio.PDB.Polypeptide import is_aa
+from Bio.Blast import NCBIWWW, NCBIXML
 from Bio.SeqUtils import seq1
 
 # ===========================================================================
@@ -69,6 +77,8 @@ import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import matplotlib.ticker as mticker
 from matplotlib.patches import FancyArrowPatch, Arc
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
 
 # Shared HTML report CSS
 _REPORT_CSS = """
@@ -4125,10 +4135,8 @@ def extract_phi_psi(pdb_str: str) -> list:
     ss: 'H' (helix) or 'E' (sheet) or 'C' (coil) - estimated from phi/psi values.
     Uses Biopython's PPBuilder.
     """
-    import io
-    from Bio.PDB import PDBParser, PPBuilder
     parser = PDBParser(QUIET=True)
-    struct = parser.get_structure("x", io.StringIO(pdb_str))
+    struct = parser.get_structure("x", StringIO(pdb_str))
     ppb = PPBuilder()
     result = []
     for model in struct:
@@ -4994,11 +5002,11 @@ def compute_ca_distance_matrix(pdb_str: str) -> np.ndarray:
 
 
 def extract_plddt_from_pdb(pdb_str: str) -> list:
-    """Extract per-residue pLDDT scores (stored in B-factor column) from AlphaFold PDB.
+    """Extract per-residue pLDDT / B-factor confidence scores from a PDB string.
 
-    AlphaFold predictions are always single-chain, so only the first chain of the
-    first model is read.  Using only the first chain avoids silently concatenating
-    scores from multiple chains when a user-supplied multi-chain PDB is passed.
+    Only the first chain of the first model is read.  This matches the single-chain
+    output produced by AlphaFold and avoids silently concatenating scores from
+    multiple chains when a multi-chain PDB is passed.
     """
     parser = PDBParser(QUIET=True)
     struct = parser.get_structure("af", StringIO(pdb_str))
@@ -5031,7 +5039,6 @@ def detect_larks(seq: str, window: int = 7, min_arom: int = 1,
     n = len(seq)
     hits = []
     seen = set()
-    from collections import Counter
     for i in range(n - window + 1):
         w = seq[i:i + window]
         n_arom = sum(1 for aa in w if aa in LARKS_AROMATIC)
@@ -6146,8 +6153,6 @@ class GraphingTools:
         ax.set_aspect("equal")
         ax.axis("off")
 
-        from matplotlib.cm import ScalarMappable
-        from matplotlib.colors import Normalize
         cmap    = plt.get_cmap("RdYlBu_r")
         kd_min, kd_max = -4.5, 4.5
         norm    = Normalize(vmin=kd_min, vmax=kd_max)
@@ -6376,8 +6381,7 @@ class GraphingTools:
 
     @staticmethod
     def create_plddt_figure(plddt: list, label_font=14, tick_font=12):
-        """Per-residue AlphaFold pLDDT confidence score with coloured confidence zones."""
-        import matplotlib.colors as mcolors
+        """Per-residue pLDDT confidence score with coloured confidence zones."""
         n   = len(plddt)
         xs  = list(range(1, n + 1))
         fig = Figure(figsize=(9, 4), dpi=120)
@@ -6401,7 +6405,7 @@ class GraphingTools:
         ]:
             ax.axhline(thresh, color=col, linewidth=0.8, linestyle="--", alpha=0.8)
         _pub_style_ax(ax,
-                      title="AlphaFold pLDDT Confidence",
+                      title="pLDDT / B-factor Confidence",
                       xlabel="Residue Position", ylabel="pLDDT Score",
                       grid=False, title_size=label_font + 1,
                       label_size=label_font - 1, tick_size=tick_font - 1)
@@ -6419,7 +6423,7 @@ class GraphingTools:
 
     @staticmethod
     def create_distance_map_figure(dist_matrix: np.ndarray, label_font=14, tick_font=12):
-        """Cα pairwise distance heatmap from AlphaFold structure.
+        """Cα pairwise distance heatmap from a loaded PDB structure.
         Cells ≤8 Å are highlighted as contacts."""
         n   = dist_matrix.shape[0]
         fig = Figure(figsize=(6.5, 5.5), dpi=120)
@@ -6459,7 +6463,6 @@ class GraphingTools:
         """
         # ---- build per-residue LC mask ----------------------------------------
         def _lc_mask(s, window=12, thr=2.0):
-            from math import log2
             n = len(s)
             covered = [False] * n
             for i in range(n - min(window, n) + 1):
@@ -7178,7 +7181,6 @@ class BlastWorker(QThread):
 
     def run(self):
         try:
-            from Bio.Blast import NCBIWWW, NCBIXML
             self.progress.emit("Submitting BLAST search (this may take 1–3 min)…")
             result_handle = NCBIWWW.qblast(
                 "blastp", self.database, self.seq,
@@ -7520,6 +7522,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         # after calling _load_batch.
         self.batch_struct   = {}
         self.alphafold_data = None
+        self.save_pdb_btn.setEnabled(False)
         for rec_id, seq in entries:
             if not is_valid_protein(seq):
                 continue
@@ -7838,7 +7841,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.graph_stack.setCurrentIndex(0)
 
     def init_structure_tab(self):
-        """Tab for 3D AlphaFold structure viewer and pLDDT info."""
+        """Tab for interactive 3D structure viewer (PDB upload, RCSB PDB fetch, or AlphaFold fetch)."""
         container = QWidget()
         layout    = QVBoxLayout(container)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -7846,7 +7849,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.main_tabs.addTab(container, "Structure")
 
         info_row = QHBoxLayout()
-        self.af_status_lbl = QLabel("No structure loaded.  Use 'Fetch AlphaFold' after fetching a UniProt accession.")
+        self.af_status_lbl = QLabel("No structure loaded.  Import a PDB file, fetch a PDB ID, or fetch AlphaFold.")
         self.af_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
         info_row.addWidget(self.af_status_lbl, 1)
         self.save_pdb_btn = QPushButton("Save PDB")
@@ -8252,10 +8255,9 @@ window.addEventListener("load", init);
   <li><b>Paste sequence</b> — type or paste a bare amino-acid string (ACDEFG…) or FASTA block into the sequence box and click <b>Analyze [Ctrl+Enter]</b>.</li>
   <li><b>Import FASTA</b> — load a .fa / .fasta file (single or multi-sequence).</li>
   <li><b>Import PDB</b> — extract sequence(s) from a local PDB file.</li>
-  <li><b>Fetch</b> — enter a <b>UniProt ID</b> (e.g. <tt>P04637</tt>) or a <b>PDB ID</b> (e.g. <tt>1ABC</tt>) and click <b>Fetch</b>.
-    UniProt IDs automatically set the accession for <b>Fetch AlphaFold</b> and <b>Fetch Pfam</b>.
-    PDB IDs retrieve the sequence from RCSB; clicking Fetch AlphaFold or Fetch Pfam afterwards
-    will prompt you to enter a UniProt accession.</li>
+  <li><b>Fetch</b> — enter a <b>UniProt ID</b> (e.g. <tt>P04637</tt>) or a 4-character <b>PDB ID</b> (e.g. <tt>1ABC</tt>) and click <b>Fetch</b>.
+    UniProt IDs automatically set the accession for <b>Fetch AlphaFold</b>, <b>Fetch Pfam</b>, and other databases, and trigger analysis immediately.
+    PDB IDs download all chains and the coordinate file from RCSB; structural graphs (Ramachandran, distance map, etc.) are shown immediately.</li>
 </ul>
 <h2>Navigation</h2>
 <p>Use the <b>left sidebar</b> to switch between sections. Keyboard shortcuts:</p>
@@ -8356,14 +8358,19 @@ the band according to the predicted topology.</p>
 For high-accuracy results use TMHMM, Phobius, or DeepTMHMM.</p>
 """),
             ("AlphaFold & 3D Structure", """
-<h1>AlphaFold Integration</h1>
-<p>Requires an internet connection and a valid UniProt accession (fetch it with the
-<b>Fetch</b> button in the Analysis toolbar first). Then click <b>Fetch AlphaFold</b>.</p>
-<h2>What gets downloaded</h2>
+<h1>3D Structure &amp; AlphaFold Integration</h1>
+<p>Structure data can come from three sources:</p>
 <ul>
-  <li>AlphaFold2 predicted PDB file from the EBI server.</li>
-  <li>Per-residue <b>pLDDT</b> scores (stored in the B-factor column of the PDB).</li>
-  <li>Cα pairwise <b>distance matrix</b> computed from the structure coordinates.</li>
+  <li><b>Import PDB</b> — load a local .pdb file directly.</li>
+  <li><b>Fetch PDB ID</b> — enter a 4-character RCSB PDB code in the accession field; sequences and
+      the coordinate file are both downloaded automatically.</li>
+  <li><b>Fetch AlphaFold</b> — requires a UniProt accession.  Fetch it with the <b>Fetch</b> button first,
+      then click <b>Fetch AlphaFold</b> to download the EBI AlphaFold2 predicted structure.</li>
+</ul>
+<p>For every structure source, Cα coordinates are extracted per chain and used to compute:</p>
+<ul>
+  <li>Per-residue <b>pLDDT / B-factor</b> scores.</li>
+  <li>Cα pairwise <b>distance matrix</b>.</li>
 </ul>
 <h2>pLDDT Profile graph</h2>
 <p>Per-residue confidence score (0–100) plotted with four coloured confidence bands:</p>
@@ -8467,10 +8474,13 @@ to a chosen directory in the format configured in Settings.</p>
   <li><b>Helical Wheel</b> — Cartesian projection of first 18 residues at 100°/step; connecting lines between sequential residues; KD coloured with luminance-contrast labels.</li>
   <li><b>TM Topology</b> — snake-plot of predicted transmembrane helices (see Transmembrane Helices).</li>
 </ul>
-<h2>AlphaFold / Structural</h2>
+<h2>Structural Graphs</h2>
 <ul>
-  <li><b>pLDDT Profile</b> — per-residue confidence (0–100). Requires Fetch AlphaFold.</li>
-  <li><b>Cα Distance Map</b> — pairwise distance heatmap with 8 Å contact contour. Requires Fetch AlphaFold.</li>
+  <li><b>pLDDT Profile</b> — per-residue B-factor confidence (0–100). Available after any structure is loaded
+      (PDB upload, RCSB PDB ID fetch, or AlphaFold fetch).</li>
+  <li><b>Cα Distance Map</b> — pairwise distance heatmap with 8 Å contact contour. Available after any structure is loaded.</li>
+  <li><b>Ramachandran Plot</b> — φ/ψ dihedral angles coloured by secondary structure. Available after any structure is loaded.</li>
+  <li><b>Residue Contact Network</b> — graph of residues within 8 Å contact distance. Available after any structure is loaded.</li>
   <li><b>Domain Architecture</b> — multi-track: Pfam domains, Disorder, Low Complexity, TM Helices.
       Always shown after analysis; Pfam track appears after Fetch Pfam.</li>
 </ul>
@@ -8660,8 +8670,19 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 self.alphafold_data = self.batch_struct[first_id]
                 self._load_structure_viewer(self.alphafold_data["pdb_str"])
                 self.save_pdb_btn.setEnabled(True)
-        if not self.sequence_name:
-            self.sequence_name = entries[0][0] if entries else pdb_base
+        self.sequence_name = entries[0][0] if entries else pdb_base
+        # Auto-populate the sequence viewer and run graphs immediately.
+        # _load_batch already analysed every chain; use the first chain's data.
+        if self.batch_data:
+            first_id, first_seq, first_data = self.batch_data[0]
+            self.seq_text.setPlainText(first_seq)
+            self.analysis_data = first_data
+            self._update_seq_viewer()
+            self.update_graph_tabs()
+        n_chains = len(self.batch_data)
+        chain_word = "chain" if n_chains == 1 else "chains"
+        self.statusBar.showMessage(
+            f"Loaded {os.path.basename(file_name)}  —  {n_chains} {chain_word}", 4000)
 
     # --- Analysis ---
 
@@ -8948,13 +8969,18 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         figs["Saturation Mutagenesis"] = GraphingTools.create_saturation_mutagenesis_figure(
             seq, label_font=lf, tick_font=tf)
 
-        # Structure-dependent graphs (only when AlphaFold data is loaded)
+        # Structure-dependent graphs — available from any structure source
+        # (PDB upload, RCSB PDB fetch, or AlphaFold fetch).
         if self.alphafold_data:
-            if self.alphafold_data.get("plddt"):
+            plddt = self.alphafold_data.get("plddt")
+            if plddt and len(plddt) == len(seq):
                 figs["pLDDT Profile"] = GraphingTools.create_plddt_figure(
-                    self.alphafold_data["plddt"], label_font=lf, tick_font=tf)
+                    plddt, label_font=lf, tick_font=tf)
             dm = self.alphafold_data.get("dist_matrix")
-            if dm is not None and dm.size > 0:
+            # Guard: dist_matrix must be square and match the analysed sequence length.
+            # A mismatch occurs when the FASTA and PDB chain have different residue
+            # counts (e.g. disordered tails absent from the structure).
+            if dm is not None and dm.ndim == 2 and dm.shape[0] == len(seq) and dm.shape[0] > 0:
                 figs["Distance Map"] = GraphingTools.create_distance_map_figure(
                     dm, label_font=lf, tick_font=tf)
 
@@ -9009,16 +9035,17 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
               "mol_weight": self.analysis_data["mol_weight"]}],
             label_font=lf, tick_font=tf)
 
-        # Ramachandran (requires AlphaFold PDB)
+        # Ramachandran plot — any loaded PDB structure (upload, RCSB fetch, AlphaFold)
         if self.alphafold_data and _HAS_PHI_PSI:
             phi_psi = _extract_phi_psi(self.alphafold_data["pdb_str"])
             figs["Ramachandran Plot"] = GraphingTools.create_ramachandran_figure(
                 phi_psi, label_font=lf, tick_font=tf)
 
-        # Contact network (requires AlphaFold distance matrix)
+        # Residue contact network — requires distance matrix matching sequence length
         if self.alphafold_data:
             dm = self.alphafold_data.get("dist_matrix")
-            if dm is not None and dm.size > 0:
+            if (dm is not None and dm.ndim == 2
+                    and dm.shape[0] == len(seq) and dm.shape[0] > 0):
                 figs["Residue Contact Network"] = GraphingTools.create_contact_network_figure(
                     seq, dm, label_font=lf, tick_font=tf)
 
@@ -9437,6 +9464,17 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             msg += f"  \u2014 {len(entries)} chains loaded"
         self.statusBar.showMessage(msg, 4000)
 
+        if is_pdb:
+            # Analysis was done inside _load_batch; activate the first chain immediately.
+            if self.batch_data:
+                _, _, first_data = self.batch_data[0]
+                self.analysis_data = first_data
+                self._update_seq_viewer()
+                self.update_graph_tabs()
+        else:
+            # UniProt single sequence: start the analysis worker.
+            self.on_analyze()
+
     def _fetch_pdb_fasta(self, pdb_id: str) -> str:
         """Fetch FASTA sequence(s) from RCSB PDB for a given 4-char PDB ID."""
         url = f"https://www.rcsb.org/fasta/entry/{pdb_id.upper()}"
@@ -9456,7 +9494,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def fetch_alphafold(self):
         acc = self.current_accession
         if not acc:
-            from PyQt5.QtWidgets import QInputDialog
             acc, ok = QInputDialog.getText(
                 self, "AlphaFold — UniProt ID Required",
                 "Enter a UniProt accession (e.g. P04637):"
@@ -9506,7 +9543,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def fetch_pfam(self):
         acc = self.current_accession
         if not acc:
-            from PyQt5.QtWidgets import QInputDialog
             acc, ok = QInputDialog.getText(
                 self, "Pfam — UniProt ID Required",
                 "Enter a UniProt accession (e.g. P04637):"
@@ -9945,7 +9981,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         pre_aligned = self.msa_aligned_cb.isChecked()
         if not pre_aligned:
             # Simple pairwise progressive alignment using difflib
-            import difflib
             def _align_pair(s1, s2):
                 sm = difflib.SequenceMatcher(None, s1, s2)
                 a1, a2 = [], []
@@ -10006,8 +10041,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             if chain_id:
                 stoich_map[chain_id] = count
         chain_data = {e[0].split()[0].upper(): e[1] for e in entries}
-        # Compute properties
-        from Bio.SeqUtils.ProtParam import ProteinAnalysis as _BPA
+        # Compute properties using the top-level BPProteinAnalysis import
+        _BPA = BPProteinAnalysis
         lines  = ["<h2>Chain Properties</h2><table><tr><th>Chain</th>"
                   "<th>n Copies</th><th>Length (aa)</th><th>MW (Da)</th>"
                   "<th>pI</th><th>Ext.Coeff.</th></tr>"]
@@ -10251,7 +10286,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _load_plugins(self):
         """Scan ~/.beer/plugins/ for .py files and load valid BEER plugins."""
-        import importlib.util
         plugin_dir = os.path.expanduser("~/.beer/plugins")
         if not os.path.isdir(plugin_dir):
             return
