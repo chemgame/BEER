@@ -55,7 +55,7 @@ import mplcursors
 
 from Bio.SeqUtils.ProtParam import ProteinAnalysis as BPProteinAnalysis
 from Bio import SeqIO
-from Bio.PDB import PDBParser
+from Bio.PDB import PDBParser, PDBIO, Select as PDBSelect
 from Bio.PDB.Polypeptide import is_aa
 from Bio.SeqUtils import seq1
 
@@ -7013,6 +7013,37 @@ def import_pdb_sequence(file_name: str) -> dict:
     except Exception as e:
         raise RuntimeError(f"PDB parse error: {e}") from e
 
+def extract_chain_structures(pdb_str: str) -> dict:
+    """Return per-chain structure dicts keyed by chain ID.
+
+    Each value is ``{"pdb_str": str, "plddt": list, "dist_matrix": ndarray}``.
+    Uses PDBIO to write each chain individually so that pLDDT extraction and
+    distance-matrix computation always operate on a single, correctly-sized chain.
+    """
+    class _ChainSelect(PDBSelect):
+        def __init__(self, cid):
+            self._cid = cid
+        def accept_chain(self, chain):
+            return chain.id == self._cid
+
+    parser = PDBParser(QUIET=True)
+    struct  = parser.get_structure("x", StringIO(pdb_str))
+    result  = {}
+    model   = next(struct.get_models())
+    io      = PDBIO()
+    io.set_structure(struct)
+    for chain in model:
+        buf = StringIO()
+        io.save(buf, _ChainSelect(chain.id))
+        chain_pdb = buf.getvalue()
+        if not chain_pdb.strip():
+            continue
+        plddt = extract_plddt_from_pdb(chain_pdb)
+        dm    = compute_ca_distance_matrix(chain_pdb)
+        result[chain.id] = {"pdb_str": chain_pdb, "plddt": plddt, "dist_matrix": dm}
+    return result
+
+
 # --- Batch stats helper ---
 
 def _calc_batch_stats(seq: str, data: dict) -> tuple:
@@ -7383,6 +7414,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         # --- New state for AlphaFold / Pfam / BLAST ---
         self.current_accession   = ""   # last successfully fetched UniProt accession
         self.alphafold_data      = None # dict: pdb_str, plddt, dist_matrix, accession
+        self.batch_struct        = {}   # maps batch rec_id -> per-chain struct dict
         self.pfam_domains        = []   # list of domain dicts from Pfam
         self._alphafold_worker   = None
         self._pfam_worker        = None
@@ -7483,6 +7515,11 @@ class ProteinAnalyzerGUI(QMainWindow):
         """Analyze and load a list of (id, seq) pairs into the batch table."""
         self.batch_data.clear()
         self.batch_table.setRowCount(0)
+        # Reset structure state; callers that bring structure (import_pdb,
+        # fetch_accession PDB branch, _on_alphafold_finished) re-populate these
+        # after calling _load_batch.
+        self.batch_struct   = {}
+        self.alphafold_data = None
         for rec_id, seq in entries:
             if not is_valid_protein(seq):
                 continue
@@ -8602,9 +8639,27 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if not chains:
             QMessageBox.warning(self, "No Chains", "No valid chains found.")
             return
+        try:
+            with open(file_name, "r") as fh:
+                pdb_str = fh.read()
+        except OSError:
+            pdb_str = None
         pdb_base = os.path.splitext(os.path.basename(file_name))[0]
         entries  = [(f"{pdb_base}_{cid}", seq) for cid, seq in chains.items()]
-        self._load_batch(entries)
+        self._load_batch(entries)  # resets batch_struct / alphafold_data
+        # Compute and store per-chain structure data so Ramachandran plot,
+        # distance map, pLDDT profile and 3D viewer work for uploaded PDBs.
+        if pdb_str:
+            chain_structs = extract_chain_structures(pdb_str)
+            for cid_letter, struct in chain_structs.items():
+                rec_id = f"{pdb_base}_{cid_letter}"
+                self.batch_struct[rec_id] = struct
+            # Load the first chain into the 3D viewer and analysis view.
+            first_id = entries[0][0]
+            if first_id in self.batch_struct:
+                self.alphafold_data = self.batch_struct[first_id]
+                self._load_structure_viewer(self.alphafold_data["pdb_str"])
+                self.save_pdb_btn.setEnabled(True)
         if not self.sequence_name:
             self.sequence_name = entries[0][0] if entries else pdb_base
 
@@ -8993,6 +9048,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 self.sequence_name  = cid
                 for sec, browser in self.report_section_tabs.items():
                     browser.setHtml(data["report_sections"][sec])
+                self._restore_chain_structure(cid)
                 self._update_seq_viewer()
                 self.update_graph_tabs()
                 return
@@ -9216,6 +9272,29 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     # --- Chain selection ---
 
+    def _restore_chain_structure(self, cid: str):
+        """Update alphafold_data and the 3D viewer for the given chain ID.
+
+        When structure data was loaded per-chain (PDB upload / RCSB PDB fetch),
+        batch_struct maps each rec_id to its own struct dict so every chain gets
+        its own Ramachandran plot, distance map, pLDDT profile and 3D view.
+
+        When batch_struct is empty (pure sequence mode, e.g. UniProt accession
+        with a separately fetched AlphaFold model), alphafold_data is left
+        untouched so the single fetched structure continues to be displayed.
+        """
+        if not self.batch_struct:
+            # Pure-sequence batch — AlphaFold data (if any) was fetched explicitly
+            # for the current single sequence; leave it intact.
+            return
+        struct = self.batch_struct.get(cid)
+        self.alphafold_data = struct
+        if struct:
+            self._load_structure_viewer(struct["pdb_str"])
+            self.save_pdb_btn.setEnabled(True)
+        else:
+            self.save_pdb_btn.setEnabled(False)
+
     def on_chain_selected(self, text: str):
         for cid, seq, data in self.batch_data:
             if cid == text:
@@ -9224,6 +9303,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 self.sequence_name = cid
                 for sec, browser in self.report_section_tabs.items():
                     browser.setHtml(data["report_sections"][sec])
+                self._restore_chain_structure(cid)
                 self._update_seq_viewer()
                 self.update_graph_tabs()
                 break
@@ -9316,8 +9396,29 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             # Use the first field of the RCSB FASTA header (e.g. "4HHB_1") as chain label,
             # then load ALL chains into the multichain table exactly as import_pdb() does.
             tagged = [(rid.split("|")[0], seq) for rid, seq in entries]
-            self._load_batch(tagged)
+            self._load_batch(tagged)  # resets batch_struct / alphafold_data
             rid, seq = tagged[0]
+            # Also fetch the actual PDB coordinate file so structure-dependent
+            # graphs (Ramachandran, distance map, pLDDT, 3D viewer) are available.
+            self.statusBar.showMessage(f"Downloading PDB structure for {acc.upper()}…")
+            try:
+                pdb_str = self._fetch_pdb_structure(acc)
+                chain_structs = extract_chain_structures(pdb_str)
+                # Map RCSB chain letter → tagged rec_id  (tagged labels are "4HHB_1", "4HHB_2"…)
+                # The FASTA headers tell us which chain letters correspond to each entity.
+                # We build the mapping by matching tagged index to chain order.
+                chain_letters = list(chain_structs.keys())
+                for i, (rec_id, _) in enumerate(tagged):
+                    # RCSB FASTA entity i may group multiple identical chains; we
+                    # associate it with the first chain letter for that entity index.
+                    if i < len(chain_letters):
+                        self.batch_struct[rec_id] = chain_structs[chain_letters[i]]
+                if tagged[0][0] in self.batch_struct:
+                    self.alphafold_data = self.batch_struct[tagged[0][0]]
+                    self._load_structure_viewer(self.alphafold_data["pdb_str"])
+                    self.save_pdb_btn.setEnabled(True)
+            except Exception:
+                pass  # Structure fetch is best-effort; sequences are already loaded
         else:
             rid, seq = entries[0]
         self.seq_text.setPlainText(seq)
@@ -9341,6 +9442,13 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         url = f"https://www.rcsb.org/fasta/entry/{pdb_id.upper()}"
         req = urllib.request.Request(url, headers={"User-Agent": "BEER/1.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
+            return resp.read().decode()
+
+    def _fetch_pdb_structure(self, pdb_id: str) -> str:
+        """Download the PDB coordinate file from RCSB for a given 4-char PDB ID."""
+        url = f"https://files.rcsb.org/download/{pdb_id.upper()}.pdb"
+        req = urllib.request.Request(url, headers={"User-Agent": "BEER/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
             return resp.read().decode()
 
     # --- AlphaFold ---
@@ -9369,6 +9477,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_alphafold_finished(self, data: dict):
         self.alphafold_data = data
+        # Register in batch_struct so the structure persists when the user switches
+        # chains and then switches back to this sequence.
+        if self.sequence_name:
+            self.batch_struct[self.sequence_name] = data
         self.fetch_af_btn.setEnabled(True)
         self.save_pdb_btn.setEnabled(True)
         n_res = len(data.get("plddt", []))
