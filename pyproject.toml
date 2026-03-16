@@ -35,17 +35,10 @@ dependencies = [
 webengine = ["PyQtWebEngine>=5.15"]
 dev = ["pytest>=7.0", "pyinstaller>=5.0"]
 
-[project.scripts]
-beer = "beer.__main__:main"
-
 [project.urls]
 Homepage = "https://github.com/chemgame/beer"
 "Bug Tracker" = "https://github.com/chemgame/beer/issues"
 Documentation = "https://github.com/chemgame/beer/blob/main/README.md"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["beer*"]
-
-[tool.setuptools.package-data]
-"beer" = ["*.py"]
+[tool.setuptools]
+py-modules = ["beer"]
