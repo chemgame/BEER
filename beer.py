@@ -4970,15 +4970,21 @@ def predict_tm_helices(seq: str, window: int = 19, threshold: float = 1.6,
 
 
 def compute_ca_distance_matrix(pdb_str: str) -> np.ndarray:
-    """Return symmetric Cα pairwise distance matrix (Å) from a PDB string."""
+    """Return symmetric Cα pairwise distance matrix (Å) from a PDB string.
+
+    Only the first chain of the first model is used so that the matrix length
+    matches the single-chain pLDDT array returned by extract_plddt_from_pdb().
+    """
     parser = PDBParser(QUIET=True)
     struct = parser.get_structure("af", StringIO(pdb_str))
     coords = []
     for model in struct:
-        for chain in model:
-            for res in chain:
-                if is_aa(res, standard=True) and res.has_id("CA"):
-                    coords.append(res["CA"].get_vector().get_array())
+        first_chain = next(iter(model), None)
+        if first_chain is None:
+            break
+        for res in first_chain:
+            if is_aa(res, standard=True) and res.has_id("CA"):
+                coords.append(res["CA"].get_vector().get_array())
         break
     if not coords:
         return np.array([])
@@ -4988,18 +4994,25 @@ def compute_ca_distance_matrix(pdb_str: str) -> np.ndarray:
 
 
 def extract_plddt_from_pdb(pdb_str: str) -> list:
-    """Extract per-residue pLDDT scores (stored in B-factor column) from AlphaFold PDB."""
+    """Extract per-residue pLDDT scores (stored in B-factor column) from AlphaFold PDB.
+
+    AlphaFold predictions are always single-chain, so only the first chain of the
+    first model is read.  Using only the first chain avoids silently concatenating
+    scores from multiple chains when a user-supplied multi-chain PDB is passed.
+    """
     parser = PDBParser(QUIET=True)
     struct = parser.get_structure("af", StringIO(pdb_str))
     scores = []
     for model in struct:
-        for chain in model:
-            for res in chain:
-                if is_aa(res, standard=True):
-                    for atom in res:
-                        if atom.get_name() == "CA":
-                            scores.append(atom.get_bfactor())
-                            break
+        first_chain = next(iter(model), None)
+        if first_chain is None:
+            break
+        for res in first_chain:
+            if is_aa(res, standard=True):
+                for atom in res:
+                    if atom.get_name() == "CA":
+                        scores.append(atom.get_bfactor())
+                        break
         break
     return scores
 
@@ -9299,7 +9312,14 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if not entries:
             QMessageBox.warning(self, "Fetch", "No valid protein sequence returned.")
             return
-        rid, seq = entries[0]
+        if is_pdb:
+            # Use the first field of the RCSB FASTA header (e.g. "4HHB_1") as chain label,
+            # then load ALL chains into the multichain table exactly as import_pdb() does.
+            tagged = [(rid.split("|")[0], seq) for rid, seq in entries]
+            self._load_batch(tagged)
+            rid, seq = tagged[0]
+        else:
+            rid, seq = entries[0]
         self.seq_text.setPlainText(seq)
         self.sequence_name = rid
         # Store accession; AlphaFold/Pfam/ELM/DisProt/PhaSepDB need a UniProt ID
@@ -9311,7 +9331,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.fetch_phasepdb_btn.setEnabled(not is_pdb)
         self.accession_input.clear()
         src = "PDB" if is_pdb else "UniProt"
-        self.statusBar.showMessage(f"Fetched {rid} from {src}  ({len(seq)} aa)", 3000)
+        msg = f"Fetched {rid} from {src}  ({len(seq)} aa)"
+        if is_pdb and len(entries) > 1:
+            msg += f"  \u2014 {len(entries)} chains loaded"
+        self.statusBar.showMessage(msg, 4000)
 
     def _fetch_pdb_fasta(self, pdb_id: str) -> str:
         """Fetch FASTA sequence(s) from RCSB PDB for a given 4-char PDB ID."""
