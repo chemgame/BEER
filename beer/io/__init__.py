@@ -1,1 +1,0 @@
-"""BEER I/O package."""

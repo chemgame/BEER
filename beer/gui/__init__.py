@@ -1,1 +1,0 @@
-"""BEER GUI package."""
