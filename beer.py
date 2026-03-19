@@ -82,7 +82,7 @@ from matplotlib.colors import Normalize
 
 # Shared HTML report CSS
 _REPORT_CSS = """
-body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt;
+body { font-family: Arial, 'Helvetica Neue', sans-serif; font-size: 11pt;
        color: #1a1a2e; margin: 0; padding: 0; line-height: 1.6; }
 h2 { font-size: 13pt; color: #4361ee; margin-top: 18px; margin-bottom: 8px; font-weight: 600; }
 h3 { font-size: 11pt; color: #4361ee; margin-top: 14px; margin-bottom: 4px; font-weight: 600; }
