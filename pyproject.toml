@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beer-biophys"
+version = "3.0.0"
+description = "Biochemical Estimator & Explorer of Residues — desktop GUI for protein sequence analysis"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Saumyak Mukherjee", email = "saumyak.mukherjee@biophys.mpg.de"}
+]
+keywords = ["biophysics", "protein", "sequence", "IDP", "phase-separation", "bioinformatics"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "biopython>=1.81",
+    "matplotlib>=3.7",
+    "PySide6>=6.6",
+    "mplcursors>=0.5",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+esm2 = ["fair-esm>=2.0.0", "torch>=2.0"]
+dev  = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[project.urls]
+Homepage = "https://github.com/chemgame/beer"
+"Bug Tracker" = "https://github.com/chemgame/beer/issues"
+Documentation = "https://github.com/chemgame/beer/blob/main/README.md"
+
+[project.scripts]
+beer = "beer.gui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["beer*"]
+
+[tool.setuptools.package-data]
+beer = ["models/*.npz"]
