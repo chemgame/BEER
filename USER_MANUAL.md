@@ -557,4 +557,4 @@ A numeric RBP score would require validation against experimental RBP-binding da
 
 ---
 
-*BEER v3.0 — Mukherjee Lab*
+*BEER v3.0 — Mukherjee*
