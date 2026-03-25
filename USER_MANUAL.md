@@ -40,7 +40,7 @@
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/<your-username>/BEER.git
+git clone https://github.com/chemgame/BEER.git
 cd BEER
 
 # 2. Create a dedicated conda environment
