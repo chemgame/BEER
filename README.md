@@ -15,11 +15,13 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 
 - **Proper Python package** (`beer/`) — modular, installable via `pip`
 - **ESM2 neural predictions** for disorder, aggregation, signal peptide, and PTM — pre-trained heads bundled, no training needed
-- **VMD-style 3D structure viewer** with color schemes, color bar, coordinate axes, spin, and snapshot
+- **3D structure viewer** with multiple representations, colour modes, colour bar, spin, and snapshot export
 - **25 graphs** across 8 categories (up from ~12), including Ramachandran, contact network, pLDDT profile, domain architecture
 - **New analysis modules**: RNA binding, SCD/κ/Ω, LARKS, tandem repeats, TM topology, coiled coil, ELM linear motifs
 - **New utility tabs**: BLAST, Multichain, Compare, Truncation Series, MSA Conservation, Complex Mass
-- Persistent settings, drag-and-drop FASTA, session save/load, colourblind-safe palette, keyboard shortcuts overlay, right-click figure menu
+- **Protein summary bar**: fetches name, gene, organism, and function from UniProt or RCSB automatically after a fetch
+- **Session-only history**: the last 10 analysed sequences are available in a dropdown during the session and cleared when you close the app
+- Persistent settings, drag-and-drop FASTA, session save/load, keyboard shortcuts overlay, right-click figure menu
 - Structure export in PDB, mmCIF, GRO, XYZ, and FASTA formats
 - Removed unreliable metrics (Instability Index, LLPS composite score, Chou-Fasman, unvalidated PTM rules)
 
@@ -81,15 +83,18 @@ Internet is only needed for external fetches (UniProt, AlphaFold, Pfam, ELM, Dis
 | **Paste sequence** | Type or paste a bare amino-acid string or FASTA block and click **Analyze** |
 | **Import FASTA** | Click **Import FASTA** → select a `.fa` / `.fasta` file; multi-sequence files load all chains into the Multichain tab |
 | **Import PDB** | Click **Import PDB** → select a `.pdb` file; all chains available in the Chain dropdown |
-| **Fetch UniProt** | Type a UniProt accession (e.g. `P04637`) → click **Fetch**; unlocks AlphaFold, Pfam, DisProt, PhaSepDB buttons |
-| **Fetch PDB ID** | Type a 4-character RCSB code (e.g. `1UBQ`) → click **Fetch** |
+| **Fetch UniProt** | Type a UniProt accession (e.g. `P04637`) → click **Fetch**; unlocks AlphaFold, Pfam, DisProt, PhaSepDB buttons and shows a protein summary |
+| **Fetch PDB ID** | Type a 4-character RCSB code (e.g. `1UBQ`) → click **Fetch**; loads structure and all chains automatically |
 | **Drag & Drop** | Drag a `.fasta` file directly onto the BEER window |
+| **History** | A dropdown next to the toolbar lists the last 10 sequences analysed in the current session; selecting one re-runs the full analysis immediately. History is cleared when you close the app. |
 
 ---
 
 ## Analysis Tab
 
 After running analysis, the left panel lists 19 report sections. Click any section name to display it.
+
+When you fetch a protein from UniProt or RCSB, a compact **protein info bar** appears above the report panel, showing the protein name, gene, organism, and a one-line functional description.
 
 ### Toolbar
 
@@ -154,17 +159,17 @@ Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, 
 
 ## Structure Tab
 
-Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu), embedded via Qt WebEngine (bundled with PySide6). The tab has a **left control panel** and a **3D canvas**.
+Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu), embedded via Qt WebEngine (bundled with PySide6). The tab has a **left control panel** and a **3D canvas**. The default background is white.
 
 | Control | Options |
 |---------|---------|
-| **Representation** | Cartoon (default), Stick, Sphere, Line, Surface; opacity slider |
-| **Color mode** | pLDDT/B-factor, Residue type, Chain, Charge, Hydrophobicity, Mass |
-| **Color scheme** | Mode-dependent: Red-White-Blue, Rainbow, Shapely, Cyan-White-Orange, etc. |
+| **Representation** | Cartoon (default), Stick, Sphere, Line, Cross, Trace, Surface |
+| **Color mode** | pLDDT/B-factor, Residue type, Chain, Charge, Hydrophobicity, Mass, Secondary Structure, Spectrum (N→C) |
+| **Color scheme** | Mode-dependent: Red-White-Blue, Rainbow, Shapely, Cyan-White-Orange, JMol, PyMOL, Spectrum, etc. |
 | **Color bar** | Toggleable gradient/categorical legend overlay (bottom-right) |
-| **XYZ axes** | VMD-style coordinate axes (bottom-left), tracks rotation in real time |
-| **Background** | Black / White / Grey presets or custom color picker |
+| **Background** | White (default), Black, Grey presets or custom color picker |
 | **Spin** | Continuous auto-rotation on X / Y / Z axis |
+| **Reset View** | Restores default representation, colour mode, white background, and camera position |
 | **Snapshot PNG** | Saves current view as PNG |
 
 **Export Structure / Sequence** saves in PDB, mmCIF, GRO, XYZ, or FASTA format.
@@ -195,7 +200,7 @@ Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu), embedde
 | Analysis | Reducing conditions | Off |
 | Graphs | Label / Tick font size, Marker size, Format (PNG/SVG/PDF) | — |
 | Graphs | Bead colormap, Accent colour, Titles, Grid, Transparent BG | — |
-| Interface | UI font size, Dark theme, Tooltips, Colourblind-safe palette | — |
+| Interface | Dark theme, Tooltips | — |
 | ESM2 | Model size (8M / 35M / 150M / 650M) | 8M |
 
 Click **Apply Settings** to save to `~/.beer/config.json`. **Reset to Defaults** restores factory values.
