@@ -27,89 +27,42 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 
 ## Installation
 
-**Requirements:** Python ≥ 3.10 · macOS, Windows, or Linux · ~200 MB disk space
+**Requirements:** Python 3.12 · macOS, Windows, or Linux · ~200 MB disk space
+
+Install mamba (faster package manager, skip if already installed):
 
 ```bash
-conda create -n beer python=3.12 -y
+conda config --set solver classic
+conda update -n base -c defaults conda -y
+conda install -n base -c conda-forge mamba -y
+```
+
+Create the environment and install BEER:
+
+```bash
+mamba create -n beer python=3.12 -y
 conda activate beer
 git clone https://github.com/chemgame/BEER.git
 cd BEER
 pip install .
 ```
 
-All dependencies (PySide6, matplotlib, BioPython, numpy, mplcursors) are pulled in automatically. The 3D structure viewer is bundled inside PySide6 — no extra package needed.
-
-### Linux: required system libraries
-
-Qt6 needs a few xcb libraries that are not always present. Without them you get `Could not load the Qt platform plugin "xcb"` on launch. **No sudo required** — install via conda:
-
-```bash
-conda activate beer
-conda install -c conda-forge \
-    xcb-util-cursor xcb-util-image xcb-util-keysyms \
-    xcb-util-renderutil xcb-util-wm libxkbcommon
-```
-
-If the error persists after installing these packages, the conda libraries may not be in the linker path. Add them:
-
-```bash
-export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
-```
-
-To make this permanent (applies automatically every time you activate the environment):
-
-```bash
-mkdir -p $CONDA_PREFIX/etc/conda/activate.d
-echo 'export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH' \
-    > $CONDA_PREFIX/etc/conda/activate.d/beer_xcb.sh
-```
-
-If you have sudo:
-```bash
-# Ubuntu / Debian / Mint:
-sudo apt-get install libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
-    libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \
-    libxkbcommon-x11-0 libegl1
-
-# Fedora / RHEL:
-sudo dnf install xcb-util-cursor xcb-util-image xcb-util-keysyms \
-    xcb-util-renderutil libxkbcommon-x11 mesa-libEGL
-
-# Arch / Manjaro:
-sudo pacman -S xcb-util-cursor xcb-util-image xcb-util-keysyms \
-    xcb-util-renderutil libxkbcommon-x11
-```
-
-If the 3D structure viewer shows a blank page, also install the WebEngine/Chromium sandbox libraries:
-```bash
-# No-sudo (conda):
-conda install -c conda-forge libnss libdrm libxcomposite libxdamage libxrandr libgbm
-
-# Ubuntu/Debian with sudo:
-sudo apt-get install libnss3 libatk-bridge2.0-0 libdrm2 \
-    libxcomposite1 libxdamage1 libxrandr2 libgbm1
-```
-
-### Optional: ESM2 neural predictions
-
-The pre-trained heads are bundled — you only need the torch runtime. Install the CPU wheel directly to avoid version conflicts:
+Install PyTorch and ESM2 neural prediction models (CPU build):
 
 ```bash
 pip install "torch>=2.0" --index-url https://download.pytorch.org/whl/cpu
 pip install fair-esm scipy
 ```
 
-Or in one step:
+**Linux only** — install Qt platform libraries and set the library path:
+
 ```bash
-pip install ".[esm2]" --extra-index-url https://download.pytorch.org/whl/cpu
+mamba install -n beer -c conda-forge xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm libxkbcommon libnss libdrm libxcomposite libxdamage libxrandr libgbm -y
 ```
 
-BEER auto-detects ESM2 at startup. If not installed, all 19 analyses still run using classical algorithms.
-
-### From PyPI
-
 ```bash
-pip install beer-biophys
+mkdir -p $CONDA_PREFIX/etc/conda/activate.d
+echo 'export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH' > $CONDA_PREFIX/etc/conda/activate.d/beer_xcb.sh
 ```
 
 ---
