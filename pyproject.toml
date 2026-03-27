@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "beer-biophys"
-version = "3.0.0"
+version = "2.0.0"
 description = "Biochemical Estimator & Explorer of Residues — desktop GUI for protein sequence analysis"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -29,17 +29,19 @@ dependencies = [
     "matplotlib>=3.7",
     "PySide6>=6.6",
     "mplcursors>=0.5",
-    "numpy>=1.24",
+    "numpy>=1.24,<2",
 ]
 
 [project.optional-dependencies]
-esm2 = ["fair-esm>=2.0.0", "torch>=2.0"]
+# torch>=2.0 CPU builds require numpy<2 (already enforced above).
+# scipy is needed by fair-esm's inverse-folding module on some systems.
+esm2 = ["fair-esm>=2.0.0", "torch>=2.0", "scipy>=1.9"]
 dev  = ["pytest>=7.0", "pytest-cov>=4.0"]
 
 [project.urls]
-Homepage = "https://github.com/chemgame/beer"
-"Bug Tracker" = "https://github.com/chemgame/beer/issues"
-Documentation = "https://github.com/chemgame/beer/blob/main/README.md"
+Homepage = "https://github.com/chemgame/BEER"
+"Bug Tracker" = "https://github.com/chemgame/BEER/issues"
+Documentation = "https://github.com/chemgame/BEER/blob/main/README.md"
 
 [project.scripts]
 beer = "beer.gui.app:main"

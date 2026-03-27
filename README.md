@@ -39,7 +39,7 @@ Version 1.0 was a single monolithic script (`beer.py`) with a basic PySide6 GUI.
 
 ## Installation
 
-I recommend using a dedicated conda environment:
+I recommend using a dedicated conda environment to keep things clean:
 
 ```bash
 conda create -n beer python=3.12 -y
@@ -49,28 +49,40 @@ cd BEER
 pip install .
 ```
 
-### Optional: 3D structure viewer
+That's it. All required dependencies (PySide6, matplotlib, BioPython, numpy, mplcursors) are pulled in automatically.
 
-The Structure tab needs PySide6-WebEngine. Without it, everything else still works — you just won't get the embedded 3D viewer (you can still export PDB/mmCIF and open it in PyMOL or ChimeraX).
+> **Note for Linux users:** If BEER fails on startup with a Qt platform plugin error, you may need a system library:
+> ```bash
+> sudo apt-get install libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0
+> ```
+> On Fedora/RHEL: `sudo dnf install xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil`
 
+### 3D structure viewer
+
+The 3D viewer in the Structure tab uses Qt's WebEngine component, which **is already bundled inside PySide6** — no extra install is needed. It should work out of the box after `pip install .`.
+
+If the viewer shows a blank page on Linux, your system may be missing the chromium sandbox libraries:
 ```bash
-pip install PySide6-WebEngine
+sudo apt-get install libnss3 libatk-bridge2.0-0 libdrm2 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libxkbcommon0
 ```
 
 ### Optional: ESM2 neural predictions
 
-ESM2 improves disorder, aggregation, signal peptide, and PTM predictions. The pre-trained head weights are already bundled in the package — you only need to install the runtime:
+ESM2 improves four predictions (disorder, aggregation, signal peptide, PTM). The pre-trained heads are bundled — you only need the torch runtime. **Important:** use `numpy<2` (already enforced by `pip install .`) and install the CPU torch wheel directly to avoid version conflicts:
 
 ```bash
-# CPU-only (recommended for most users, smaller download):
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install fair-esm
+# CPU-only (recommended — works everywhere, no GPU required):
+pip install "torch>=2.0" --index-url https://download.pytorch.org/whl/cpu
+pip install fair-esm scipy
 
-# Or with GPU support:
-pip install torch fair-esm
+# Or install everything at once with the esm2 extra:
+pip install ".[esm2]" --extra-index-url https://download.pytorch.org/whl/cpu
 ```
 
-BEER auto-detects ESM2 at startup. If it's not installed, all 19 analyses still run using classical algorithms — nothing breaks.
+> If you see a warning about NumPy 1.x/2.x compatibility when importing torch, run:
+> `pip install "numpy>=1.24,<2"` — this is already constrained in BEER's requirements but if you have a pre-existing numpy 2.x in your environment, you'll need to downgrade it.
+
+BEER auto-detects ESM2 at startup. If it's not installed, all 19 analyses still run using classical algorithms.
 
 ### From PyPI
 
