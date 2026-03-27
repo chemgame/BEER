@@ -1,5 +1,0 @@
-Head,Test set,ESM2 AUC,95% CI lower,95% CI upper,Classical method,Classical AUC,95% CI lower,95% CI upper,n_test_proteins
-Disorder,Disorder (DisProt 2024),0.831,0.826,0.836,Disorder propensity scale,0.552,0.545,0.559,80
-Aggregation,Aggregation (UniProt amyloid-fibril),0.972,0.970,0.974,ZYGGREGATOR propensity,0.411,0.403,0.419,59
-Signal Peptide,Signal Peptide (UniProt),1.000,1.000,1.000,Von Heijne 3-region score,0.927,0.859,0.970,80
-PTM Sites,PTM Sites (UniProt mod_res),0.927,0.905,0.948,Consensus motif scan,0.672,0.633,0.714,40
