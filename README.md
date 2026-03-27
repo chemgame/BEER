@@ -29,18 +29,8 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 
 **Requirements:** Python 3.12 · macOS, Windows, or Linux · ~200 MB disk space
 
-Install mamba (faster package manager, skip if already installed):
-
 ```bash
-conda config --set solver classic
-conda update -n base -c defaults conda -y
-conda install -n base -c conda-forge mamba -y
-```
-
-Create the environment and install BEER:
-
-```bash
-mamba create -n beer python=3.12 -y
+conda create -n beer python=3.12 -y
 conda activate beer
 git clone https://github.com/chemgame/BEER.git
 cd BEER
@@ -57,7 +47,7 @@ pip install fair-esm scipy
 **Linux only** — install Qt platform libraries and set the library path:
 
 ```bash
-mamba install -n beer -c conda-forge xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm libxkbcommon libnss libdrm libxcomposite libxdamage libxrandr libgbm -y
+conda install -n beer -c conda-forge xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm libxkbcommon libnss libdrm libxcomposite libxdamage libxrandr libgbm -y
 ```
 
 ```bash
