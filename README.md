@@ -37,6 +37,40 @@ Version 1.0 was a single monolithic script (`beer.py`) with a basic PySide6 GUI.
 
 ---
 
+## Linux: required system libraries
+
+**On Linux you must install a few system packages before BEER will launch.** Qt6 (used by PySide6) depends on native xcb libraries that are not always present in a minimal install. Run this once before the first launch:
+
+**Ubuntu / Debian / Mint:**
+```bash
+sudo apt-get install libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+    libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \
+    libxkbcommon-x11-0 libegl1
+```
+
+**Fedora / RHEL / CentOS:**
+```bash
+sudo dnf install xcb-util-cursor xcb-util-image xcb-util-keysyms \
+    xcb-util-renderutil libxkbcommon-x11 mesa-libEGL
+```
+
+**Arch / Manjaro:**
+```bash
+sudo pacman -S xcb-util-cursor xcb-util-image xcb-util-keysyms \
+    xcb-util-renderutil libxkbcommon-x11
+```
+
+The most common error without these (`Could not load the Qt platform plugin "xcb"`) is fixed by `libxcb-cursor0` / `xcb-util-cursor` alone — but installing the full list above avoids the other xcb errors that tend to appear one by one.
+
+If the 3D structure viewer shows a blank page (WebEngine / Chromium sandboxing issue), also run:
+```bash
+# Ubuntu/Debian:
+sudo apt-get install libnss3 libatk-bridge2.0-0 libdrm2 \
+    libxcomposite1 libxdamage1 libxrandr2 libgbm1
+```
+
+---
+
 ## Installation
 
 I recommend using a dedicated conda environment to keep things clean:
@@ -49,22 +83,26 @@ cd BEER
 pip install .
 ```
 
-That's it. All required dependencies (PySide6, matplotlib, BioPython, numpy, mplcursors) are pulled in automatically.
+That's it. All required Python dependencies (PySide6, matplotlib, BioPython, numpy, mplcursors) are pulled in automatically. The 3D structure viewer (QtWebEngineWidgets) is already bundled inside PySide6 — no extra Python package is needed for it.
 
-> **Note for Linux users:** If BEER fails on startup with a Qt platform plugin error, you may need a system library:
-> ```bash
-> sudo apt-get install libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0
-> ```
-> On Fedora/RHEL: `sudo dnf install xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil`
+### Optional: ESM2 neural predictions
 
-### 3D structure viewer
+ESM2 improves four predictions (disorder, aggregation, signal peptide, PTM). The pre-trained heads are bundled — you only need the torch runtime. **Important:** install the CPU torch wheel directly to avoid version conflicts:
 
-The 3D viewer in the Structure tab uses Qt's WebEngine component, which **is already bundled inside PySide6** — no extra install is needed. It should work out of the box after `pip install .`.
-
-If the viewer shows a blank page on Linux, your system may be missing the chromium sandbox libraries:
 ```bash
-sudo apt-get install libnss3 libatk-bridge2.0-0 libdrm2 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libxkbcommon0
+# CPU-only (recommended — works everywhere, no GPU required):
+pip install "torch>=2.0" --index-url https://download.pytorch.org/whl/cpu
+pip install fair-esm scipy
 ```
+
+Or install everything at once:
+```bash
+pip install ".[esm2]" --extra-index-url https://download.pytorch.org/whl/cpu
+```
+
+> If you see a NumPy 1.x/2.x warning when importing torch, run `pip install "numpy>=1.24,<2"` to downgrade. BEER's `pyproject.toml` already enforces `numpy<2` so a fresh install won't hit this — but it can happen if you have a pre-existing numpy 2.x in your environment.
+
+BEER auto-detects ESM2 at startup. If it's not installed, all 19 analyses still run using classical algorithms.
 
 ### Optional: ESM2 neural predictions
 
@@ -90,6 +128,8 @@ BEER auto-detects ESM2 at startup. If it's not installed, all 19 analyses still 
 pip install beer-biophys
 ```
 
+> **Linux users:** Install the system libraries listed at the top of this README before running `beer`.
+
 ---
 
 ## Launching BEER
@@ -98,8 +138,6 @@ pip install beer-biophys
 conda activate beer
 beer
 ```
-
-> **Linux:** If you get a Qt platform error, run `sudo apt-get install libxcb-cursor0` first.
 
 Internet is only needed for external fetches (UniProt, AlphaFold, Pfam, ELM, DisProt, PhaSepDB, BLAST). All local analysis runs fully offline.
 
