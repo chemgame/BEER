@@ -1345,9 +1345,9 @@ function setAxesVisible(v)     {{ axesVisible=v; drawAxesOverlay(); }}
 
 // ── loadPDB: swap in a new structure without reloading the page ────────────
 function loadPDB(data){{
-    if(!viewer) return;
+    pdbData = data || null;   // always store first — init() picks this up if viewer not ready yet
+    if(!viewer) return;        // CDN still loading; init() will load pdbData when ready
     viewer.clear();
-    pdbData = data || null;
     if(pdbData){{
         viewer.addModel(pdbData, "pdb");
         viewer.zoomTo();   // set camera BEFORE rendering
