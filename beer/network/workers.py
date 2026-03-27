@@ -13,6 +13,8 @@ from beer.network._http import (
     fetch_phasepdb,
     fetch_alphafold_pdb,
     fetch_pfam,
+    fetch_mobidb,
+    fetch_uniprot_variants,
 )
 
 
@@ -233,6 +235,101 @@ class PfamWorker(QThread):
             self.error.emit(f"Pfam fetch failed: network error {exc.reason}")
         except Exception as exc:
             self.error.emit(f"Pfam fetch failed: {exc}")
+
+
+class MobiDBWorker(QThread):
+    """Query MobiDB for consensus disorder annotations of a UniProt accession.
+
+    Signals
+    -------
+    finished(dict):
+        Emitted on success (including not-found cases).
+    error(str):
+        Emitted on network/parse errors.
+    """
+
+    finished = Signal(dict)
+    error = Signal(str)
+
+    def __init__(self, accession: str):
+        super().__init__()
+        self.accession = accession.strip().upper()
+
+    def run(self) -> None:
+        if not self.accession:
+            self.error.emit("MobiDB query failed: no accession provided.")
+            return
+        try:
+            from beer.network._http import fetch_mobidb
+            result = fetch_mobidb(self.accession)
+        except urllib.error.HTTPError as exc:
+            self.error.emit(
+                f"MobiDB HTTP error {exc.code} for '{self.accession}': {exc.reason}"
+            )
+            return
+        except urllib.error.URLError as exc:
+            self.error.emit(
+                f"MobiDB network error for '{self.accession}': {exc.reason}"
+            )
+            return
+        except Exception as exc:
+            self.error.emit(f"MobiDB query failed for '{self.accession}': {exc}")
+            return
+        self.finished.emit(result)
+
+
+class UniProtVariantsWorker(QThread):
+    """Fetch natural variants and disease mutations from UniProt for a UniProt accession.
+
+    Signals
+    -------
+    finished(list):
+        Emitted on success with a list of variant dicts (may be empty).
+    error(str):
+        Emitted on network/parse errors.
+    progress(str):
+        Emitted with status updates.
+    """
+
+    finished = Signal(list)
+    error = Signal(str)
+    progress = Signal(str)
+
+    def __init__(self, accession: str):
+        super().__init__()
+        self.accession = accession.strip().upper()
+
+    def run(self) -> None:
+        if not self.accession:
+            self.error.emit("UniProt variants query failed: no accession provided.")
+            return
+        self.progress.emit(f"Querying UniProt for variants of {self.accession}\u2026")
+        try:
+            from beer.network._http import fetch_uniprot_variants
+            variants = fetch_uniprot_variants(self.accession)
+        except urllib.error.HTTPError as exc:
+            self.error.emit(
+                f"UniProt variants HTTP error {exc.code} for '{self.accession}': {exc.reason}"
+            )
+            return
+        except urllib.error.URLError as exc:
+            self.error.emit(
+                f"UniProt variants network error for '{self.accession}': {exc.reason}"
+            )
+            return
+        except Exception as exc:
+            self.error.emit(f"UniProt variants query failed for '{self.accession}': {exc}")
+            return
+
+        if not variants:
+            self.progress.emit(
+                f"No variants found for accession '{self.accession}'."
+            )
+        else:
+            self.progress.emit(
+                f"UniProt variants: found {len(variants)} variant(s) for '{self.accession}'."
+            )
+        self.finished.emit(variants)
 
 
 class BlastWorker(QThread):

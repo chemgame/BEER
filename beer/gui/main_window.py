@@ -103,6 +103,7 @@ _extract_phi_psi = extract_phi_psi
 from beer.network.workers import (
     AnalysisWorker, AlphaFoldWorker, PfamWorker, BlastWorker,
     ELMWorker, DisPRotWorker, PhaSepDBWorker,
+    MobiDBWorker, UniProtVariantsWorker,
 )
 from beer.graphs import (
     create_amino_acid_composition_figure, create_amino_acid_composition_pie_figure,
@@ -122,6 +123,8 @@ from beer.graphs import (
     create_msa_conservation_figure, create_complex_mw_figure,
     create_truncation_series_figure, create_pI_MW_gel_figure,
     create_saturation_mutagenesis_figure, create_uversky_phase_plot,
+    create_annotation_track_figure, create_cleavage_map_figure,
+    create_plaac_profile_figure,
 )
 from beer.reports.css import REPORT_CSS
 from beer.reports.sections import (
@@ -195,9 +198,13 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._elm_worker         = None
         self._disprot_worker     = None
         self._phasepdb_worker    = None
+        self._mobidb_worker      = None
+        self._variants_worker    = None
         self.elm_data            = []   # list of ELM instances
         self.disprot_data        = {}   # DisProt disorder regions
         self.phasepdb_data       = {}   # PhaSepDB lookup result
+        self.mobidb_data         = {}   # MobiDB disorder consensus
+        self.variants_data       = []   # UniProt natural variants
         self._msa_sequences      = []   # list of aligned sequences
         self._msa_names          = []   # corresponding names
         self._plugins            = []   # loaded plugin modules
@@ -450,6 +457,22 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._set_tooltip(self.fetch_phasepdb_btn,
                           "Check if protein is in PhaSepDB (phase separation database). Requires a UniProt accession — fetch one first.")
         tb2.addWidget(self.fetch_phasepdb_btn)
+
+        self.fetch_mobidb_btn = QPushButton("MobiDB")
+        self.fetch_mobidb_btn.setMinimumHeight(28)
+        self.fetch_mobidb_btn.setEnabled(False)
+        self.fetch_mobidb_btn.clicked.connect(self.fetch_mobidb)
+        self._set_tooltip(self.fetch_mobidb_btn,
+                          "Fetch consensus disorder annotations from MobiDB. Requires a UniProt accession — fetch one first.")
+        tb2.addWidget(self.fetch_mobidb_btn)
+
+        self.fetch_variants_btn = QPushButton("Variants")
+        self.fetch_variants_btn.setMinimumHeight(28)
+        self.fetch_variants_btn.setEnabled(False)
+        self.fetch_variants_btn.clicked.connect(self.fetch_variants)
+        self._set_tooltip(self.fetch_variants_btn,
+                          "Fetch natural variants and mutagenesis data from UniProt. Requires a UniProt accession — fetch one first.")
+        tb2.addWidget(self.fetch_variants_btn)
 
         tb2.addSpacing(20)
         tb2.addWidget(QLabel("History:"))
@@ -2593,6 +2616,30 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 self._msa_sequences, self._msa_names,
                 label_font=lf, tick_font=tf)
 
+        # Annotation Track — unified multi-track view
+        figs["Annotation Track"] = create_annotation_track_figure(
+            seq,
+            self.analysis_data.get("disorder_scores", []),
+            self.analysis_data.get("hydro_profile", []),
+            calc_aggregation_profile(seq),
+            self.analysis_data.get("ptm_sites", []),
+            self.analysis_data.get("tm_helices", []),
+            self.analysis_data.get("larks", []),
+            self.analysis_data.get("signal_peptide", {}),
+            label_font=lf, tick_font=tf)
+
+        # Proteolytic Cleavage Map
+        figs["Cleavage Map"] = create_cleavage_map_figure(
+            seq,
+            self.analysis_data.get("prot_sites", {}),
+            label_font=lf, tick_font=tf)
+
+        # PLAAC prion-like domain profile
+        if self.analysis_data.get("plaac"):
+            figs["PLAAC Profile"] = create_plaac_profile_figure(
+                self.analysis_data["plaac"],
+                label_font=lf, tick_font=tf)
+
         # Apply global heading/grid/colour overrides
         for title, fig in figs.items():
             if title not in self.graph_tabs:
@@ -3310,6 +3357,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.fetch_elm_btn.setEnabled(not is_pdb)
         self.fetch_disprot_btn.setEnabled(not is_pdb)
         self.fetch_phasepdb_btn.setEnabled(not is_pdb)
+        self.fetch_mobidb_btn.setEnabled(not is_pdb)
+        self.fetch_variants_btn.setEnabled(not is_pdb)
         self.accession_input.clear()
         src = "PDB" if is_pdb else "UniProt"
         msg = f"Fetched {rid} from {src}  ({len(seq)} aa)"
@@ -4279,6 +4328,117 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def _on_phasepdb_error(self, msg: str):
         self.fetch_phasepdb_btn.setEnabled(True)
         QMessageBox.warning(self, "PhaSepDB Error", msg)
+
+    # ── MobiDB ────────────────────────────────────────────────────────────────
+
+    def fetch_mobidb(self):
+        acc = self.current_accession
+        if not acc:
+            QMessageBox.warning(self, "MobiDB", "Fetch a UniProt accession first.")
+            return
+        if self._mobidb_worker and self._mobidb_worker.isRunning():
+            return
+        self.fetch_mobidb_btn.setEnabled(False)
+        self.statusBar.showMessage(f"Fetching MobiDB annotations for {acc}…")
+        self._mobidb_worker = MobiDBWorker(acc)
+        self._mobidb_worker.finished.connect(self._on_mobidb_finished)
+        self._mobidb_worker.error.connect(self._on_mobidb_error)
+        self._mobidb_worker.start()
+
+    def _on_mobidb_finished(self, data: dict):
+        self.mobidb_data = data
+        self.fetch_mobidb_btn.setEnabled(True)
+        if not data.get("found"):
+            QMessageBox.information(self, "MobiDB",
+                "This protein was not found in MobiDB, or has no consensus disorder annotations.")
+            self.statusBar.showMessage("MobiDB: not found.", 3000)
+            return
+        frac = data.get("fraction_disorder", 0.0)
+        n_pred = data.get("n_predictors", 0)
+        regions = data.get("disorder_regions", [])
+        lines = [
+            f"<h2>MobiDB: {data.get('accession', '')}</h2>",
+            f"<p><b>Consensus disorder fraction:</b> {frac:.1%} "
+            f"({n_pred} predictor(s))</p>",
+        ]
+        if regions:
+            lines.append("<h3>Disordered regions</h3><table border='1' cellspacing='0' cellpadding='4'>")
+            lines.append("<tr><th>Start</th><th>End</th><th>Length</th></tr>")
+            for r in regions:
+                s, e = r.get("start", "?"), r.get("end", "?")
+                ln = (e - s + 1) if isinstance(s, int) and isinstance(e, int) else "?"
+                lines.append(f"<tr><td>{s}</td><td>{e}</td><td>{ln}</td></tr>")
+            lines.append("</table>")
+        html = "".join(lines)
+        dlg = QDialog(self); dlg.setWindowTitle("MobiDB Disorder Consensus")
+        dlg.resize(480, 320)
+        bw = QTextBrowser(dlg); bw.setHtml(html)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dlg)
+        bb.rejected.connect(dlg.accept)
+        lay = QVBoxLayout(dlg); lay.addWidget(bw); lay.addWidget(bb)
+        dlg.exec()
+        self.statusBar.showMessage(
+            f"MobiDB: {frac:.1%} disordered, {len(regions)} region(s).", 4000)
+
+    def _on_mobidb_error(self, msg: str):
+        self.fetch_mobidb_btn.setEnabled(True)
+        self.statusBar.showMessage("MobiDB fetch failed.", 2000)
+        QMessageBox.warning(self, "MobiDB Error", msg)
+
+    # ── UniProt Variants ───────────────────────────────────────────────────────
+
+    def fetch_variants(self):
+        acc = self.current_accession
+        if not acc:
+            QMessageBox.warning(self, "Variants", "Fetch a UniProt accession first.")
+            return
+        if self._variants_worker and self._variants_worker.isRunning():
+            return
+        self.fetch_variants_btn.setEnabled(False)
+        self.statusBar.showMessage(f"Fetching UniProt variants for {acc}…")
+        self._variants_worker = UniProtVariantsWorker(acc)
+        self._variants_worker.finished.connect(self._on_variants_finished)
+        self._variants_worker.error.connect(self._on_variants_error)
+        self._variants_worker.start()
+
+    def _on_variants_finished(self, variants: list):
+        self.variants_data = variants
+        self.fetch_variants_btn.setEnabled(True)
+        if not variants:
+            QMessageBox.information(self, "UniProt Variants",
+                "No natural variants or mutagenesis data found for this protein.")
+            self.statusBar.showMessage("Variants: none found.", 3000)
+            return
+        lines = [
+            "<h2>UniProt Variants</h2>",
+            "<table border='1' cellspacing='0' cellpadding='4'>",
+            "<tr><th>Pos</th><th>From</th><th>To</th><th>Type</th><th>Description</th></tr>",
+        ]
+        for v in variants:
+            desc = v.get("description", "")[:80]
+            vtype = v.get("type", "")
+            lines.append(
+                f"<tr><td>{v.get('position','?')}</td>"
+                f"<td>{v.get('original','?')}</td>"
+                f"<td>{v.get('variant','?')}</td>"
+                f"<td>{vtype}</td>"
+                f"<td>{desc}</td></tr>"
+            )
+        lines.append("</table>")
+        html = "".join(lines)
+        dlg = QDialog(self); dlg.setWindowTitle("UniProt Variants")
+        dlg.resize(700, 480)
+        bw = QTextBrowser(dlg); bw.setHtml(html)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dlg)
+        bb.rejected.connect(dlg.accept)
+        lay = QVBoxLayout(dlg); lay.addWidget(bw); lay.addWidget(bb)
+        dlg.exec()
+        self.statusBar.showMessage(f"Variants: {len(variants)} annotation(s) loaded.", 4000)
+
+    def _on_variants_error(self, msg: str):
+        self.fetch_variants_btn.setEnabled(True)
+        self.statusBar.showMessage("Variants fetch failed.", 2000)
+        QMessageBox.warning(self, "Variants Error", msg)
 
     # ── Figure Composer ───────────────────────────────────────────────────────
 

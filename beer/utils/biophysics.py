@@ -169,3 +169,96 @@ def sticker_spacing_stats(seq: str) -> dict:
         "min":  min(gaps),
         "max":  max(gaps),
     }
+
+
+def calc_polyx_stretches(seq: str, min_length: int = 4) -> list:
+    """Detect homopolymeric runs of identical residues.
+
+    Returns a list of dicts sorted by length descending, then start ascending.
+    Each dict: {aa, start_1based, end_1based, length}.
+    """
+    stretches = []
+    n = len(seq)
+    i = 0
+    while i < n:
+        j = i + 1
+        while j < n and seq[j] == seq[i]:
+            j += 1
+        run_len = j - i
+        if run_len >= min_length:
+            stretches.append({
+                "aa": seq[i],
+                "start_1based": i + 1,
+                "end_1based": j,
+                "length": run_len,
+            })
+        i = j
+    stretches.sort(key=lambda x: (-x["length"], x["start_1based"]))
+    return stretches
+
+
+def calc_plaac_score(seq: str, window: int = 41) -> dict:
+    """Per-residue PLAAC log-odds score (Lancaster et al. 2014).
+
+    Uses yeast prion-like domain (FG domain) frequencies vs SwissProt background.
+    Returns {profile, max_score, mean_score, prion_like_regions}.
+    Prion-like regions: runs where smoothed score > 0 and length >= 60 aa.
+    """
+    import math as _math
+
+    # Yeast FG-domain (prion-like) frequencies — Lancaster et al. 2014, Table S1
+    FG_FREQ: dict[str, float] = {
+        "A": 0.059, "C": 0.003, "D": 0.019, "E": 0.020, "F": 0.040,
+        "G": 0.098, "H": 0.014, "I": 0.023, "K": 0.043, "L": 0.046,
+        "M": 0.013, "N": 0.120, "P": 0.044, "Q": 0.133, "R": 0.020,
+        "S": 0.131, "T": 0.052, "V": 0.023, "W": 0.005, "Y": 0.091,
+    }
+    # SwissProt background frequencies
+    BG_FREQ: dict[str, float] = {
+        "A": 0.070, "C": 0.023, "D": 0.053, "E": 0.063, "F": 0.039,
+        "G": 0.068, "H": 0.023, "I": 0.053, "K": 0.058, "L": 0.099,
+        "M": 0.025, "N": 0.045, "P": 0.049, "Q": 0.037, "R": 0.051,
+        "S": 0.072, "T": 0.057, "V": 0.064, "W": 0.013, "Y": 0.032,
+    }
+
+    # Per-residue log-odds
+    log_odds: dict[str, float] = {}
+    for aa in "ACDEFGHIKLMNPQRSTVWY":
+        fg = FG_FREQ.get(aa, 1e-6)
+        bg = BG_FREQ.get(aa, 1e-6)
+        log_odds[aa] = _math.log(fg / bg)
+
+    n = len(seq)
+    # Sliding window average (half-window padding at edges)
+    profile: list[float] = []
+    half = window // 2
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        scores = [log_odds.get(seq[j], 0.0) for j in range(lo, hi)]
+        profile.append(sum(scores) / len(scores))
+
+    # Identify prion-like regions: contiguous windows with score > 0, length >= 60
+    regions: list[dict] = []
+    in_region = False
+    start = 0
+    for i, s in enumerate(profile):
+        if s > 0 and not in_region:
+            in_region = True
+            start = i
+        elif s <= 0 and in_region:
+            in_region = False
+            length = i - start
+            if length >= 60:
+                regions.append({"start_1based": start + 1, "end_1based": i, "length": length})
+    if in_region:
+        length = n - start
+        if length >= 60:
+            regions.append({"start_1based": start + 1, "end_1based": n, "length": length})
+
+    return {
+        "profile": profile,
+        "max_score": max(profile) if profile else 0.0,
+        "mean_score": sum(profile) / len(profile) if profile else 0.0,
+        "prion_like_regions": regions,
+    }

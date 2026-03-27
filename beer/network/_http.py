@@ -323,6 +323,216 @@ def fetch_pfam(uniprot_accession: str) -> list:
     return domains
 
 
+_MOBIDB_API_BASE = "https://mobidb.org/api/entry"
+_UNIPROT_REST_BASE = "https://rest.uniprot.org/uniprotkb"
+
+
+def fetch_mobidb(uniprot_accession: str) -> dict:
+    """Fetch MobiDB consensus disorder annotations for a UniProt accession.
+
+    Parameters
+    ----------
+    uniprot_accession:
+        UniProt accession (e.g. ``"P04637"``).
+
+    Returns
+    -------
+    dict with keys: found (bool), accession (str), disorder_regions (list of
+    dicts with start/end/length), fraction_disorder (float), n_predictors (int),
+    source (str).
+
+    Raises
+    ------
+    urllib.error.HTTPError (non-404) / urllib.error.URLError on failure.
+    ValueError:
+        If accession is empty.
+    """
+    accession = uniprot_accession.strip().upper()
+    if not accession:
+        raise ValueError("MobiDB query: no accession provided.")
+
+    url = f"{_MOBIDB_API_BASE}/{accession}"
+    try:
+        data = _get_json(url)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {"found": False, "accession": accession}
+        raise
+
+    if not data:
+        return {"found": False, "accession": accession}
+
+    # MobiDB v4 format: top-level predictions dict
+    predictions = data.get("predictions", {})
+
+    # MobiDB v3 fallback: data.{acc}.mobidb_lite
+    if not predictions:
+        nested = data.get("data", {})
+        if isinstance(nested, dict):
+            inner = nested.get(accession, nested.get(accession.lower(), {}))
+            if isinstance(inner, dict):
+                mobidb_lite_v3 = inner.get("mobidb_lite")
+                if mobidb_lite_v3:
+                    predictions = {"mobidb_lite": mobidb_lite_v3}
+
+    n_predictors = len(predictions) if isinstance(predictions, dict) else 0
+
+    mobidb_lite = predictions.get("mobidb_lite", {}) if isinstance(predictions, dict) else {}
+    if not isinstance(mobidb_lite, dict):
+        mobidb_lite = {}
+
+    disorder_block = mobidb_lite.get("disorder", {})
+    if not isinstance(disorder_block, dict):
+        disorder_block = {}
+
+    raw_regions = disorder_block.get("regions", [])
+    if not isinstance(raw_regions, list):
+        raw_regions = []
+
+    disorder_regions: list = []
+    for item in raw_regions:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            start = _safe_int(item[0])
+            end = _safe_int(item[1])
+            disorder_regions.append({"start": start, "end": end, "length": max(0, end - start + 1)})
+        elif isinstance(item, dict):
+            start = _safe_int(item.get("start", item.get("s", 0)))
+            end = _safe_int(item.get("end", item.get("e", 0)))
+            disorder_regions.append({"start": start, "end": end, "length": max(0, end - start + 1)})
+
+    fraction_disorder = float(disorder_block.get("content_fraction", 0.0) or 0.0)
+
+    return {
+        "found": True,
+        "accession": accession,
+        "disorder_regions": disorder_regions,
+        "fraction_disorder": fraction_disorder,
+        "n_predictors": n_predictors,
+        "source": "mobidb_lite",
+    }
+
+
+def _parse_variant_amino_acids(description: str) -> tuple[str, str]:
+    """Best-effort extraction of original and variant amino acids from a description string.
+
+    Handles formats like "R → H", "R > H", "Val -> Ala", and dbSNP entries.
+    Returns a tuple (original, variant); both are empty string if not parseable.
+    """
+    import re
+    for pattern in (
+        r"([A-Za-z]+)\s*(?:\u2192|->|>)\s*([A-Za-z]+)",
+    ):
+        m = re.search(pattern, description)
+        if m:
+            return m.group(1), m.group(2)
+    return "", ""
+
+
+def _parse_disease_from_description(description: str) -> str:
+    """Extract a disease name from a UniProt variant description if present.
+
+    Looks for patterns like "in DISEASE_NAME;" or "associated with DISEASE_NAME".
+    Returns the disease string or empty string.
+    """
+    import re
+    # UniProt style: "in CANCER_TYPE;" or "in disease XYZ;"
+    m = re.search(r"\bin\s+([A-Z][A-Z0-9_ ]{2,60}?)(?:\s*;|\s*\()", description)
+    if m:
+        candidate = m.group(1).strip()
+        # Skip very generic tokens
+        if candidate.lower() not in {"vitro", "vivo", "cancer", "disease", "humans", "mice"}:
+            return candidate
+    return ""
+
+
+def fetch_uniprot_variants(uniprot_accession: str) -> list:
+    """Fetch natural variants and disease mutations from UniProt for a given accession.
+
+    Uses the UniProt REST API endpoint: GET
+    ``https://rest.uniprot.org/uniprotkb/{accession}.json``
+
+    Parameters
+    ----------
+    uniprot_accession:
+        UniProt accession.
+
+    Returns
+    -------
+    List of dicts with keys: position (int), original (str), variant (str),
+    description (str), type (str), disease (str).  Returns an empty list on
+    404 or if no relevant features exist.
+
+    Raises
+    ------
+    urllib.error.HTTPError (non-404) / urllib.error.URLError on failure.
+    ValueError:
+        If accession is empty.
+    """
+    accession = uniprot_accession.strip().upper()
+    if not accession:
+        raise ValueError("UniProt variants query: no accession provided.")
+
+    url = f"{_UNIPROT_REST_BASE}/{accession}.json"
+    try:
+        data = _get_json(url)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return []
+        raise
+
+    if not data:
+        return []
+
+    features = data.get("features", [])
+    if not isinstance(features, list):
+        return []
+
+    _type_map = {
+        "Natural variant": "natural_variant",
+        "Mutagenesis": "mutagenesis",
+    }
+
+    variants: list = []
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        ftype = feature.get("type", "")
+        if ftype not in _type_map:
+            continue
+
+        location = feature.get("location", {})
+        start_block = location.get("start", {})
+        end_block = location.get("end", {})
+        position = _safe_int(start_block.get("value", 0)) if isinstance(start_block, dict) else 0
+        end_position = _safe_int(end_block.get("value", 0)) if isinstance(end_block, dict) else 0
+
+        description = feature.get("description", "") or ""
+        description_truncated = description[:200]
+
+        evidences = feature.get("evidences", [])
+        source_db = ""
+        if isinstance(evidences, list) and evidences:
+            first_ev = evidences[0]
+            if isinstance(first_ev, dict):
+                src = first_ev.get("source", {})
+                if isinstance(src, dict):
+                    source_db = src.get("name", "")
+
+        original, variant = _parse_variant_amino_acids(description)
+        disease = _parse_disease_from_description(description)
+
+        variants.append({
+            "position": position,
+            "original": original,
+            "variant": variant,
+            "description": description_truncated,
+            "type": _type_map[ftype],
+            "disease": disease,
+        })
+
+    return variants
+
+
 def fetch_uniprot_fasta(query: str) -> str:
     """Fetch FASTA sequence from UniProt for an accession or search query.
 

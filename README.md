@@ -109,6 +109,8 @@ When you fetch a protein from UniProt or RCSB, a compact **protein info bar** ap
 | **Fetch AlphaFold** | Download predicted structure from EBI AlphaFold |
 | **Fetch Pfam / ELM** | Domain and linear motif annotations |
 | **DisProt / PhaSepDB** | Disorder and phase-separation database annotations |
+| **MobiDB** | Consensus disorder annotations from MobiDB (fraction disordered, predictor count, disordered regions) |
+| **Variants** | Natural variants and mutagenesis data from UniProt |
 
 Residues in the sequence viewer are colour-coded by type. Use the **Search** / **Highlight** box to find motifs or regex patterns. Below the viewer: **Copy Sequence** (whole or range) and **Clear All** (resets everything).
 
@@ -116,12 +118,12 @@ Residues in the sequence viewer are colour-coded by type. Use the **Search** / *
 
 | Section | Contents |
 |---------|----------|
-| **Properties** | MW, pI, GRAVY, aromaticity, extinction coefficient |
+| **Properties** | MW, pI, GRAVY, aromaticity, aliphatic index, extinction coefficient |
 | **Composition** | AA counts and frequencies, sortable by name / frequency / hydrophobicity |
 | **Hydrophobicity** | Kyte-Doolittle statistics, hydrophobic and hydrophilic fractions |
 | **Charge** | FCR, NCPR, κ, Ω, net charge, charge asymmetry |
 | **Aromatic & π** | Aromatic fraction, cation–π and π–π pair counts |
-| **Low Complexity** | Shannon entropy, prion-like score, LC fraction |
+| **Low Complexity** | Shannon entropy, prion-like score, LC fraction, PLAAC score (Lancaster et al. 2014), PolyX stretches |
 | **Disorder** | ESM2 logistic probe (DisProt 2024, AUC 0.83); classical propensity fallback |
 | **Aggregation** | ESM2 probe (AUC 0.97); ZYGGREGATOR hotspots; CamSol solubility |
 | **PTM Sites** | ESM2 probe (AUC 0.93); CK2, PKA, ubiquitination, SUMOylation, glycosylation, methylation |
@@ -134,6 +136,7 @@ Residues in the sequence viewer are colour-coded by type. Use the **Search** / *
 | **TM Topology** | KD sliding-window TM helix prediction; inside-positive topology |
 | **Coiled Coil** | Heptad-periodicity score profile |
 | **Linear Motifs** | Regex scan: NLS, NES, PxxP, 14-3-3, KFERQ, KDEL, SxIP, NxS/T, … |
+| **Proteolytic Map** | Predicted cleavage sites for 9 enzymes (Trypsin, Chymotrypsin, Lys-C, Asp-N, Glu-C, CNBr, Arg-C); peptide masses in Da |
 | **Comparison** | Side-by-side disorder / hydrophobicity / aggregation overlays |
 
 ---
@@ -150,10 +153,19 @@ Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, 
 | Structure & Folding | Bead Model (Hydrophobicity), Bead Model (Charge), Sticker Map, Helical Wheel, TM Topology |
 | Phase Sep / IDP | Uversky Phase Plot, Saturation Mutagenesis |
 | Aggregation | β-Aggregation Profile, Solubility Profile, Hydrophobic Moment |
+| Sequence Analysis | Annotation Track, Cleavage Map, PLAAC Profile |
 | New Features | PTM Map, RNA-Binding Profile, SCD Profile, pI/MW Map, Truncation Series, MSA Conservation, Complex Mass |
 | AlphaFold / Structural* | pLDDT Profile, Distance Map, Domain Architecture, Ramachandran Plot, Residue Contact Network |
 
 *Structural graphs require a loaded structure (from AlphaFold fetch or PDB import).
+
+**Sequence Analysis graphs:**
+
+| Graph | Description |
+|-------|-------------|
+| **Annotation Track** | Unified five-track view: disorder, hydrophobicity, aggregation, feature annotations (TM helices, signal peptide, LARKS, PTM sites), and a sequence ruler — all aligned on the same x-axis |
+| **Cleavage Map** | Predicted proteolytic cut sites for 9 enzymes displayed as coloured ticks on horizontal tracks; includes a trypsin peptide mass summary |
+| **PLAAC Profile** | Per-residue prion-like amino acid composition score (Lancaster et al. 2014), with prion-like regions highlighted |
 
 ---
 
@@ -256,8 +268,11 @@ Change the model in **Settings → ESM2 model** and click **Apply Settings**.
 
 | Metric | Definition |
 |--------|-----------|
+| Aliphatic index | 100 × (A + 2.9V + 3.9(I+L)) / length; higher values indicate greater thermostability (Ikai 1980) |
 | LARKS | 7-residue windows: ≥1 aromatic, ≥50% LC residues, entropy < 1.8 bit (Hughes et al. 2018) |
 | SCD | Pairwise charge product weighted by sequence separation (Sawle & Ghosh 2015) |
+| PLAAC score | Per-residue log-odds of yeast prion-like FG vs SwissProt background, window = 41 (Lancaster et al. 2014) |
+| PolyX stretch | Run of ≥4 identical consecutive residues |
 | Prion-like score | Fraction of N, Q, S, G, Y residues |
 | ZYGGREGATOR | β-aggregation propensity per residue (Tartaglia & Vendruscolo 2008) |
 | CamSol | Intrinsic solubility scale (Sormanni et al. 2015) |

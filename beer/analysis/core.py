@@ -74,6 +74,11 @@ from beer.analysis.tandem_repeats import (
     calc_repeat_stats,
     format_tandem_repeats_report,
 )
+from beer.analysis.proteolysis import (
+    calc_proteolytic_sites,
+    format_proteolysis_report,
+)
+from beer.utils.biophysics import calc_polyx_stretches, calc_plaac_score
 from beer.embeddings.base import SequenceEmbedder
 
 
@@ -192,7 +197,9 @@ class AnalysisTools:
           <tr><td>Extinction Coeff. (280 nm)</td><td>{extinction} M&#8315;&#185;cm&#8315;&#185;</td></tr>
           <tr><td>GRAVY Score</td><td>{gravy:.3f}</td></tr>
           <tr><td>Aromaticity</td><td>{aromaticity:.3f}</td></tr>
+          <tr><td>Aliphatic Index</td><td>{aliphatic_idx:.1f}</td></tr>
         </table>
+        <p class="note">Aliphatic index: relative volume of aliphatic side chains (A, V, I, L); higher values correlate with thermostability (Ikai 1980).</p>
         """
 
         hydro_html = _style + f"""
@@ -245,6 +252,16 @@ class AnalysisTools:
         </table>
         """
 
+        # --- PLAAC score ---
+        _plaac = calc_plaac_score(seq)
+        _plaac_max  = _plaac["max_score"]
+        _plaac_regions = _plaac["prion_like_regions"]
+        _plaac_region_txt = (
+            ", ".join(f"{r['start_1based']}–{r['end_1based']} ({r['length']} aa)"
+                      for r in _plaac_regions)
+            if _plaac_regions else "None detected"
+        )
+
         lc_html = _style + f"""
         <h2>Low Complexity</h2>
         <table>
@@ -254,8 +271,10 @@ class AnalysisTools:
           <tr><td>Unique amino acids</td><td>{unique_aa} / 20</td></tr>
           <tr><td>Prion-like score (N,Q,S,G,Y)</td><td>{prion_score:.3f}</td></tr>
           <tr><td>LC fraction (w=12, H&lt;2.0 bits)</td><td>{lc_frac:.3f}</td></tr>
+          <tr><td>PLAAC max log-odds score</td><td>{_plaac_max:.3f}</td></tr>
+          <tr><td>PLAAC prion-like regions (&ge;60 aa, score&gt;0)</td><td>{_plaac_region_txt}</td></tr>
         </table>
-        <p class="note">Prion-like score: fraction of N,Q,S,G,Y (Lancaster &amp; Bhatt)</p>
+        <p class="note">Prion-like score: fraction of N,Q,S,G,Y. PLAAC: log-odds of yeast prion-like composition vs. SwissProt background, smoothed w=41 (Lancaster et al. 2014 Cell).</p>
         """
 
         # --- IUPred-style disorder (ESM2-aware) — computed here for disorder_html ---
@@ -422,9 +441,32 @@ class AnalysisTools:
         rbp_profile_data = calc_rbp_profile(seq)
         rbp_html         = format_rbp_report(seq, _accent)
 
-        # --- Tandem repeats ---
-        tandem_html  = format_tandem_repeats_report(seq, _accent)
-        tandem_stats = calc_repeat_stats(seq)
+        # --- Tandem repeats + PolyX ---
+        polyx_stretches = calc_polyx_stretches(seq, min_length=4)
+        tandem_stats    = calc_repeat_stats(seq)
+
+        # Append PolyX table to the tandem repeats HTML
+        tandem_html_base = format_tandem_repeats_report(seq, _accent)
+        if polyx_stretches:
+            _px_rows = "".join(
+                f"<tr><td>poly{r['aa']}</td><td>{r['aa'] * min(r['length'], 6)}{'…' if r['length'] > 6 else ''}</td>"
+                f"<td>{r['start_1based']}–{r['end_1based']}</td><td>{r['length']}</td></tr>"
+                for r in polyx_stretches
+            )
+            _px_html = (
+                "<h2>Homopolymeric Runs (PolyX)</h2>"
+                "<table><tr><th>Type</th><th>Sequence</th><th>Position</th><th>Length</th></tr>"
+                f"{_px_rows}</table>"
+                "<p class='note'>Homopolymeric stretches &ge;4 consecutive identical residues. "
+                "Biologically relevant: polyQ (neurodegeneration), polyA (PABPN1 myopathy), polyE, polyS.</p>"
+            )
+            tandem_html = tandem_html_base + _px_html
+        else:
+            tandem_html = tandem_html_base
+
+        # --- Proteolytic cleavage ---
+        prot_html   = format_proteolysis_report(seq, _accent)
+        prot_sites  = calc_proteolytic_sites(seq)
 
         return {
             "report_sections": {
@@ -447,6 +489,7 @@ class AnalysisTools:
                 "Charge Decoration (SCD)": scd_html,
                 "RNA Binding":             rbp_html,
                 "Tandem Repeats":          tandem_html,
+                "Proteolytic Map":         prot_html,
             },
             "tm_helices":      tm_helices,
             "aa_counts":       aa_counts,
@@ -488,4 +531,7 @@ class AnalysisTools:
             "rbp":             rbp_result,
             "rbp_profile":     rbp_profile_data,
             "tandem_stats":    tandem_stats,
+            "polyx_stretches": polyx_stretches,
+            "prot_sites":      prot_sites,
+            "plaac":           _plaac,
         }

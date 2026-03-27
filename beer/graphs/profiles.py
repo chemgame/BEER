@@ -243,3 +243,48 @@ def create_disorder_profile_figure(
     fig.tight_layout(pad=1.5)
     mplcursors.cursor(ax)
     return fig
+
+
+def create_plaac_profile_figure(
+    plaac_data: dict,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Per-residue PLAAC log-odds profile (Lancaster et al. 2014)."""
+    profile = plaac_data.get("profile", [])
+    regions = plaac_data.get("prion_like_regions", [])
+    n = len(profile)
+    if n == 0:
+        fig = Figure(figsize=(9, 3), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "No PLAAC data", ha="center", va="center",
+                transform=ax.transAxes, color="#718096")
+        return fig
+
+    xs = list(range(1, n + 1))
+    fig = Figure(figsize=(10, 3.5), dpi=120)
+    fig.set_facecolor("#ffffff")
+    ax = fig.add_subplot(111)
+
+    pos = [v if v > 0 else 0 for v in profile]
+    neg = [v if v < 0 else 0 for v in profile]
+    ax.fill_between(xs, pos, 0, alpha=0.45, color="#e63946", label="Prion-like (>0)")
+    ax.fill_between(xs, neg, 0, alpha=0.35, color="#4361ee", label="Background (<0)")
+    ax.plot(xs, profile, color="#2d3748", linewidth=0.8, alpha=0.7)
+    ax.axhline(0, color="#aaa", linewidth=0.8, linestyle="--")
+
+    for r in regions:
+        ax.axvspan(r["start_1based"], r["end_1based"],
+                   alpha=0.12, color="#e63946", zorder=0)
+
+    ax.set_xlabel("Residue position", fontsize=label_font - 1)
+    ax.set_ylabel("Log-odds score", fontsize=label_font - 1)
+    ax.set_title("PLAAC Prion-like Amino Acid Composition Profile",
+                 fontsize=label_font, fontweight="bold", color="#1a1a2e")
+    ax.tick_params(labelsize=tick_font - 2)
+    ax.set_xlim(1, n)
+    ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")
+    _pub_style_ax(ax)
+    fig.tight_layout(pad=1.5)
+    mplcursors.cursor(ax)
+    return fig

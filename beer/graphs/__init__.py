@@ -10,6 +10,7 @@ from beer.graphs.profiles import (
     create_scd_profile_figure,
     create_rbp_profile_figure,
     create_disorder_profile_figure,
+    create_plaac_profile_figure,
 )
 from beer.graphs.charge import (
     create_isoelectric_focus_figure,
@@ -31,6 +32,8 @@ from beer.graphs.sequence_maps import (
     create_domain_architecture_figure,
     create_cation_pi_map_figure,
     create_local_complexity_figure,
+    create_annotation_track_figure,
+    create_cleavage_map_figure,
 )
 from beer.graphs.structural import (
     create_ramachandran_figure,
@@ -56,6 +59,7 @@ __all__ = [
     "create_scd_profile_figure",
     "create_rbp_profile_figure",
     "create_disorder_profile_figure",
+    "create_plaac_profile_figure",
     "create_isoelectric_focus_figure",
     "create_local_charge_figure",
     "create_charge_decoration_figure",
@@ -71,6 +75,8 @@ __all__ = [
     "create_domain_architecture_figure",
     "create_cation_pi_map_figure",
     "create_local_complexity_figure",
+    "create_annotation_track_figure",
+    "create_cleavage_map_figure",
     "create_ramachandran_figure",
     "create_contact_network_figure",
     "create_plddt_figure",

@@ -244,6 +244,7 @@ REPORT_SECTIONS: list[str] = [
     "Charge Decoration (SCD)",
     "RNA Binding",
     "Tandem Repeats",
+    "Proteolytic Map",
 ]
 
 GRAPH_TITLES: list[str] = [
@@ -281,6 +282,9 @@ GRAPH_TITLES: list[str] = [
     "Residue Contact Network",
     "MSA Conservation",
     "Complex Mass",
+    "Annotation Track",
+    "Cleavage Map",
+    "PLAAC Profile",
 ]
 
 # Graph categories for the tree browser (order matters; every GRAPH_TITLES entry must appear here)
@@ -333,6 +337,11 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
         "Truncation Series",
         "MSA Conservation",
         "Complex Mass",
+    ]),
+    ("Sequence Analysis", [
+        "Annotation Track",
+        "Cleavage Map",
+        "PLAAC Profile",
     ]),
 ]
 

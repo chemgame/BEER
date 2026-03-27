@@ -328,3 +328,356 @@ def create_local_complexity_figure(
     import mplcursors
     mplcursors.cursor(ax)
     return fig
+
+
+def create_annotation_track_figure(
+    seq: str,
+    disorder_scores: list,
+    hydro_profile: list,
+    aggr_profile: list,
+    ptm_sites: list,
+    tm_helices: list,
+    larks: list,
+    sp_result: dict,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Genome-browser-style multi-track annotation overview figure.
+
+    Five stacked horizontal tracks share the same x-axis (residue position):
+      1. Disorder score filled-area plot.
+      2. Hydrophobicity sliding-window filled-area plot.
+      3. Aggregation propensity filled-area plot.
+      4. Categorical features: TM helices, signal peptide, LARKS, PTM sites.
+      5. Sequence ruler (x-axis only).
+    """
+    n = len(seq)
+    xs_all = np.arange(1, n + 1, dtype=float)
+
+    # Decide which continuous tracks are present
+    has_disorder = bool(disorder_scores)
+    has_hydro    = bool(hydro_profile)
+    has_aggr     = bool(aggr_profile)
+
+    n_tracks = 5  # fixed layout: disorder / hydro / aggr / features / ruler
+
+    fig = Figure(figsize=(12, 8), dpi=120)
+    fig.set_facecolor("#ffffff")
+    # height_ratios: continuous tracks get more space; features track medium; ruler minimal
+    height_ratios = [2, 2, 2, 1.4, 0.5]
+    axs = fig.subplots(n_tracks, 1, sharex=True,
+                       gridspec_kw={"height_ratios": height_ratios})
+    fig.subplots_adjust(hspace=0.15, left=0.11, right=0.97, top=0.93, bottom=0.07)
+    fig.suptitle("Feature Annotation Track", fontsize=label_font + 1,
+                 fontweight="bold", color="#1a1a2e")
+
+    # ------------------------------------------------------------------ #
+    # Shared spine / tick helper
+    # ------------------------------------------------------------------ #
+    def _style_track(ax, ylabel_txt, hide_xticks=True):
+        ax.set_ylabel(ylabel_txt, fontsize=tick_font - 1, color="#4a5568",
+                      labelpad=4, rotation=90, va="center")
+        ax.tick_params(labelsize=tick_font - 3, length=3, width=0.7,
+                       colors="#4a5568")
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
+        ax.spines["left"].set_linewidth(0.7)
+        ax.spines["left"].set_color("#c0c4d0")
+        ax.spines["bottom"].set_linewidth(0.7)
+        ax.spines["bottom"].set_color("#c0c4d0")
+        ax.set_facecolor("#fafbff")
+        ax.grid(True, axis="x", linestyle="--", linewidth=0.35,
+                alpha=0.45, color="#c8cdd8")
+        ax.set_axisbelow(True)
+        if hide_xticks:
+            ax.tick_params(axis="x", which="both", bottom=False,
+                           labelbottom=False)
+
+    # ------------------------------------------------------------------ #
+    # Track 1 – Disorder
+    # ------------------------------------------------------------------ #
+    ax_dis = axs[0]
+    if has_disorder:
+        dis = np.asarray(disorder_scores, dtype=float)
+        xs_dis = np.arange(1, len(dis) + 1, dtype=float)
+        above = np.where(dis > 0.5, dis, np.nan)
+        below = np.where(dis <= 0.5, dis, np.nan)
+        ax_dis.fill_between(xs_dis, above, 0, color="#e63946",
+                            alpha=0.35, interpolate=True)
+        ax_dis.fill_between(xs_dis, below, 0, color="#4361ee",
+                            alpha=0.35, interpolate=True)
+        ax_dis.plot(xs_dis, dis, color="#333333", linewidth=0.8, zorder=3)
+        ax_dis.axhline(0.5, color="#666666", linewidth=0.9,
+                       linestyle=":", zorder=4)
+        ax_dis.set_ylim(0, 1.05)
+    else:
+        ax_dis.text(0.5, 0.5, "No disorder data", transform=ax_dis.transAxes,
+                    ha="center", va="center", fontsize=tick_font - 2,
+                    color="#aaa")
+        ax_dis.set_ylim(0, 1)
+    _style_track(ax_dis, "Disorder")
+
+    # ------------------------------------------------------------------ #
+    # Track 2 – Hydrophobicity
+    # ------------------------------------------------------------------ #
+    ax_hyd = axs[1]
+    if has_hydro:
+        hyd = np.asarray(hydro_profile, dtype=float)
+        offset = (n - len(hyd)) // 2
+        xs_hyd = np.arange(offset + 1, offset + len(hyd) + 1, dtype=float)
+        ax_hyd.fill_between(xs_hyd, hyd, 0,
+                            where=(hyd >= 0), color="#ff8800",
+                            alpha=0.35, interpolate=True)
+        ax_hyd.fill_between(xs_hyd, hyd, 0,
+                            where=(hyd < 0), color="#4361ee",
+                            alpha=0.35, interpolate=True)
+        ax_hyd.plot(xs_hyd, hyd, color="#333333", linewidth=0.8, zorder=3)
+        ax_hyd.axhline(0, color="#888888", linewidth=0.7,
+                       linestyle="--", zorder=4)
+    else:
+        ax_hyd.text(0.5, 0.5, "No hydrophobicity data",
+                    transform=ax_hyd.transAxes,
+                    ha="center", va="center", fontsize=tick_font - 2,
+                    color="#aaa")
+    _style_track(ax_hyd, "Hydrophob.")
+
+    # ------------------------------------------------------------------ #
+    # Track 3 – Aggregation
+    # ------------------------------------------------------------------ #
+    ax_agg = axs[2]
+    if has_aggr:
+        agg = np.asarray(aggr_profile, dtype=float)
+        xs_agg = np.arange(1, len(agg) + 1, dtype=float)
+        hot  = np.where(agg > 1.0, agg, np.nan)
+        norm = np.where(agg <= 1.0, agg, np.nan)
+        ax_agg.fill_between(xs_agg, norm, 0, color="#4682b4",
+                            alpha=0.35, interpolate=True)
+        ax_agg.fill_between(xs_agg, hot, 0, color="#e63946",
+                            alpha=0.40, interpolate=True)
+        ax_agg.plot(xs_agg, agg, color="#333333", linewidth=0.8, zorder=3)
+        ax_agg.axhline(1.0, color="#888888", linewidth=0.7,
+                       linestyle=":", zorder=4)
+    else:
+        ax_agg.text(0.5, 0.5, "No aggregation data",
+                    transform=ax_agg.transAxes,
+                    ha="center", va="center", fontsize=tick_font - 2,
+                    color="#aaa")
+    _style_track(ax_agg, "Aggregation")
+
+    # ------------------------------------------------------------------ #
+    # Track 4 – Categorical features
+    # ------------------------------------------------------------------ #
+    ax_feat = axs[3]
+    ax_feat.set_ylim(0, 1)
+    ax_feat.set_yticks([])
+
+    # TM helices – dark green rectangles
+    for helix in (tm_helices or []):
+        h_s = helix.get("start", 0)
+        h_e = helix.get("end", h_s)
+        # tolerate 0-based or 1-based; normalise to 1-based width
+        h_s_1 = h_s + 1 if h_s == 0 or h_s < h_e else h_s
+        h_e_1 = h_e + 1 if h_s == 0 or h_s < h_e else h_e
+        w = max(1, h_e_1 - h_s_1 + 1)
+        rect = Rectangle((h_s_1, 0.3), w, 0.4,
+                          color="#2d6a4f", alpha=0.85, zorder=4,
+                          linewidth=0)
+        ax_feat.add_patch(rect)
+        mid = h_s_1 + w / 2.0
+        ax_feat.text(mid, 0.50, "TM", ha="center", va="center",
+                     fontsize=max(5, tick_font - 5), color="white",
+                     fontweight="bold", zorder=5)
+
+    # Signal peptide – violet rectangle
+    sp = sp_result or {}
+    sp_start = sp.get("h_start", None)
+    sp_end   = sp.get("h_end",   None)
+    if sp_start is None:
+        clv = sp.get("cleavage_site", None)
+        if clv is not None:
+            sp_start, sp_end = 1, int(clv)
+    if sp_start is not None and sp_end is not None:
+        sp_w = max(1, int(sp_end) - int(sp_start) + 1)
+        rect_sp = Rectangle((int(sp_start), 0.55), sp_w, 0.35,
+                             color="#7b2d8b", alpha=0.80, zorder=3,
+                             linewidth=0)
+        ax_feat.add_patch(rect_sp)
+        ax_feat.text(int(sp_start) + sp_w / 2.0, 0.725, "SP",
+                     ha="center", va="center",
+                     fontsize=max(5, tick_font - 5), color="white",
+                     fontweight="bold", zorder=5)
+
+    # LARKS – orange vertical tick marks at center position
+    for lark in (larks or []):
+        if isinstance(lark, dict):
+            lk_s = lark.get("start", lark.get("position", 1))
+            lk_e = lark.get("end", lk_s)
+            center = (int(lk_s) + int(lk_e)) / 2.0
+        else:
+            center = float(lark)
+        ax_feat.plot([center, center], [0.05, 0.25],
+                     color="#ff8800", linewidth=1.4, zorder=4,
+                     solid_capstyle="round")
+
+    # PTM sites – small colored diamonds
+    for site in (ptm_sites or []):
+        pos = site.get("position", 1)
+        pt  = site.get("ptm_type", "unknown")
+        col = PTM_COLORS.get(pt, "#7f7f7f")
+        ax_feat.scatter([pos], [0.15], marker="D", s=28, color=col,
+                        edgecolors="#333333", linewidths=0.4, zorder=5)
+
+    _style_track(ax_feat, "Features")
+    # hide y spine for feature track
+    ax_feat.spines["left"].set_visible(False)
+
+    # ------------------------------------------------------------------ #
+    # Track 5 – Ruler (x-axis only)
+    # ------------------------------------------------------------------ #
+    ax_rul = axs[4]
+    ax_rul.set_ylim(0, 1)
+    ax_rul.set_yticks([])
+    for sp_name in ("top", "right", "left"):
+        ax_rul.spines[sp_name].set_visible(False)
+    ax_rul.spines["bottom"].set_linewidth(0.7)
+    ax_rul.spines["bottom"].set_color("#c0c4d0")
+    ax_rul.set_facecolor("#ffffff")
+    ax_rul.tick_params(axis="x", labelsize=tick_font - 3, length=4,
+                       width=0.7, colors="#4a5568")
+    ax_rul.set_xlabel("Residue Position", fontsize=tick_font - 1,
+                      color="#4a5568", labelpad=3)
+    # tick every 50 residues
+    tick_step = 50
+    major_ticks = list(range(1, n + 1, tick_step))
+    if n not in major_ticks:
+        major_ticks.append(n)
+    ax_rul.set_xticks(major_ticks)
+
+    # Shared x limits
+    for ax in axs:
+        ax.set_xlim(1, n)
+
+    return fig
+
+
+def create_cleavage_map_figure(
+    seq: str,
+    cleavage_data: dict,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Proteolytic cleavage site map — one horizontal track per enzyme.
+
+    cleavage_data: dict of enzyme_name -> list of 1-based cut positions,
+    as returned by calc_proteolytic_sites(seq).
+    """
+    _CLEAVAGE_PALETTE = [
+        "#4361ee", "#e63946", "#2a9d8f", "#e9c46a",
+        "#f4a261", "#6d6875", "#264653", "#023047",
+    ]
+
+    if not cleavage_data:
+        fig = Figure(figsize=(12, 4), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "No cleavage data available",
+                transform=ax.transAxes, ha="center", va="center",
+                fontsize=label_font - 1, color="#aaa")
+        ax.set_axis_off()
+        fig.suptitle("Proteolytic Cleavage Map", fontsize=label_font + 1,
+                     fontweight="bold", color="#1a1a2e")
+        return fig
+
+    n = len(seq)
+    enzymes   = list(cleavage_data.keys())
+    n_enzymes = len(enzymes)
+
+    fig_h = max(4.0, 1.2 * n_enzymes)
+    fig = Figure(figsize=(12, fig_h), dpi=120)
+    fig.set_facecolor("#ffffff")
+    fig.suptitle("Proteolytic Cleavage Map", fontsize=label_font + 1,
+                 fontweight="bold", color="#1a1a2e", y=0.98)
+
+    # Reserve bottom space for the trypsin summary annotation
+    fig.subplots_adjust(left=0.14, right=0.88, top=0.90, bottom=0.14,
+                        hspace=0.0)
+    ax = fig.add_subplot(111)
+    ax.set_facecolor("#fafbff")
+    ax.set_xlim(0, n)
+    ax.set_ylim(-0.5, n_enzymes - 0.5)
+
+    for idx, enzyme in enumerate(enzymes):
+        cuts  = cleavage_data[enzyme] or []
+        color = _CLEAVAGE_PALETTE[idx % len(_CLEAVAGE_PALETTE)]
+        y     = idx  # one integer y level per enzyme
+
+        # Gray backbone line
+        ax.plot([0, n], [y, y], color="#cccccc", linewidth=1.5,
+                solid_capstyle="round", zorder=2)
+
+        # Vertical tick marks at each cut position
+        tick_h = 0.30
+        for pos in cuts:
+            ax.plot([pos, pos], [y - tick_h, y + tick_h],
+                    color=color, linewidth=1.1, zorder=4,
+                    solid_capstyle="round")
+
+        # Cut count label on the right
+        n_cuts = len(cuts)
+        ax.text(n + n * 0.01, y, f"{n_cuts}",
+                va="center", ha="left",
+                fontsize=tick_font - 2, color=color, fontweight="600")
+
+    # y-axis: enzyme names
+    ax.set_yticks(list(range(n_enzymes)))
+    ax.set_yticklabels(enzymes, fontsize=tick_font - 1, color="#4a5568")
+    ax.tick_params(axis="y", length=0, pad=5)
+
+    # x-axis styling
+    ax.set_xlabel("Residue Position", fontsize=label_font - 1,
+                  color="#2d3748", labelpad=5)
+    tick_step = 50
+    major_ticks = list(range(0, n + 1, tick_step))
+    if n not in major_ticks:
+        major_ticks.append(n)
+    ax.set_xticks(major_ticks)
+    ax.tick_params(axis="x", labelsize=tick_font - 2, length=3,
+                   width=0.7, colors="#4a5568")
+
+    # Spine cleanup
+    for sp_name in ("top", "right"):
+        ax.spines[sp_name].set_visible(False)
+    ax.spines["left"].set_linewidth(0.7)
+    ax.spines["left"].set_color("#c0c4d0")
+    ax.spines["bottom"].set_linewidth(0.7)
+    ax.spines["bottom"].set_color("#c0c4d0")
+
+    # Subtle vertical grid
+    ax.grid(True, axis="x", linestyle="--", linewidth=0.35,
+            alpha=0.45, color="#c8cdd8")
+    ax.set_axisbelow(True)
+
+    # Right-edge label header
+    ax.text(n + n * 0.01, n_enzymes - 0.5 + 0.1, "cuts",
+            va="bottom", ha="left",
+            fontsize=tick_font - 3, color="#888888")
+
+    # Bottom summary for trypsin (most commonly used enzyme)
+    trypsin_key = next(
+        (k for k in enzymes if "trypsin" in k.lower()), None
+    )
+    if trypsin_key is not None:
+        t_cuts = cleavage_data[trypsin_key] or []
+        n_cuts = len(t_cuts)
+        n_peptides = n_cuts + 1
+        avg_len = round(n / n_peptides, 1) if n_peptides > 0 else 0
+        summary = (
+            f"Trypsin: {n_cuts} cut{'s' if n_cuts != 1 else ''}  "
+            f"\u2192  {n_peptides} peptide{'s' if n_peptides != 1 else ''}"
+            f"  (avg {avg_len} aa)"
+        )
+        fig.text(0.50, 0.03, summary, ha="center", va="bottom",
+                 fontsize=tick_font - 1, color="#2d3748",
+                 style="italic")
+
+    return fig
