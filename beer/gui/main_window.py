@@ -175,7 +175,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.app_font_size        = _cfg.get("app_font_size", 12)
         self.enable_tooltips      = _cfg.get("enable_tooltips", True)
         self.colorblind_safe      = _cfg.get("colorblind_safe", False)
-        self._history             = _cfg.get("recent_sequences", [])
+        self._history             = []   # session-only: never restored from disk
         self.sequence_name       = ""
         self._tooltips: dict     = {}
         self._analysis_worker    = None
@@ -567,6 +567,17 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.report_stack = QStackedWidget()
         report_h.addWidget(self.report_stack, 1)
 
+        # ── Protein info bar (shown after accession fetch) ────────────────
+        self._protein_info_bar = QTextBrowser()
+        self._protein_info_bar.setOpenExternalLinks(True)
+        self._protein_info_bar.setMaximumHeight(72)
+        self._protein_info_bar.setStyleSheet(
+            "QTextBrowser { background:#f0f4ff; border:1px solid #c8d0ec;"
+            " border-radius:6px; padding:4px 8px; font-size:9pt; color:#2d3748; }"
+        )
+        self._protein_info_bar.hide()
+        right_layout.addWidget(self._protein_info_bar)
+
         right_layout.addWidget(report_panel, 1)
 
         self.report_section_tabs = {}
@@ -689,20 +700,24 @@ class ProteinAnalyzerGUI(QMainWindow):
 
     # ── colour-scheme options per colour mode ────────────────────────────────
     _STRUCT_SCHEMES = {
-        "pLDDT / B-factor":  ["Red-White-Blue", "Blue-White-Red", "Rainbow", "Sinebow"],
-        "Residue Type":      ["Amino Acid (UniProt)", "Shapely"],
-        "Chain":             ["Chain Colors"],
-        "Charge":            ["Blue / Red / Grey"],
-        "Hydrophobicity":    ["Cyan-White-Orange", "Blue-White-Red", "Green-White-Red"],
-        "Mass":              ["Blue-to-Red", "Rainbow"],
+        "pLDDT / B-factor":    ["Red-White-Blue", "Blue-White-Red", "Rainbow", "Sinebow"],
+        "Residue Type":         ["Amino Acid (UniProt)", "Shapely"],
+        "Chain":                ["Chain Colors"],
+        "Charge":               ["Blue / Red / Grey"],
+        "Hydrophobicity":       ["Cyan-White-Orange", "Blue-White-Red", "Green-White-Red"],
+        "Mass":                 ["Blue-to-Red", "Rainbow"],
+        "Secondary Structure":  ["JMol", "PyMOL"],
+        "Spectrum (N→C)":       ["Spectrum"],
     }
     _STRUCT_MODE_KEY = {
-        "pLDDT / B-factor": "plddt",
-        "Residue Type":      "residue",
-        "Chain":             "chain",
-        "Charge":            "charge",
-        "Hydrophobicity":    "hydrophobicity",
-        "Mass":              "mass",
+        "pLDDT / B-factor":    "plddt",
+        "Residue Type":         "residue",
+        "Chain":                "chain",
+        "Charge":               "charge",
+        "Hydrophobicity":       "hydrophobicity",
+        "Mass":                 "mass",
+        "Secondary Structure":  "secondary_structure",
+        "Spectrum (N→C)":       "spectrum",
     }
     _STRUCT_PANEL_CSS_LIGHT = """
         QScrollArea { border: 1px solid #d1d9f0; border-radius: 8px; background: #f4f6fd; }
@@ -823,9 +838,10 @@ class ProteinAnalyzerGUI(QMainWindow):
             rep_gl = QVBoxLayout(rep_grp)
             rep_gl.setSpacing(5)
             self.struct_rep_combo = QComboBox()
-            self.struct_rep_combo.addItems(["Cartoon", "Stick", "Sphere", "Line", "Surface"])
+            self.struct_rep_combo.addItems(["Cartoon", "Stick", "Sphere", "Line", "Cross", "Trace", "Surface"])
             self.struct_rep_combo.setToolTip(
-                "Cartoon: ribbon\nStick: bonds\nSphere: VDW\nLine: wireframe\nSurface: molecular surface")
+                "Cartoon: ribbon\nStick: bonds\nSphere: VDW\nLine: wireframe\n"
+                "Cross: crosshair atoms\nTrace: Cα backbone\nSurface: molecular surface")
             self.struct_rep_combo.currentTextChanged.connect(self._on_struct_rep_changed)
             rep_gl.addWidget(self.struct_rep_combo)
 
@@ -899,8 +915,8 @@ class ProteinAnalyzerGUI(QMainWindow):
             snap_gl = QVBoxLayout(snap_grp)
             snap_gl.setContentsMargins(6, 4, 6, 6)
             reset_btn = QPushButton("Reset View")
-            reset_btn.setToolTip("Zoom to fit the whole structure")
-            reset_btn.clicked.connect(lambda: self._js("viewer.zoomTo(); viewer.render();"))
+            reset_btn.setToolTip("Reset representation, colour, background and camera to defaults")
+            reset_btn.clicked.connect(self._reset_struct_view)
             snap_gl.addWidget(reset_btn)
             snapshot_btn = QPushButton("Snapshot PNG")
             snapshot_btn.setToolTip("Render the current view to a PNG file")
@@ -943,7 +959,7 @@ class ProteinAnalyzerGUI(QMainWindow):
     _3DMOL_HTML = """<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>
-  html,body {{ margin:0; padding:0; overflow:hidden; background:transparent; width:100%; height:100%; }}
+  html,body {{ margin:0; padding:0; overflow:hidden; background:#ffffff; width:100%; height:100%; }}
   #vp {{ width:100%; height:100vh; position:relative; }}
 
   /* ── color bar overlay ──────────────────────────────────────────────────── */
@@ -1059,6 +1075,21 @@ function _charge(atom){{
     return '#aaaaaa';
 }}
 
+// ── secondary structure colorfunc (JMol palette) ──────────────────────────
+function _ss_jmol(atom){{
+    var s=atom.ss;
+    if(s==='h'||s==='H') return '#FF0080';   // helix  — hot pink
+    if(s==='s'||s==='S') return '#FFFF00';   // sheet  — yellow
+    return '#FFFFFF';                         // coil   — white
+}}
+// ── secondary structure colorfunc (PyMOL palette) ─────────────────────────
+function _ss_pymol(atom){{
+    var s=atom.ss;
+    if(s==='h'||s==='H') return '#FF6666';   // helix  — salmon
+    if(s==='s'||s==='S') return '#6699FF';   // sheet  — cornflower blue
+    return '#CCCCCC';                         // coil   — grey
+}}
+
 function _getColorFunc(){{
     if(colorMode==='hydrophobicity'){{
         if(colorScheme==='Blue-White-Red')  return _hydro_BWR;
@@ -1070,6 +1101,9 @@ function _getColorFunc(){{
         return _mass_BR;
     }}
     if(colorMode==='charge') return _charge;
+    if(colorMode==='secondary_structure'){{
+        return colorScheme==='PyMOL' ? _ss_pymol : _ss_jmol;
+    }}
     return null;
 }}
 
@@ -1094,6 +1128,8 @@ function _styleOpts(rep,opacity){{
         o[rep]={{colorscheme:colorScheme==='Shapely'?'shapely':'amino',opacity:op}};
     }} else if(colorMode==='chain'){{
         o[rep]={{colorscheme:'chain',opacity:op}};
+    }} else if(colorMode==='spectrum'){{
+        o[rep]={{colorscheme:'spectrum',opacity:op}};
     }} else {{
         o[rep]={{colorfunc:_getColorFunc(),opacity:op}};
     }}
@@ -1119,6 +1155,7 @@ function applyStyle(){{
         if(colorMode==='plddt')        sOpts.colorscheme=_plddtScheme();
         else if(colorMode==='residue') sOpts.colorscheme=colorScheme==='Shapely'?'shapely':'amino';
         else if(colorMode==='chain')   sOpts.colorscheme='chain';
+        else if(colorMode==='spectrum') sOpts.colorscheme='spectrum';
         else                           sOpts.colorfunc=_getColorFunc();
         // addSurface is async — store the ID only when the Promise resolves.
         viewer.addSurface($3Dmol.SurfaceType.MS,sOpts).then(function(id){{
@@ -1166,6 +1203,14 @@ var _CB = {{
     {{c:'#ff8800',l:'Chain A'}},{{c:'#00aaff',l:'Chain B'}},
     {{c:'#ff44cc',l:'Chain C'}},{{c:'#44ff88',l:'Chain D'}},{{c:'#bbbbbb',l:'+ others'}}
   ]}},
+  secondary_structure: {{type:'cat',entries:[
+    {{c:'#FF0080',l:'Helix (JMol: pink / PyMOL: salmon)'}},
+    {{c:'#FFFF00',l:'Sheet (JMol: yellow / PyMOL: blue)'}},
+    {{c:'#FFFFFF',l:'Coil / loop'}}
+  ]}},
+  spectrum: {{
+    'Spectrum':{{css:'linear-gradient(to top,#0000ff,#00ffff,#00ff00,#ffff00,#ff0000)',min:'N-term',mid:'middle',max:'C-term',unit:'Sequence position'}},
+  }},
 }};
 
 function updateColorBar(){{
@@ -1213,6 +1258,12 @@ function setScheme(s)          {{ colorScheme=s; applyStyle(); }}
 function setBackground(c)      {{ document.documentElement.style.background=c; document.body.style.background=c; if(viewer){{ viewer.setBackgroundColor(c); viewer.render(); }} }}
 function setColorBarVisible(v) {{ colorBarVisible=v; updateColorBar(); }}
 function setSpin(on,axis)      {{ if(!viewer) return; if(on) viewer.spin(axis||'y',1); else viewer.spin(false); viewer.render(); }}
+function resetView()           {{
+    repMode='cartoon'; colorMode='plddt'; colorScheme='Red-White-Blue';
+    setBackground('#ffffff');
+    if(viewer){{ viewer.spin(false); viewer.zoomTo(); }}
+    applyStyle();
+}}
 
 // ── loadPDB: swap in a new structure without reloading the page ────────────
 function loadPDB(data){{
@@ -1230,7 +1281,7 @@ function loadPDB(data){{
 }}
 
 function init(){{
-    viewer=$3Dmol.createViewer("vp",{{backgroundColor:"#1a1a2e",antialias:true}});
+    viewer=$3Dmol.createViewer("vp",{{backgroundColor:"#ffffff",antialias:true}});
     if(pdbData){{          // null on the initial empty-page load
         viewer.addModel(pdbData,"pdb");
         viewer.zoomTo();   // set camera BEFORE rendering
@@ -1280,6 +1331,20 @@ window.addEventListener("load",init);
         if self.struct_spin_btn.isChecked():
             axis = self.struct_spin_axis_combo.currentText()[0].lower()
             self._js(f"setSpin(true,'{axis}');")
+
+    def _reset_struct_view(self) -> None:
+        """Reset the 3D viewer and all controls to their defaults."""
+        for combo, text in [
+            (self.struct_rep_combo,        "Cartoon"),
+            (self.struct_color_mode_combo, "pLDDT / B-factor"),
+        ]:
+            combo.blockSignals(True)
+            combo.setCurrentText(text)
+            combo.blockSignals(False)
+        self._update_scheme_combo("pLDDT / B-factor")
+        if self.struct_spin_btn.isChecked():
+            self.struct_spin_btn.setChecked(False)   # triggers spin-off via toggled signal
+        self._js("resetView();")
 
     def _pick_background_color(self) -> None:
         color = QColorDialog.getColor(parent=self)
@@ -1575,12 +1640,6 @@ window.addEventListener("load",init);
         form4.setVerticalSpacing(8)
         form4.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         _section("Interface")
-        self.app_font_size_input = QLineEdit(str(self.app_font_size))
-        self.app_font_size_input.setPlaceholderText("e.g. 12")
-        self._set_tooltip(self.app_font_size_input,
-                          "Global application font size in points (requires Apply Settings).")
-        form4.addRow("UI Font Size (pt):", self.app_font_size_input)
-
         self.theme_toggle = QCheckBox("Dark Theme")
         self._set_tooltip(self.theme_toggle, "Toggle between light and dark application themes.")
         self.theme_toggle.stateChanged.connect(self.toggle_theme)
@@ -1590,12 +1649,6 @@ window.addEventListener("load",init);
         self.tooltips_checkbox = QCheckBox("Enable Tooltips")
         self.tooltips_checkbox.setChecked(self.enable_tooltips)
         form4.addRow("", self.tooltips_checkbox)
-
-        self.colorblind_cb = QCheckBox("Colourblind-safe palette (Paul Tol)")
-        self.colorblind_cb.setChecked(getattr(self, "colorblind_safe", False))
-        self._set_tooltip(self.colorblind_cb,
-                          "Use the Paul Tol colourblind-safe palette for all graphs.")
-        form4.addRow("", self.colorblind_cb)
         layout.addLayout(form4)
 
         # ── ESM2 model selector ───────────────────────────────────────────
@@ -2914,19 +2967,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if name_override:
             self.sequence_name = name_override
 
-        # Global UI font size
-        try:
-            fs = int(self.app_font_size_input.text())
-            if 8 <= fs <= 24:
-                self.app_font_size = fs
-                app_inst = QApplication.instance()
-                if app_inst:
-                    f = app_inst.font()
-                    f.setPointSize(fs)
-                    app_inst.setFont(f)
-        except (ValueError, TypeError):
-            pass
-
         raw_pka = [p.strip() for p in self.pka_input.text().split(",") if p.strip()]
         self.custom_pka = None
         if len(raw_pka) == 9:
@@ -2942,14 +2982,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
         self.enable_tooltips = self.tooltips_checkbox.isChecked()
         self._apply_tooltips()
-
-        self.colorblind_safe = self.colorblind_cb.isChecked()
-        if self.colorblind_safe:
-            import beer.graphs._style as _gstyle
-            _gstyle._ACCENT  = "#4477AA"
-            _gstyle._FILL    = "#4477AA"
-            _gstyle._POS_COL = "#4477AA"
-            _gstyle._NEG_COL = "#CC6677"
 
         # Re-initialise ESM2 embedder if model changed
         new_esm2_model = self.esm2_combo.currentText()
@@ -2993,7 +3025,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             "enable_tooltips":  self.enable_tooltips,
             "colorblind_safe":  getattr(self, "colorblind_safe", False),
             "esm2_model":       self.esm2_combo.currentText(),
-            "recent_sequences": self._history,
         })
         self.statusBar.showMessage("Settings applied and saved.", 5000)
 
@@ -3012,10 +3043,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.heading_checkbox.setChecked(True)
         self.grid_checkbox.setChecked(True)
         self.transparent_bg_checkbox.setChecked(True)
-        self.app_font_size_input.setText("12")
         self.theme_toggle.setChecked(False)
         self.tooltips_checkbox.setChecked(True)
-        self.colorblind_cb.setChecked(False)
         self.apply_settings()
 
     # --- Chain selection ---
@@ -3200,7 +3229,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self.history_combo.addItem(n)
         self.history_combo.setCurrentIndex(1)  # show current sequence name
         self.history_combo.blockSignals(False)
-        _config.set_value("recent_sequences", [(n, s) for n, s in self._history])
 
     def _on_history_selected(self, idx: int):
         if idx <= 0:
@@ -3208,7 +3236,16 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         name, seq = self._history[idx - 1]
         self.seq_text.setPlainText(seq)
         self.sequence_name = name
+        # Clear any previously loaded structure since it belongs to a different protein
+        self._js("loadPDB(null);")
+        self.alphafold_data = None
+        self.current_accession = ""
         self.on_analyze()
+
+    def closeEvent(self, event):
+        """On close, wipe history from config so next session starts clean."""
+        _config.set_value("recent_sequences", [])
+        super().closeEvent(event)
 
     # --- Accession fetch ---
 
@@ -3290,6 +3327,62 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         else:
             # UniProt single sequence: start the analysis worker.
             self.on_analyze()
+
+        # Fetch and display protein summary (best-effort, non-blocking)
+        self._fetch_and_show_protein_summary(acc, is_pdb)
+
+    def _fetch_and_show_protein_summary(self, acc: str, is_pdb: bool) -> None:
+        """Fetch brief metadata from UniProt or RCSB and display in the info bar."""
+        try:
+            if is_pdb:
+                url = f"https://data.rcsb.org/rest/v1/core/entry/{acc.upper()}"
+                req = urllib.request.Request(url, headers={
+                    "Accept": "application/json", "User-Agent": "BEER/1.0"})
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read().decode())
+                title = data.get("struct", {}).get("title", "")
+                pdb_id = acc.upper()
+                html = (
+                    f"<b>PDB {pdb_id}</b> &nbsp;|&nbsp; {title}"
+                )
+            else:
+                url = f"https://rest.uniprot.org/uniprotkb/{acc}.json"
+                req = urllib.request.Request(url, headers={
+                    "Accept": "application/json", "User-Agent": "BEER/1.0"})
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read().decode())
+                # Protein name
+                pd = data.get("proteinDescription", {})
+                rec = pd.get("recommendedName") or (pd.get("submittedNames") or [{}])[0]
+                prot_name = (rec.get("fullName") or {}).get("value", "")
+                # Gene name
+                genes = data.get("genes", [])
+                gene = (genes[0].get("geneName") or {}).get("value", "") if genes else ""
+                # Organism
+                organism = data.get("organism", {}).get("scientificName", "")
+                # Function comment (first sentence only)
+                func = ""
+                for c in data.get("comments", []):
+                    if c.get("commentType") == "FUNCTION":
+                        texts = c.get("texts", [])
+                        if texts:
+                            raw = texts[0].get("value", "")
+                            func = raw.split(".")[0] + "." if raw else ""
+                        break
+                parts = []
+                if prot_name:
+                    parts.append(f"<b>{prot_name}</b>")
+                meta = " | ".join(filter(None, [gene, f"<i>{organism}</i>" if organism else ""]))
+                if meta:
+                    parts.append(meta)
+                if func:
+                    parts.append(func)
+                html = " &nbsp;·&nbsp; ".join(parts)
+            if html:
+                self._protein_info_bar.setHtml(html)
+                self._protein_info_bar.show()
+        except Exception:
+            pass  # summary is informational only
 
     def _fetch_pdb_fasta(self, pdb_id: str) -> str:
         """Fetch FASTA sequence(s) from RCSB PDB for a given 4-char PDB ID."""
@@ -3545,6 +3638,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if reply != QMessageBox.StandardButton.Yes:
             return
 
+        # ── Protein info bar ──────────────────────────────────────────────
+        self._protein_info_bar.hide()
+
         # ── Sequence & identity ───────────────────────────────────────────
         self.seq_text.clear()
         self.seq_viewer.clear()
@@ -3734,7 +3830,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.ph_input.setText(str(self.default_pH))
         self.window_size_input.setText(str(self.default_window_size))
         self.transparent_bg_checkbox.setChecked(self.transparent_bg)
-        self.app_font_size_input.setText(str(self.app_font_size))
         self.label_font_input.setText(str(self.label_font_size))
         self.tick_font_input.setText(str(self.tick_font_size))
         self.statusBar.showMessage(f"Session loaded: {fn}", 3000)
