@@ -2,87 +2,32 @@
 
 **BEER** is a desktop application for integrated biophysical analysis of protein sequences. It accepts a sequence (pasted, imported as FASTA/PDB, or fetched from UniProt/RCSB), runs 19 analysis modules in one click, and gives you interactive publication-quality graphs, a 3D structure viewer, and exportable reports — all from a single GUI.
 
-I built BEER because I wanted a single tool that handles everything from basic physicochemical properties to disorder prediction, aggregation hotspots, PTM sites, RNA-binding propensity, and phase separation metrics, without having to jump between half a dozen web servers.
+I built BEER because I wanted a single tool that handles everything from basic physicochemical properties to disorder prediction, aggregation hotspots, PTM sites, RNA-binding propensity, and phase separation metrics, without jumping between half a dozen web servers.
 
 > **If you use BEER in your research, please cite:**
->
 > Mukherjee, S. *arXiv*:2504.20561. DOI: [https://doi.org/10.48550/arXiv.2504.20561](https://arxiv.org/abs/2504.20561)
 
 ---
 
 ## What's new in v2.0
 
-Version 1.0 was a single monolithic script (`beer.py`) with a basic PySide6 GUI. v2.0 is a full rewrite:
+Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewrite:
 
-- **Restructured as a proper Python package** (`beer/`) — modular, importable, installable via `pip`
-- **ESM2 neural network predictions** for disorder, aggregation, signal peptide, and PTM sites — pre-trained heads bundled, no training needed
-- **VMD-style 3D structure viewer** with color schemes, color bar, coordinate axes, spin, snapshot, and background color controls
-- **25 graphs** across 8 categories (up from ~12 in v1.0), including Ramachandran, contact network, pLDDT profile, and domain architecture
+- **Proper Python package** (`beer/`) — modular, installable via `pip`
+- **ESM2 neural predictions** for disorder, aggregation, signal peptide, and PTM — pre-trained heads bundled, no training needed
+- **VMD-style 3D structure viewer** with color schemes, color bar, coordinate axes, spin, and snapshot
+- **25 graphs** across 8 categories (up from ~12), including Ramachandran, contact network, pLDDT profile, domain architecture
 - **New analysis modules**: RNA binding, SCD/κ/Ω, LARKS, tandem repeats, TM topology, coiled coil, ELM linear motifs
 - **New utility tabs**: BLAST, Multichain, Compare, Truncation Series, MSA Conservation, Complex Mass
-- **Persistent settings**, drag-and-drop FASTA, progress dialog, session save/load, colourblind-safe palette, keyboard shortcuts overlay, right-click figure menu
-- **Copy Sequence** and **Clear All** buttons in the Analysis tab
-- **Structure export** in PDB, mmCIF, GRO, XYZ, and FASTA formats
-- Removed scientifically unreliable metrics (Instability Index, LLPS composite score, Chou-Fasman, unvalidated PTM rules)
-
----
-
-## Requirements
-
-| | |
-|---|---|
-| Python | ≥ 3.10 |
-| OS | macOS, Windows, Linux (X11 or Wayland) |
-| Disk space | ~200 MB for base install |
-
----
-
-## Linux: required system libraries
-
-**On Linux, Qt6 needs a few xcb libraries that are not always present.** Without them you get `Could not load the Qt platform plugin "xcb"` on launch. The fix does **not** require sudo — install everything through conda into the beer environment:
-
-```bash
-conda activate beer
-conda install -c conda-forge \
-    xcb-util-cursor xcb-util-image xcb-util-keysyms \
-    xcb-util-renderutil xcb-util-wm libxkbcommon
-```
-
-Then run `beer` normally. This works on HPC clusters and any system where you don't have root access.
-
-**If you do have sudo** (personal Linux machine / VM):
-
-```bash
-# Ubuntu / Debian / Mint:
-sudo apt-get install libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
-    libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \
-    libxkbcommon-x11-0 libegl1
-
-# Fedora / RHEL / CentOS:
-sudo dnf install xcb-util-cursor xcb-util-image xcb-util-keysyms \
-    xcb-util-renderutil libxkbcommon-x11 mesa-libEGL
-
-# Arch / Manjaro:
-sudo pacman -S xcb-util-cursor xcb-util-image xcb-util-keysyms \
-    xcb-util-renderutil libxkbcommon-x11
-```
-
-**If the 3D structure viewer shows a blank page** (WebEngine/Chromium sandboxing issue):
-```bash
-# No-sudo fix via conda:
-conda activate beer
-conda install -c conda-forge libnss libdrm libxcomposite libxdamage libxrandr libgbm
-
-# Or with sudo on Ubuntu/Debian:
-sudo apt-get install libnss3 libatk-bridge2.0-0 libdrm2 \
-    libxcomposite1 libxdamage1 libxrandr2 libgbm1
-```
+- Persistent settings, drag-and-drop FASTA, session save/load, colourblind-safe palette, keyboard shortcuts overlay, right-click figure menu
+- Structure export in PDB, mmCIF, GRO, XYZ, and FASTA formats
+- Removed unreliable metrics (Instability Index, LLPS composite score, Chou-Fasman, unvalidated PTM rules)
 
 ---
 
 ## Installation
 
-I recommend using a dedicated conda environment to keep things clean:
+**Requirements:** Python ≥ 3.10 · macOS, Windows, or Linux · ~200 MB disk space
 
 ```bash
 conda create -n beer python=3.12 -y
@@ -92,44 +37,60 @@ cd BEER
 pip install .
 ```
 
-That's it. All required Python dependencies (PySide6, matplotlib, BioPython, numpy, mplcursors) are pulled in automatically. The 3D structure viewer (QtWebEngineWidgets) is already bundled inside PySide6 — no extra Python package is needed for it.
+All dependencies (PySide6, matplotlib, BioPython, numpy, mplcursors) are pulled in automatically. The 3D structure viewer is bundled inside PySide6 — no extra package needed.
+
+### Linux: required system libraries
+
+Qt6 needs a few xcb libraries that are not always present. Without them you get `Could not load the Qt platform plugin "xcb"` on launch. **No sudo required** — install via conda:
+
+```bash
+conda activate beer
+conda install -c conda-forge \
+    xcb-util-cursor xcb-util-image xcb-util-keysyms \
+    xcb-util-renderutil xcb-util-wm libxkbcommon
+```
+
+If you have sudo:
+```bash
+# Ubuntu / Debian / Mint:
+sudo apt-get install libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+    libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \
+    libxkbcommon-x11-0 libegl1
+
+# Fedora / RHEL:
+sudo dnf install xcb-util-cursor xcb-util-image xcb-util-keysyms \
+    xcb-util-renderutil libxkbcommon-x11 mesa-libEGL
+
+# Arch / Manjaro:
+sudo pacman -S xcb-util-cursor xcb-util-image xcb-util-keysyms \
+    xcb-util-renderutil libxkbcommon-x11
+```
+
+If the 3D structure viewer shows a blank page, also install the WebEngine/Chromium sandbox libraries:
+```bash
+# No-sudo (conda):
+conda install -c conda-forge libnss libdrm libxcomposite libxdamage libxrandr libgbm
+
+# Ubuntu/Debian with sudo:
+sudo apt-get install libnss3 libatk-bridge2.0-0 libdrm2 \
+    libxcomposite1 libxdamage1 libxrandr2 libgbm1
+```
 
 ### Optional: ESM2 neural predictions
 
-ESM2 improves four predictions (disorder, aggregation, signal peptide, PTM). The pre-trained heads are bundled — you only need the torch runtime. **Important:** install the CPU torch wheel directly to avoid version conflicts:
+The pre-trained heads are bundled — you only need the torch runtime. Install the CPU wheel directly to avoid version conflicts:
 
 ```bash
-# CPU-only (recommended — works everywhere, no GPU required):
 pip install "torch>=2.0" --index-url https://download.pytorch.org/whl/cpu
 pip install fair-esm scipy
 ```
 
-Or install everything at once:
+Or in one step:
 ```bash
 pip install ".[esm2]" --extra-index-url https://download.pytorch.org/whl/cpu
 ```
 
-> If you see a NumPy 1.x/2.x warning when importing torch, run `pip install "numpy>=1.24,<2"` to downgrade. BEER's `pyproject.toml` already enforces `numpy<2` so a fresh install won't hit this — but it can happen if you have a pre-existing numpy 2.x in your environment.
-
-BEER auto-detects ESM2 at startup. If it's not installed, all 19 analyses still run using classical algorithms.
-
-### Optional: ESM2 neural predictions
-
-ESM2 improves four predictions (disorder, aggregation, signal peptide, PTM). The pre-trained heads are bundled — you only need the torch runtime. **Important:** use `numpy<2` (already enforced by `pip install .`) and install the CPU torch wheel directly to avoid version conflicts:
-
-```bash
-# CPU-only (recommended — works everywhere, no GPU required):
-pip install "torch>=2.0" --index-url https://download.pytorch.org/whl/cpu
-pip install fair-esm scipy
-
-# Or install everything at once with the esm2 extra:
-pip install ".[esm2]" --extra-index-url https://download.pytorch.org/whl/cpu
-```
-
-> If you see a warning about NumPy 1.x/2.x compatibility when importing torch, run:
-> `pip install "numpy>=1.24,<2"` — this is already constrained in BEER's requirements but if you have a pre-existing numpy 2.x in your environment, you'll need to downgrade it.
-
-BEER auto-detects ESM2 at startup. If it's not installed, all 19 analyses still run using classical algorithms.
+BEER auto-detects ESM2 at startup. If not installed, all 19 analyses still run using classical algorithms.
 
 ### From PyPI
 
@@ -137,28 +98,22 @@ BEER auto-detects ESM2 at startup. If it's not installed, all 19 analyses still 
 pip install beer-biophys
 ```
 
-> **Linux users:** Install the system libraries listed at the top of this README before running `beer`.
-
 ---
 
-## Launching BEER
+## Quick Start
 
 ```bash
 conda activate beer
 beer
 ```
 
-Internet is only needed for external fetches (UniProt, AlphaFold, Pfam, ELM, DisProt, PhaSepDB, BLAST). All local analysis runs fully offline.
-
----
-
-## Quick Start
-
-1. Paste an amino-acid sequence into the sequence box (or drag-and-drop a `.fasta` file onto the window)
+1. Paste an amino-acid sequence (or drag-and-drop a `.fasta` file onto the window)
 2. Click **Analyze** or press `Ctrl+Enter`
 3. Browse the 19 report sections in the left panel of the Analysis tab
-4. Go to the **Graphs** tab and click any graph name in the tree on the left
+4. Go to the **Graphs** tab and click any graph name
 5. Click **Export Analysis** to save the full report (CSV, JSON, PDF, or DAT)
+
+Internet is only needed for external fetches (UniProt, AlphaFold, Pfam, ELM, DisProt, PhaSepDB, BLAST). All local analysis runs offline.
 
 ---
 
@@ -167,10 +122,10 @@ Internet is only needed for external fetches (UniProt, AlphaFold, Pfam, ELM, Dis
 | Method | How |
 |--------|-----|
 | **Paste sequence** | Type or paste a bare amino-acid string or FASTA block and click **Analyze** |
-| **Import FASTA** | Click **Import FASTA** → select a `.fa` / `.fasta` file — multi-sequence files load all chains into the Multichain tab |
-| **Import PDB** | Click **Import PDB** → select a `.pdb` file — all chains are extracted and available in the Chain dropdown |
-| **Fetch UniProt** | Type a UniProt accession (e.g. `P04637`) → click **Fetch** — downloads sequence and unlocks AlphaFold, Pfam, DisProt, PhaSepDB buttons |
-| **Fetch PDB ID** | Type a 4-character RCSB code (e.g. `1UBQ`) → click **Fetch** — downloads sequence and coordinates |
+| **Import FASTA** | Click **Import FASTA** → select a `.fa` / `.fasta` file; multi-sequence files load all chains into the Multichain tab |
+| **Import PDB** | Click **Import PDB** → select a `.pdb` file; all chains available in the Chain dropdown |
+| **Fetch UniProt** | Type a UniProt accession (e.g. `P04637`) → click **Fetch**; unlocks AlphaFold, Pfam, DisProt, PhaSepDB buttons |
+| **Fetch PDB ID** | Type a 4-character RCSB code (e.g. `1UBQ`) → click **Fetch** |
 | **Drag & Drop** | Drag a `.fasta` file directly onto the BEER window |
 
 ---
@@ -183,29 +138,19 @@ After running analysis, the left panel lists 19 report sections. Click any secti
 
 | Button | Action |
 |--------|--------|
-| **Analyze** | Run analysis on the current sequence (`Ctrl+Enter`) |
-| **Export Analysis** | Save the report — opens a format dialog (CSV / JSON / PDF / DAT) (`Ctrl+E`) |
-| **Mutate…** | Point-mutation dialog — pick position and replacement amino acid |
+| **Analyze** | Run analysis (`Ctrl+Enter`) |
+| **Export Analysis** | CSV / JSON / PDF / DAT (`Ctrl+E`) |
+| **Mutate…** | Point-mutation dialog |
 | **Save / Load Session** | Save or restore a `.beer` JSON session file |
 | **Figure Composer** | Assemble a custom multi-panel publication figure |
 | **Fetch** | Download sequence from UniProt or RCSB PDB |
-| **Fetch AlphaFold** | Download predicted structure from EBI AlphaFold (needs UniProt accession) |
-| **Fetch Pfam** | Domain annotations from InterPro |
-| **Fetch ELM** | Experimentally validated linear motifs |
+| **Fetch AlphaFold** | Download predicted structure from EBI AlphaFold |
+| **Fetch Pfam / ELM** | Domain and linear motif annotations |
 | **DisProt / PhaSepDB** | Disorder and phase-separation database annotations |
 
-### Sequence viewer
+Residues in the sequence viewer are colour-coded by type. Use the **Search** / **Highlight** box to find motifs or regex patterns. Below the viewer: **Copy Sequence** (whole or range) and **Clear All** (resets everything).
 
-Residues are colour-coded by type (hydrophobic, aromatic, positive, negative, polar, special). Use the **Search** box and **Highlight** button to find and highlight any motif or regex pattern.
-
-Below the viewer:
-
-| Button | Action |
-|--------|--------|
-| **Copy Sequence** | *Copy whole sequence* or *Copy range…* (start/end residue numbers) — result goes to clipboard |
-| **Clear All** | Clears the loaded protein, all analysis, all graphs, and the structure viewer |
-
-### Report sections (19 total)
+### Report sections
 
 | Section | Contents |
 |---------|----------|
@@ -233,184 +178,70 @@ Below the viewer:
 
 ## Graphs Tab
 
-Navigate using the **category tree** on the left — click any graph name to display it. The matplotlib toolbar (zoom, pan, home, save) appears above each figure. Right-click any graph to copy it to clipboard or save it.
+Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, pan, home) appears above each figure. Right-click any graph to copy to clipboard or save. **Save All Graphs** exports every generated graph to a directory.
 
-**Save Graph** saves the current figure. **Save All Graphs** exports every generated graph to a chosen directory.
+| Category | Graphs |
+|----------|--------|
+| Composition | AA Composition (Bar), AA Composition (Pie) |
+| Profiles | Hydrophobicity, Local Charge, Local Complexity, Disorder, Linear Sequence Map, Coiled-Coil |
+| Charge & π | Isoelectric Focus, Charge Decoration (Das-Pappu), Cation–π Map |
+| Structure & Folding | Bead Model (Hydrophobicity), Bead Model (Charge), Sticker Map, Helical Wheel, TM Topology |
+| Phase Sep / IDP | Uversky Phase Plot, Saturation Mutagenesis |
+| Aggregation | β-Aggregation Profile, Solubility Profile, Hydrophobic Moment |
+| New Features | PTM Map, RNA-Binding Profile, SCD Profile, pI/MW Map, Truncation Series, MSA Conservation, Complex Mass |
+| AlphaFold / Structural* | pLDDT Profile, Distance Map, Domain Architecture, Ramachandran Plot, Residue Contact Network |
 
-### Graph categories (25 graphs total)
-
-**Composition**
-- Amino Acid Composition (Bar), Amino Acid Composition (Pie)
-
-**Profiles**
-- Hydrophobicity Profile (Kyte-Doolittle sliding window)
-- Local Charge Profile (NCPR sliding window)
-- Local Complexity (Shannon entropy, dashed threshold at 2.0 bit)
-- Disorder Profile (per-residue 0–1, orange fill = disordered > 0.5)
-- Linear Sequence Map (three-track overview: hydrophobicity / NCPR / disorder)
-- Coiled-Coil Profile (heptad-periodicity score, fill above 0.50)
-
-**Charge & π-Interactions**
-- Isoelectric Focus (Henderson-Hasselbalch charge curve, pI and pH 7.4 annotated)
-- Charge Decoration (Das-Pappu FCR vs |NCPR| phase diagram)
-- Cation–π Map (proximity heat map for K/R ↔ F/W/Y pairs)
-
-**Structure & Folding**
-- Bead Model (Hydrophobicity), Bead Model (Charge)
-- Sticker Map, Helical Wheel, TM Topology
-
-**Phase Separation / IDP**
-- Uversky Phase Plot (mean |charge| vs normalised hydrophobicity)
-- Saturation Mutagenesis (20×n heatmap of single-substitution effects on GRAVY + NCPR)
-
-**Aggregation & Solubility**
-- β-Aggregation Profile, Solubility Profile, Hydrophobic Moment
-
-**New Features**
-- PTM Map, RNA-Binding Profile, SCD Profile, pI/MW Map
-- Truncation Series (from Truncation tab), MSA Conservation (from MSA tab), Complex Mass (from Complex tab)
-
-**AlphaFold / Structural** *(requires a loaded structure)*
-- pLDDT Profile (four confidence bands: very high / high / low / very low)
-- Distance Map (Cα pairwise distances, 8 Å contact contour)
-- Domain Architecture (multi-track: Pfam domains, disorder, LC, TM)
-- Ramachandran Plot (φ/ψ coloured by secondary structure)
-- Residue Contact Network (graph of residues within 8 Å)
+*Structural graphs require a loaded structure (from AlphaFold fetch or PDB import).
 
 ---
 
 ## Structure Tab
 
-Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu). Requires `pip install PySide6-WebEngine`.
+Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu), embedded via Qt WebEngine (bundled with PySide6). The tab has a **left control panel** and a **3D canvas**.
 
-The tab is split into a **left control panel** and a **3D canvas**.
+| Control | Options |
+|---------|---------|
+| **Representation** | Cartoon (default), Stick, Sphere, Line, Surface; opacity slider |
+| **Color mode** | pLDDT/B-factor, Residue type, Chain, Charge, Hydrophobicity, Mass |
+| **Color scheme** | Mode-dependent: Red-White-Blue, Rainbow, Shapely, Cyan-White-Orange, etc. |
+| **Color bar** | Toggleable gradient/categorical legend overlay (bottom-right) |
+| **XYZ axes** | VMD-style coordinate axes (bottom-left), tracks rotation in real time |
+| **Background** | Black / White / Grey presets or custom color picker |
+| **Spin** | Continuous auto-rotation on X / Y / Z axis |
+| **Snapshot PNG** | Saves current view as PNG |
 
-### Representation
-
-| Option | Description |
-|--------|-------------|
-| Cartoon | Ribbon/helix cartoon (default) |
-| Stick | Licorice stick bonds |
-| Sphere | Space-filling VDW spheres |
-| Line | Wireframe |
-| Surface | Molecular surface (SAS) with semi-transparent cartoon underneath |
-| Opacity slider | Adjusts transparency (10–100 %) |
-
-### Color modes
-
-| Mode | Schemes |
-|------|---------|
-| pLDDT / B-factor | Red-White-Blue · Blue-White-Red · Rainbow · Sinebow |
-| Residue type | Amino Acid (UniProt style) · Shapely |
-| Chain | Chain colors |
-| Charge | Blue (positive) / Red (negative) / Grey (neutral) |
-| Hydrophobicity | Cyan-White-Orange · Blue-White-Red · Green-White-Red |
-| Mass | Blue-Red · Rainbow |
-
-### Legend & view controls
-
-- **Show color bar** — gradient legend (bottom-right) for continuous modes, or categorical legend for Charge/Residue/Chain
-- **Show XYZ axes** — VMD-style coordinate axis indicator (bottom-left): X = red, Y = green, Z = blue; updates in real time as you rotate
-- **Background presets**: Black, White, Grey — or **Custom…** opens a color picker
-- **Reset View** — zoom to fit the whole structure
-- **Spin** — continuous auto-rotation (choose X / Y / Z axis)
-- **Snapshot PNG** — renders the current view and saves as PNG
-
-### Export Structure / Sequence
-
-Opens a format chooser:
-
-| Format | Description |
-|--------|-------------|
-| PDB | Standard Protein Data Bank format |
-| mmCIF | PDBx/mmCIF format |
-| GRO | GROMACS coordinate format (coordinates in nm) |
-| XYZ | Element + Cartesian coordinates (Ångström) |
-| FASTA | Amino-acid sequence only |
+**Export Structure / Sequence** saves in PDB, mmCIF, GRO, XYZ, or FASTA format.
 
 ---
 
-## BLAST Tab
+## Other Tabs
 
-Submits the current sequence to NCBI blastp via Biopython. Requires internet; typically takes 1–3 minutes.
-
-Choose database (nr, swissprot, pdb, refseq_protein) and max hits (5–100), then click **BLAST Current Sequence**. Results show Accession, Description, Length, Score, E-value, % Identity. Click **Load** in any row to immediately load that sequence and re-run analysis.
-
----
-
-## Multichain Analysis Tab
-
-Populated automatically when a multi-FASTA file or multi-chain PDB is imported. Columns: ID · Length · MW · Net Charge · % Hydrophobic · % Hydrophilic · % +Charged · % −Charged · % Neutral. Double-click any row to load that chain. Export as CSV or JSON.
-
----
-
-## Compare Tab
-
-Paste two sequences (or FASTA entries) side by side and click **Compare Sequences** to get a property table (length, MW, pI, GRAVY, FCR, NCPR, net charge, aromaticity, extinction coefficient) plus side-by-side disorder, hydrophobicity, and aggregation profile overlays in the Graphs tab.
-
----
-
-## Truncation Series Tab
-
-With a sequence analysed, set the truncation step (%) and choose N-terminal, C-terminal, or both, then click **Run Truncation Series**. BEER computes properties at each truncation length and generates the Truncation Series graph.
-
----
-
-## MSA Tab
-
-Paste a multi-FASTA alignment. Click **Run MSA** to compute per-column sequence conservation and generate the MSA Conservation graph.
-
----
-
-## Complex Mass Tab
-
-Paste chain sequences in FASTA format (header = chain ID). Enter stoichiometry as a string like `A2B1`. Click **Calculate Complex** to get per-chain and total MW, extinction coefficients, and the Complex Mass bar chart.
+| Tab | What it does |
+|-----|-------------|
+| **BLAST** | Submits current sequence to NCBI blastp (1–3 min); click **Load** on any hit to re-run analysis on that sequence |
+| **Multichain** | Auto-populated from multi-FASTA or multi-chain PDB; shows MW, charge, composition per chain; double-click a row to load it |
+| **Compare** | Side-by-side property table and profile overlays for two sequences |
+| **Truncation Series** | Computes properties across progressive N/C truncations and generates the Truncation Series graph |
+| **MSA** | Paste a multi-FASTA alignment → per-column conservation graph |
+| **Complex Mass** | Paste chains + stoichiometry (e.g. `A2B1`) → total MW, extinction coefficients, bar chart |
+| **Help** | Built-in reference; **Copy Citation (BibTeX)** and **Generate Methods Paragraph** buttons |
 
 ---
 
 ## Settings Tab
 
-### Analysis parameters
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Default pH | 7.0 | pH for net-charge and charge-curve calculations |
-| Sliding Window Size | 9 | Window width for hydrophobicity / NCPR / entropy profiles |
-| Override pKa | — | Nine comma-separated values: N-term, C-term, D, E, C, Y, H, K, R |
-| Reducing conditions | Off | If on, Cys is not paired in disulphide bonds for extinction coefficient |
+| Group | Setting | Default |
+|-------|---------|---------|
+| Analysis | Default pH | 7.0 |
+| Analysis | Sliding Window Size | 9 |
+| Analysis | Override pKa | — (nine comma-separated values) |
+| Analysis | Reducing conditions | Off |
+| Graphs | Label / Tick font size, Marker size, Format (PNG/SVG/PDF) | — |
+| Graphs | Bead colormap, Accent colour, Titles, Grid, Transparent BG | — |
+| Interface | UI font size, Dark theme, Tooltips, Colourblind-safe palette | — |
+| ESM2 | Model size (8M / 35M / 150M / 650M) | 8M |
 
-### Graph appearance
-| Setting | Description |
-|---------|-------------|
-| Label / Tick Font Size | Axis title and tick label size |
-| Marker Size | Data marker size in scatter/line graphs |
-| Default Graph Format | PNG / SVG / PDF |
-| Bead Colormap | Colormap for bead hydrophobicity model |
-| Graph Accent Colour | Main accent colour for bars, lines, fills |
-| Show Graph Titles | Toggle axis titles |
-| Show Grid | Toggle grid lines |
-| Transparent background | Transparent PNG/SVG exports |
-
-### Interface
-| Setting | Description |
-|---------|-------------|
-| UI Font Size | Global application font size |
-| Dark Theme | Light/dark colour scheme |
-| Enable Tooltips | Hover tooltips |
-| Colourblind-safe palette | Paul Tol colourblind-safe colours |
-
-### ESM2
-Choose model size (8M default, 35M, 150M, 650M). Changing model and clicking **Apply Settings** reinitialises the embedder and clears the cache.
-
-All settings save automatically to `~/.beer/config.json` and persist across restarts. **Reset to Defaults** restores factory values.
-
----
-
-## Help Tab
-
-Built-in reference covering all major features. Two extra buttons at the bottom:
-
-- **Copy Citation (BibTeX)** — copies the BibTeX entry for BEER to the clipboard
-- **Generate Methods Paragraph** — auto-generates a methods paragraph based on your current sequence and settings, ready to paste into a manuscript
+Click **Apply Settings** to save to `~/.beer/config.json`. **Reset to Defaults** restores factory values.
 
 ---
 
@@ -428,35 +259,18 @@ Built-in reference covering all major features. Two extra buttons at the bottom:
 
 ---
 
-## Session Save & Load
-
-Sessions are saved as `.beer` JSON files that capture the current sequence, name, and all settings. **Load Session** restores the state and re-runs analysis automatically.
-
----
-
 ## ESM2 Neural Predictions
 
-BEER uses Meta's ESM2 protein language model with pre-trained linear probe heads (bundled in `beer/models/`). No training step is required.
-
-| Prediction | Without ESM2 | With ESM2 | Test set |
-|------------|-------------|-----------|----------|
-| Disorder | Propensity scale | ESM2 logistic probe | DisProt 2024, AUC 0.83 |
-| Aggregation | ZYGGREGATOR scale | ESM2 probe | UniProt amyloid, AUC 0.97 |
-| Signal peptide | Hydrophobicity heuristic | ESM2 context-aware probe | UniProt ft_signal, AUC 1.00 |
-| PTM sites | Consensus motif scan | ESM2 per-position probe | UniProt mod_res, AUC 0.93 |
-
-All benchmarks use protein-level 80/20 splits (seed=42).
-
-### Model sizes
+BEER uses Meta's ESM2 protein language model with pre-trained linear probe heads bundled in `beer/models/`. No training is required. Weights download once on the first Analyze call and cache in `~/.cache/torch/hub/`.
 
 | Model | Parameters | Speed | Download |
 |-------|-----------|-------|----------|
 | `esm2_t6_8M_UR50D` *(default)* | 8 M | Fastest | ~30 MB |
 | `esm2_t12_35M_UR50D` | 35 M | Fast | ~140 MB |
 | `esm2_t30_150M_UR50D` | 150 M | Moderate | ~580 MB |
-| `esm2_t33_650M_UR50D` | 650 M | Slow (GPU helps) | ~2.6 GB |
+| `esm2_t33_650M_UR50D` | 650 M | Slow (GPU recommended) | ~2.6 GB |
 
-Weights download once on the first Analyze call and cache in `~/.cache/torch/hub/`. Up to 32 sequences are cached in memory per session.
+Change the model in **Settings → ESM2 model** and click **Apply Settings**.
 
 ---
 
@@ -471,48 +285,34 @@ Weights download once on the first Analyze call and cache in `~/.cache/torch/hub
 | GRAVY | Mean Kyte-Doolittle hydropathicity |
 | Aromaticity | (F + W + Y) / length |
 | Extinction coefficient | W×5500 + Y×1490 + (C–C)×125 at 280 nm |
-
-### Charge metrics
-
-| Metric | Definition |
-|--------|-----------|
-| FCR | Fraction of charged residues = (K + R + D + E) / length |
-| NCPR | Net charge per residue = (positive − negative) / length |
+| FCR | (K + R + D + E) / length |
+| NCPR | (positive − negative) / length |
 | κ (kappa) | Charge patterning: 0 = well-mixed, 1 = fully segregated (Das & Pappu 2013) |
 | Ω (omega) | Sticker patterning, same scale as κ |
 
-### Phase separation / IDP metrics
+### IDP / Phase separation
 
 | Metric | Definition |
 |--------|-----------|
-| LARKS | 7-residue windows with ≥1 aromatic (F/W/Y), ≥50% LC residues, Shannon entropy < 1.8 bit (Hughes et al. 2018) |
-| SCD | Sequence charge decoration — pairwise charge product weighted by sequence separation (Sawle & Ghosh 2015) |
+| LARKS | 7-residue windows: ≥1 aromatic, ≥50% LC residues, entropy < 1.8 bit (Hughes et al. 2018) |
+| SCD | Pairwise charge product weighted by sequence separation (Sawle & Ghosh 2015) |
 | Prion-like score | Fraction of N, Q, S, G, Y residues |
-
-### Aggregation & solubility
-
-| Metric | Source |
-|--------|--------|
 | ZYGGREGATOR | β-aggregation propensity per residue (Tartaglia & Vendruscolo 2008) |
 | CamSol | Intrinsic solubility scale (Sormanni et al. 2015) |
 
 ### PTM predictions
 
-Only well-validated rules are included. Rules with false positive rates > 50% have been removed.
+Only well-validated motif rules are included (false positive rate < 50%).
 
-| PTM | Method |
-|-----|--------|
-| N-linked glycosylation | N[^P][ST] sequon |
+| PTM | Motif |
+|-----|-------|
+| N-linked glycosylation | N[^P][ST] |
 | Phosphoserine/Thr (CK2) | [ST]xx[DE] |
 | Phosphoserine/Thr (PKA) | R[^P][^P][ST] |
 | Ubiquitination | [LVIMF]K.[DE] |
 | SUMOylation | [VILMF]K.E |
 | N-terminal acetylation | NatA substrate rules |
 | Arginine methylation | RGG, RG, GR motifs |
-
-### RNA binding
-
-No composite score is reported (any weighting would be arbitrary without validation data). Instead, BEER reports mean per-residue propensity, K/R/Y/F/W fraction, and motif hits (RGG, RRM, KH, SR, DEAD-box, Zinc finger).
 
 ---
 
