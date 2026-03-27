@@ -50,6 +50,20 @@ conda install -c conda-forge \
     xcb-util-renderutil xcb-util-wm libxkbcommon
 ```
 
+If the error persists after installing these packages, the conda libraries may not be in the linker path. Add them:
+
+```bash
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+```
+
+To make this permanent (applies automatically every time you activate the environment):
+
+```bash
+mkdir -p $CONDA_PREFIX/etc/conda/activate.d
+echo 'export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH' \
+    > $CONDA_PREFIX/etc/conda/activate.d/beer_xcb.sh
+```
+
 If you have sudo:
 ```bash
 # Ubuntu / Debian / Mint:

@@ -471,9 +471,9 @@ class ProteinAnalyzerGUI(QMainWindow):
         left_layout.setContentsMargins(0, 0, 4, 0)
         left_layout.setSpacing(5)
 
-        seq_label = QLabel("Protein Sequence:")
-        seq_label.setStyleSheet("font-weight:600; color:#4361ee;")
-        left_layout.addWidget(seq_label)
+        self._seq_label = QLabel("Protein Sequence:")
+        self._seq_label.setStyleSheet("font-weight:600; color:#4361ee;")
+        left_layout.addWidget(self._seq_label)
 
         self.seq_text = QTextEdit()
         self.seq_text.setPlaceholderText("Paste a protein sequence here, or use Import…")
@@ -494,9 +494,9 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         # Sequence viewer (UniProt style) + motif search
         sv_hdr = QHBoxLayout()
-        seq_view_label = QLabel("Sequence Viewer:")
-        seq_view_label.setStyleSheet("font-weight:600; color:#4361ee; margin-top:4px;")
-        sv_hdr.addWidget(seq_view_label)
+        self._seq_view_label = QLabel("Sequence Viewer:")
+        self._seq_view_label.setStyleSheet("font-weight:600; color:#4361ee; margin-top:4px;")
+        sv_hdr.addWidget(self._seq_view_label)
         sv_hdr.addStretch()
         sv_hdr.addWidget(QLabel("Search:"))
         self.motif_input = QLineEdit()
@@ -517,10 +517,6 @@ class ProteinAnalyzerGUI(QMainWindow):
         left_layout.addLayout(sv_hdr)
         self.seq_viewer = QTextBrowser()
         self.seq_viewer.setFont(QFont("Courier New", 10))
-        self.seq_viewer.setStyleSheet(
-            "QTextBrowser { background:#f8f9fd; border:1px solid #e8eaf0;"
-            " border-radius:4px; padding:6px; }"
-        )
         left_layout.addWidget(self.seq_viewer, 1)
 
         # ── Sequence action row (copy / clear) ────────────────────────────
@@ -708,7 +704,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         "Hydrophobicity":    "hydrophobicity",
         "Mass":              "mass",
     }
-    _STRUCT_PANEL_CSS = """
+    _STRUCT_PANEL_CSS_LIGHT = """
         QScrollArea { border: 1px solid #d1d9f0; border-radius: 8px; background: #f4f6fd; }
         QGroupBox {
             font-weight: 700; font-size: 9pt; color: #3b4fc8;
@@ -740,12 +736,39 @@ class ProteinAnalyzerGUI(QMainWindow):
             border: 1px solid #c8d0ec; border-radius: 3px; background: white;
         }
         QCheckBox::indicator:checked { background: #4361ee; border-color: #3451c5; }
-        QSlider::groove:horizontal { height: 4px; background: #dde3f5; border-radius: 2px; }
-        QSlider::handle:horizontal {
-            width: 14px; height: 14px; margin: -5px 0;
-            background: #4361ee; border-radius: 7px;
+    """
+    _STRUCT_PANEL_CSS_DARK = """
+        QScrollArea { border: 1px solid #1a3a5c; border-radius: 8px; background: #0f3460; }
+        QGroupBox {
+            font-weight: 700; font-size: 9pt; color: #4cc9f0;
+            border: 1px solid #2d3561; border-radius: 6px;
+            margin-top: 8px; padding: 10px 6px 6px 6px; background: #16213e;
         }
-        QSlider::sub-page:horizontal { background: #4361ee; border-radius: 2px; }
+        QGroupBox::title {
+            subcontrol-origin: margin; subcontrol-position: top left;
+            left: 8px; padding: 0 4px; color: #4cc9f0; background: #16213e;
+        }
+        QPushButton {
+            border: 1px solid #2d3561; border-radius: 5px;
+            padding: 4px 8px; background: #16213e; color: #e2e8f0;
+            font-size: 9pt; min-height: 26px;
+        }
+        QPushButton:hover { background: #1a3a5c; border-color: #4cc9f0; color: #4cc9f0; }
+        QPushButton:pressed { background: #0f3460; }
+        QPushButton:checked { background: #4cc9f0; color: #1a1a2e; border-color: #3ab7dd; font-weight: 600; }
+        QComboBox {
+            border: 1px solid #2d3561; border-radius: 5px;
+            padding: 3px 6px; background: #16213e; color: #e2e8f0;
+            font-size: 9pt; min-height: 24px;
+        }
+        QComboBox:hover { border-color: #4cc9f0; }
+        QLabel { font-size: 9pt; color: #94a3b8; background: transparent; }
+        QCheckBox { font-size: 9pt; color: #e2e8f0; spacing: 6px; background: transparent; }
+        QCheckBox::indicator {
+            width: 14px; height: 14px;
+            border: 1px solid #2d3561; border-radius: 3px; background: #16213e;
+        }
+        QCheckBox::indicator:checked { background: #4cc9f0; border-color: #3ab7dd; }
     """
 
     def init_structure_tab(self):
@@ -774,10 +797,11 @@ class ProteinAnalyzerGUI(QMainWindow):
             content_row.setSpacing(8)
 
             # ── left control panel ────────────────────────────────────────────
-            ctrl_scroll = QScrollArea()
-            ctrl_scroll.setWidgetResizable(True)
-            ctrl_scroll.setFixedWidth(226)
-            ctrl_scroll.setStyleSheet(self._STRUCT_PANEL_CSS)
+            self.struct_ctrl_scroll = QScrollArea()
+            self.struct_ctrl_scroll.setWidgetResizable(True)
+            self.struct_ctrl_scroll.setFixedWidth(226)
+            self.struct_ctrl_scroll.setStyleSheet(self._STRUCT_PANEL_CSS_LIGHT)
+            ctrl_scroll = self.struct_ctrl_scroll
             ctrl_inner = QWidget()
             ctrl_inner.setObjectName("structCtrl")
             ctrl_layout = QVBoxLayout(ctrl_inner)
@@ -786,13 +810,13 @@ class ProteinAnalyzerGUI(QMainWindow):
             ctrl_scroll.setWidget(ctrl_inner)
 
             # ── panel title ───────────────────────────────────────────────────
-            title_lbl = QLabel("Visualization Controls")
-            title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            title_lbl.setStyleSheet(
+            self._struct_title_lbl = QLabel("Visualization Controls")
+            self._struct_title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._struct_title_lbl.setStyleSheet(
                 "font-weight:700; font-size:10pt; color:#3b4fc8;"
                 " padding:4px 0; background:transparent;"
             )
-            ctrl_layout.addWidget(title_lbl)
+            ctrl_layout.addWidget(self._struct_title_lbl)
 
             # ── Representation ────────────────────────────────────────────────
             rep_grp = QGroupBox("Representation")
@@ -805,22 +829,6 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.struct_rep_combo.currentTextChanged.connect(self._on_struct_rep_changed)
             rep_gl.addWidget(self.struct_rep_combo)
 
-            op_row = QHBoxLayout()
-            op_lbl = QLabel("Opacity:")
-            op_lbl.setFixedWidth(50)
-            op_row.addWidget(op_lbl)
-            self.struct_opacity_slider = QSlider(Qt.Orientation.Horizontal)
-            self.struct_opacity_slider.setRange(10, 100)
-            self.struct_opacity_slider.setValue(90)
-            self.struct_opacity_slider.setToolTip("Representation opacity (10–100 %)")
-            self.struct_opacity_slider.valueChanged.connect(
-                lambda v: self.struct_opacity_lbl.setText(f"{v}%"))
-            self.struct_opacity_slider.sliderReleased.connect(self._on_struct_opacity_released)
-            op_row.addWidget(self.struct_opacity_slider, 1)
-            self.struct_opacity_lbl = QLabel("90%")
-            self.struct_opacity_lbl.setFixedWidth(32)
-            op_row.addWidget(self.struct_opacity_lbl)
-            rep_gl.addLayout(op_row)
             ctrl_layout.addWidget(rep_grp)
 
             # ── Color ─────────────────────────────────────────────────────────
@@ -846,12 +854,6 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.struct_colorbar_cb.toggled.connect(self._on_struct_colorbar_toggled)
             legend_gl.addWidget(self.struct_colorbar_cb)
 
-            self.struct_axes_cb = QCheckBox("Show XYZ axes")
-            self.struct_axes_cb.setChecked(True)
-            self.struct_axes_cb.setToolTip("Show coordinate axis arrows in the corner")
-            self.struct_axes_cb.toggled.connect(
-                lambda v: self._js(f"setAxesVisible({'true' if v else 'false'});"))
-            legend_gl.addWidget(self.struct_axes_cb)
             ctrl_layout.addWidget(legend_grp)
 
             # ── Background ───────────────────────────────────────────────────
@@ -974,16 +976,9 @@ class ProteinAnalyzerGUI(QMainWindow):
   .cb-entry {{ display:flex; align-items:center; gap:7px; margin-bottom:4px; white-space:nowrap; }}
   .cb-swatch {{ width:12px; height:12px; border-radius:3px; flex-shrink:0; border:1px solid rgba(255,255,255,0.2); }}
 
-  /* ── axes overlay canvas ───────────────────────────────────────────────── */
-  #axes-canvas {{
-    position:absolute; bottom:16px; left:16px;
-    width:100px; height:100px;
-    pointer-events:none; z-index:99;
-  }}
 </style>
 </head><body>
 <div id="vp">
-  <canvas id="axes-canvas" width="200" height="200"></canvas>
   <div id="colorbar">
     <div id="cb-title"></div>
     <div id="cb-bar-wrap">
@@ -1141,7 +1136,6 @@ function applyStyle(){{
     }}
     viewer.render();
     updateColorBar();
-    drawAxesOverlay();
 }}
 
 // ── color bar ─────────────────────────────────────────────────────────────
@@ -1212,136 +1206,13 @@ function updateColorBar(){{
     }}
 }}
 
-// ── coordinate axes overlay (VMD-style) ───────────────────────────────────
-var axesVisible = true;
-// Canvas physical size = 200px (CSS 100px × DPR 2 for retina)
-var _AXES_PX = 100;   // logical CSS pixels
-
-function drawAxesOverlay(){{
-    var canvas = document.getElementById('axes-canvas');
-    if(!canvas || !viewer) return;
-    var ctx = canvas.getContext('2d');
-
-    // Draw in physical pixel coordinates — canvas was already sized to
-    // _AXES_PX * devicePixelRatio in init(), so canvas.width is the full buffer.
-    var W = canvas.width, H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
-    if(!axesVisible) return;
-
-    // viewer.getView() → [tx, ty, tz, qx, qy, qz, qw, zoom]
-    var v = viewer.getView();
-    if(!v || v.length < 7) return;
-    var qx=v[3], qy=v[4], qz=v[5], qw=v[6];
-
-    // Row-major rotation matrix: R * v_world → v_screen
-    var R = [
-        1-2*(qy*qy+qz*qz),  2*(qx*qy-qw*qz),  2*(qx*qz+qw*qy),
-          2*(qx*qy+qw*qz),1-2*(qx*qx+qz*qz),  2*(qy*qz-qw*qx),
-          2*(qx*qz-qw*qy),  2*(qy*qz+qw*qx),1-2*(qx*qx+qy*qy)
-    ];
-
-    var cx=W*0.5, cy=H*0.5, scale=W*0.33;
-    var dpr = window.devicePixelRatio || 1;
-    var lw = dpr;  // base line-width in physical pixels
-
-    function proj(ax,ay,az){{
-        return [
-            cx + scale*(R[0]*ax + R[1]*ay + R[2]*az),
-            cy - scale*(R[3]*ax + R[4]*ay + R[5]*az)
-        ];
-    }}
-    function depth(ax,ay,az){{ return R[6]*ax + R[7]*ay + R[8]*az; }}
-
-    var axes = [
-        {{ dir:[1,0,0], color:'#ff3333', dark:'#881111', label:'X' }},
-        {{ dir:[0,1,0], color:'#22dd22', dark:'#0a6600', label:'Y' }},
-        {{ dir:[0,0,1], color:'#2288ff', dark:'#0033aa', label:'Z' }}
-    ];
-
-    axes.forEach(function(a){{ a.sz = depth(a.dir[0],a.dir[1],a.dir[2]); }});
-    axes.sort(function(a,b){{ return a.sz - b.sz; }});   // back-to-front
-
-    // ── background disc ───────────────────────────────────────────────────
-    var r = W*0.46;
-    var bgr = ctx.createRadialGradient(cx,cy,0,cx,cy,r);
-    bgr.addColorStop(0,   'rgba(14,16,38,0.82)');
-    bgr.addColorStop(0.75,'rgba(10,12,28,0.75)');
-    bgr.addColorStop(1,   'rgba(6,8,20,0.0)');
-    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
-    ctx.fillStyle=bgr; ctx.fill();
-    ctx.beginPath(); ctx.arc(cx,cy,r-lw*0.5,0,Math.PI*2);
-    ctx.strokeStyle='rgba(160,180,220,0.20)'; ctx.lineWidth=lw*0.7; ctx.stroke();
-
-    // ── negative stubs ────────────────────────────────────────────────────
-    ctx.setLineDash([lw*2, lw*3]);
-    axes.forEach(function(a){{
-        var n=proj(-a.dir[0]*0.40,-a.dir[1]*0.40,-a.dir[2]*0.40);
-        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(n[0],n[1]);
-        ctx.strokeStyle=a.color; ctx.globalAlpha=0.28; ctx.lineWidth=lw*1.5; ctx.stroke();
-    }});
-    ctx.setLineDash([]); ctx.globalAlpha=1.0;
-
-    // ── positive axes ─────────────────────────────────────────────────────
-    axes.forEach(function(a){{
-        var tip=proj(a.dir[0],a.dir[1],a.dir[2]);
-        var dx=tip[0]-cx, dy=tip[1]-cy;
-        var plen=Math.sqrt(dx*dx+dy*dy)||0.001;
-        var ux=dx/plen, uy=dy/plen;
-        var hw=lw*5, hl=lw*11;
-        var st=[tip[0]-hl*ux, tip[1]-hl*uy];  // shaft tip (before arrowhead)
-
-        // Shadow
-        ctx.beginPath(); ctx.moveTo(cx+lw,cy+lw); ctx.lineTo(st[0]+lw,st[1]+lw);
-        ctx.strokeStyle='rgba(0,0,0,0.50)'; ctx.lineWidth=lw*4; ctx.stroke();
-
-        // Shaft
-        var sg=ctx.createLinearGradient(cx,cy,st[0],st[1]);
-        sg.addColorStop(0,a.dark); sg.addColorStop(1,a.color);
-        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(st[0],st[1]);
-        ctx.strokeStyle=sg; ctx.lineWidth=lw*3.2; ctx.stroke();
-
-        // Arrowhead shadow
-        ctx.beginPath();
-        ctx.moveTo(tip[0]+lw,tip[1]+lw);
-        ctx.lineTo(tip[0]-hl*ux-hw*uy+lw, tip[1]-hl*uy+hw*ux+lw);
-        ctx.lineTo(tip[0]-hl*ux+hw*uy+lw, tip[1]-hl*uy-hw*ux+lw);
-        ctx.closePath(); ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fill();
-
-        // Arrowhead
-        ctx.beginPath();
-        ctx.moveTo(tip[0],tip[1]);
-        ctx.lineTo(tip[0]-hl*ux-hw*uy, tip[1]-hl*uy+hw*ux);
-        ctx.lineTo(tip[0]-hl*ux+hw*uy, tip[1]-hl*uy-hw*ux);
-        ctx.closePath(); ctx.fillStyle=a.color; ctx.fill();
-
-        // Label
-        var fsize = Math.round(13*dpr);
-        var lx=tip[0]+ux*fsize, ly=tip[1]+uy*fsize;
-        ctx.font='bold '+fsize+'px system-ui,sans-serif';
-        ctx.textAlign='center'; ctx.textBaseline='middle';
-        ctx.lineWidth=lw*3; ctx.strokeStyle='rgba(0,0,0,0.75)';
-        ctx.strokeText(a.label,lx,ly);
-        ctx.fillStyle='#ffffff'; ctx.fillText(a.label,lx,ly);
-    }});
-
-    // ── origin dot ────────────────────────────────────────────────────────
-    var or=lw*4.5;
-    var og=ctx.createRadialGradient(cx-or*0.3,cy-or*0.3,0,cx,cy,or);
-    og.addColorStop(0,'#ffffff'); og.addColorStop(1,'#9999bb');
-    ctx.beginPath(); ctx.arc(cx,cy,or,0,Math.PI*2);
-    ctx.fillStyle=og; ctx.fill();
-    ctx.strokeStyle='rgba(0,0,0,0.35)'; ctx.lineWidth=lw*0.8; ctx.stroke();
-}}
-
 // ── public API ─────────────────────────────────────────────────────────────
 function setRepresentation(r)  {{ repMode=r; applyStyle(); }}
 function setColorMode(m,s)     {{ colorMode=m; if(s) colorScheme=s; applyStyle(); }}
 function setScheme(s)          {{ colorScheme=s; applyStyle(); }}
-function setOpacity(v)         {{ repOpacity=v; applyStyle(); }}
-function setBackground(c)      {{ document.documentElement.style.background=c; document.body.style.background=c; if(viewer){{ viewer.setBackgroundColor(c); viewer.render(); drawAxesOverlay(); }} }}
+function setBackground(c)      {{ document.documentElement.style.background=c; document.body.style.background=c; if(viewer){{ viewer.setBackgroundColor(c); viewer.render(); }} }}
 function setColorBarVisible(v) {{ colorBarVisible=v; updateColorBar(); }}
 function setSpin(on,axis)      {{ if(!viewer) return; if(on) viewer.spin(axis||'y',1); else viewer.spin(false); viewer.render(); }}
-function setAxesVisible(v)     {{ axesVisible=v; drawAxesOverlay(); }}
 
 // ── loadPDB: swap in a new structure without reloading the page ────────────
 function loadPDB(data){{
@@ -1355,16 +1226,11 @@ function loadPDB(data){{
     }} else {{
         viewer.render();
         updateColorBar();
-        drawAxesOverlay();
     }}
 }}
 
 function init(){{
     viewer=$3Dmol.createViewer("vp",{{backgroundColor:"#1a1a2e",antialias:true}});
-    // Resize axes canvas for correct DPR (retina support)
-    var dpr = window.devicePixelRatio || 1;
-    var ac = document.getElementById('axes-canvas');
-    if(ac){{ ac.width = _AXES_PX * dpr; ac.height = _AXES_PX * dpr; }}
     if(pdbData){{          // null on the initial empty-page load
         viewer.addModel(pdbData,"pdb");
         viewer.zoomTo();   // set camera BEFORE rendering
@@ -1372,9 +1238,6 @@ function init(){{
     }}
     viewer.render();
     updateColorBar();
-    drawAxesOverlay();
-    // Redraw axes whenever the camera moves
-    viewer.setViewChangeCallback(function(){{ drawAxesOverlay(); }});
 }}
 window.addEventListener("load",init);
 </script>
@@ -1404,10 +1267,6 @@ window.addEventListener("load",init);
     def _on_struct_scheme_changed(self, scheme: str) -> None:
         if scheme:
             self._js(f"setScheme('{scheme}');")
-
-    def _on_struct_opacity_released(self) -> None:
-        value = self.struct_opacity_slider.value()
-        self._js(f"setOpacity({value / 100.0:.2f});")
 
     def _on_struct_colorbar_toggled(self, checked: bool) -> None:
         self._js(f"setColorBarVisible({'true' if checked else 'false'});")
@@ -2502,12 +2361,18 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                     result = "".join(new_parts)
             return result
 
+        is_dark = hasattr(self, "theme_toggle") and self.theme_toggle.isChecked()
+        bg_color   = "#1a1a2e" if is_dark else "#ffffff"
+        text_color = "#e2e8f0" if is_dark else "#1a1a2e"
+        pos_color  = "#94a3b8" if is_dark else "#718096"
+        hdr_color  = "#4cc9f0" if is_dark else "#4361ee"
+
         lines      = text.split("\n")
         html_lines = []
         for ln in lines:
             if ln.startswith(">"):
                 html_lines.append(
-                    f'<span style="color:#4361ee;font-weight:700;">{ln}</span>'
+                    f'<span style="color:{hdr_color};font-weight:700;">{ln}</span>'
                 )
             elif ln and ln.lstrip()[0:1].isdigit():
                 parts = ln.split("  ", 1)
@@ -2515,16 +2380,16 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                     pos_str, seq_str = parts
                     coloured = _colour_residues(seq_str)
                     html_lines.append(
-                        f'<span style="color:#718096;">{pos_str}</span>'
+                        f'<span style="color:{pos_color};">{pos_str}</span>'
                         f'&nbsp;&nbsp;{coloured}'
                     )
                 else:
                     html_lines.append(_colour_residues(ln))
             else:
-                html_lines.append(f'<span style="color:#1a1a2e;">{ln}</span>')
+                html_lines.append(f'<span style="color:{text_color};">{ln}</span>')
         html = (
-            '<style>body{font-family:"Courier New",monospace;font-size:10pt;'
-            'background:#f8f9fd;padding:8px;line-height:2.0;}</style>'
+            f'<style>body{{font-family:"Courier New",monospace;font-size:10pt;'
+            f'background:{bg_color};padding:8px;line-height:2.0;}}</style>'
             + "<br>".join(html_lines)
         )
         self.seq_viewer.setHtml(html)
@@ -2977,13 +2842,42 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     # --- Settings ---
 
     def toggle_theme(self):
-        if self.theme_toggle.isChecked():
+        is_dark = self.theme_toggle.isChecked()
+        if is_dark:
             self.setStyleSheet(DARK_THEME_CSS)
             plt.style.use("dark_background")
+            accent = "#4cc9f0"
+            struct_css = self._STRUCT_PANEL_CSS_DARK
+            struct_title_color = "#4cc9f0"
         else:
             self.setStyleSheet(LIGHT_THEME_CSS)
             plt.style.use("default")
-        label = "Dark" if self.theme_toggle.isChecked() else "Light"
+            accent = "#4361ee"
+            struct_css = self._STRUCT_PANEL_CSS_LIGHT
+            struct_title_color = "#3b4fc8"
+
+        # Update structure control panel stylesheet
+        if hasattr(self, "struct_ctrl_scroll"):
+            self.struct_ctrl_scroll.setStyleSheet(struct_css)
+        if hasattr(self, "_struct_title_lbl"):
+            self._struct_title_lbl.setStyleSheet(
+                f"font-weight:700; font-size:10pt; color:{struct_title_color};"
+                " padding:4px 0; background:transparent;"
+            )
+
+        # Update accent-coloured labels in Analysis tab
+        if hasattr(self, "_seq_label"):
+            self._seq_label.setStyleSheet(f"font-weight:600; color:{accent};")
+        if hasattr(self, "_seq_view_label"):
+            self._seq_view_label.setStyleSheet(f"font-weight:600; color:{accent}; margin-top:4px;")
+        if hasattr(self, "motif_match_lbl"):
+            self.motif_match_lbl.setStyleSheet(f"color:{accent}; font-size:9pt;")
+
+        # Re-render sequence viewer with updated colors
+        if self.analysis_data:
+            self._update_seq_viewer()
+
+        label = "Dark" if is_dark else "Light"
         self.statusBar.showMessage(f"{label} theme activated", 2000)
 
     def apply_settings(self):
