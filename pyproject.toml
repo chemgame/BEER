@@ -9,11 +9,11 @@ description = "Biochemical Estimator & Explorer of Residues — desktop GUI for 
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [
-    {name = "Saumyak Mukherjee", email = "saumyak.mukherjee@biophys.mpg.de"}
+    {name = "Saumyak Mukherjee", email = "chemgame@users.noreply.github.com"}
 ]
 keywords = ["biophysics", "protein", "sequence", "IDP", "phase-separation", "bioinformatics"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",

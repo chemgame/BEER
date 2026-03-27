@@ -283,4 +283,3 @@ GNU General Public License v2. See `LICENSE`.
 
 Saumyak Mukherjee
 Department of Theoretical Biophysics, Max Planck Institute of Biophysics, Frankfurt am Main, Germany
-mukherjee.saumyak50@gmail.com
