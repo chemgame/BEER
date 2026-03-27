@@ -39,32 +39,41 @@ Version 1.0 was a single monolithic script (`beer.py`) with a basic PySide6 GUI.
 
 ## Linux: required system libraries
 
-**On Linux you must install a few system packages before BEER will launch.** Qt6 (used by PySide6) depends on native xcb libraries that are not always present in a minimal install. Run this once before the first launch:
+**On Linux, Qt6 needs a few xcb libraries that are not always present.** Without them you get `Could not load the Qt platform plugin "xcb"` on launch. The fix does **not** require sudo — install everything through conda into the beer environment:
 
-**Ubuntu / Debian / Mint:**
 ```bash
+conda activate beer
+conda install -c conda-forge \
+    xcb-util-cursor xcb-util-image xcb-util-keysyms \
+    xcb-util-renderutil xcb-util-wm libxkbcommon
+```
+
+Then run `beer` normally. This works on HPC clusters and any system where you don't have root access.
+
+**If you do have sudo** (personal Linux machine / VM):
+
+```bash
+# Ubuntu / Debian / Mint:
 sudo apt-get install libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
     libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \
     libxkbcommon-x11-0 libegl1
-```
 
-**Fedora / RHEL / CentOS:**
-```bash
+# Fedora / RHEL / CentOS:
 sudo dnf install xcb-util-cursor xcb-util-image xcb-util-keysyms \
     xcb-util-renderutil libxkbcommon-x11 mesa-libEGL
-```
 
-**Arch / Manjaro:**
-```bash
+# Arch / Manjaro:
 sudo pacman -S xcb-util-cursor xcb-util-image xcb-util-keysyms \
     xcb-util-renderutil libxkbcommon-x11
 ```
 
-The most common error without these (`Could not load the Qt platform plugin "xcb"`) is fixed by `libxcb-cursor0` / `xcb-util-cursor` alone — but installing the full list above avoids the other xcb errors that tend to appear one by one.
-
-If the 3D structure viewer shows a blank page (WebEngine / Chromium sandboxing issue), also run:
+**If the 3D structure viewer shows a blank page** (WebEngine/Chromium sandboxing issue):
 ```bash
-# Ubuntu/Debian:
+# No-sudo fix via conda:
+conda activate beer
+conda install -c conda-forge libnss libdrm libxcomposite libxdamage libxrandr libgbm
+
+# Or with sudo on Ubuntu/Debian:
 sudo apt-get install libnss3 libatk-bridge2.0-0 libdrm2 \
     libxcomposite1 libxdamage1 libxrandr2 libgbm1
 ```
