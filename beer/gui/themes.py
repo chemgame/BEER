@@ -72,6 +72,10 @@ LIGHT_THEME_CSS = """
  QScrollBar:vertical { background: #f0f0f5; width: 10px; border-radius: 5px; }
  QScrollBar::handle:vertical { background: #c0c4d0; border-radius: 5px; min-height: 30px; }
  QStatusBar { background-color: #4361ee; color: #ffffff; font-size: 11px; }
+ QToolBar { background-color: #eef0f8; border: 1px solid #d0d4e0; border-radius: 4px; spacing: 2px; padding: 2px; }
+ QToolBar QToolButton { background-color: #ffffff; border: 1px solid #d0d4e0; border-radius: 4px; padding: 3px; color: #2d3748; }
+ QToolBar QToolButton:hover { background-color: #e0e4f4; border-color: #4361ee; }
+ QToolBar QToolButton:pressed { background-color: #c8d0ec; }
  /* --- Left navigation sidebar --- */
  QListWidget#nav_bar {
      background-color: #e4e8f4;

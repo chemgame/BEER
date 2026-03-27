@@ -312,29 +312,19 @@ def format_aggregation_report(seq: str, style_tag: str) -> str:
 
     # --- summary table ---
     cs_mean = stats['mean_camsolmt']
-    cs_class = (
-        "good (soluble)" if cs_mean > 0.1 else
-        "borderline" if cs_mean > -0.1 else
-        "poor (aggregation-prone)"
-    )
     agg_mean = stats['mean_aggregation_propensity']
-    agg_class = (
-        "low" if agg_mean < 0.3 else
-        "moderate" if agg_mean < 0.7 else
-        "high"
-    )
 
     summary_rows = (
         f"<tr><td>Sequence length</td><td>{n} aa</td></tr>"
         f"<tr><td>Mean CamSol intrinsic score</td>"
-        f"<td>{cs_mean:.3f} &mdash; {cs_class}</td></tr>"
-        f"<tr><td>Fraction insoluble residues (CamSol &lt; &minus;0.2)</td>"
+        f"<td>{cs_mean:.3f}</td></tr>"
+        f"<tr><td>Fraction residues CamSol &lt; &minus;0.2</td>"
         f"<td>{stats['fraction_insoluble']:.1%}</td></tr>"
-        f"<tr><td>Fraction soluble residues (CamSol &gt; 0.2)</td>"
+        f"<tr><td>Fraction residues CamSol &gt; 0.2</td>"
         f"<td>{stats['fraction_soluble']:.1%}</td></tr>"
         f"<tr><td>Mean ZYGGREGATOR propensity</td>"
-        f"<td>{agg_mean:.3f} &mdash; {agg_class}</td></tr>"
-        f"<tr><td>Aggregation hotspots (&ge;4 aa, score &ge;1.0)</td>"
+        f"<td>{agg_mean:.3f}</td></tr>"
+        f"<tr><td>Aggregation hotspots (&ge;4 aa, propensity &ge;1.0)</td>"
         f"<td>{stats['n_hotspots']}</td></tr>"
     )
 

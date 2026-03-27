@@ -253,17 +253,9 @@ def format_amphipathic_report(seq: str, style_tag: str) -> str:
     helices = predict_amphipathic_helices(seq)
     n_helices = len(helices)
 
-    # Amphipathicity class
-    if mean_mu_helix >= 0.35:
-        amph_class = "high (strong amphipathic character)"
-    elif mean_mu_helix >= 0.20:
-        amph_class = "moderate"
-    else:
-        amph_class = "low"
-
     summary_rows = (
         f"<tr><td>Mean &mu;H (&#945;-helix, &delta;=100&deg;)</td>"
-        f"<td>{mean_mu_helix:.4f} &mdash; {amph_class}</td></tr>"
+        f"<td>{mean_mu_helix:.4f}</td></tr>"
         f"<tr><td>Max &mu;H (&#945;-helix)</td><td>{max_mu_helix:.4f}</td></tr>"
         f"<tr><td>Mean &mu;H (&beta;-strand, &delta;=160&deg;)</td>"
         f"<td>{mean_mu_strand:.4f}</td></tr>"
@@ -279,9 +271,10 @@ def format_amphipathic_report(seq: str, style_tag: str) -> str:
         f"{summary_rows}"
         "</table>"
         "<p class='note'>"
-        "Hydrophobic moment: Eisenberg, Weiss &amp; Terwilliger (1984) "
+        "Hydrophobic moment (&mu;H): Eisenberg, Weiss &amp; Terwilliger (1984) "
         "Proc. Natl. Acad. Sci. USA 81:140. "
-        "Window = 11 aa; &mu;H threshold = 0.35; min region = 7 aa."
+        "Regions are reported where &mu;H &ge; 0.35 over &ge; 7 consecutive residues "
+        "(detection parameters; &mu;H values are continuous and should be interpreted as such)."
         "</p>"
     )
 

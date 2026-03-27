@@ -1,0 +1,86 @@
+"""Structure format converters: PDB string → mmCIF / GRO / XYZ."""
+from __future__ import annotations
+from io import StringIO
+
+
+def pdb_to_mmcif(pdb_str: str) -> str:
+    """Convert a PDB string to mmCIF format using BioPython MMCIFIO."""
+    from Bio.PDB import PDBParser, MMCIFIO
+    parser = PDBParser(QUIET=True)
+    struct = parser.get_structure("mol", StringIO(pdb_str))
+    io = MMCIFIO()
+    io.set_structure(struct)
+    buf = StringIO()
+    io.save(buf)
+    return buf.getvalue()
+
+
+def pdb_to_gro(pdb_str: str) -> str:
+    """Convert a PDB string to GROMACS GRO format.
+
+    Coordinates are converted from Å to nm.  No velocities are written.
+    A default cubic box of 10 × 10 × 10 nm is appended.
+    """
+    from Bio.PDB import PDBParser
+    parser = PDBParser(QUIET=True)
+    struct = parser.get_structure("mol", StringIO(pdb_str))
+
+    atoms = []
+    for model in struct:
+        for chain in model:
+            for res in chain:
+                res_name = res.get_resname().strip()
+                res_seq  = res.get_id()[1]
+                for atom in res:
+                    coord = atom.get_vector()
+                    atoms.append({
+                        'res_seq':   res_seq,
+                        'res_name':  res_name,
+                        'atom_name': atom.get_name().strip(),
+                        'x': coord[0] / 10.0,
+                        'y': coord[1] / 10.0,
+                        'z': coord[2] / 10.0,
+                    })
+        break  # first model only
+
+    lines = ["BEER structure export — GRO format", f"{len(atoms)}"]
+    for i, a in enumerate(atoms, 1):
+        lines.append(
+            f"{a['res_seq']:5d}{a['res_name']:<5s}{a['atom_name']:>5s}{i:5d}"
+            f"{a['x']:8.3f}{a['y']:8.3f}{a['z']:8.3f}"
+        )
+    lines.append("  10.00000  10.00000  10.00000")
+    return "\n".join(lines) + "\n"
+
+
+def pdb_to_xyz(pdb_str: str) -> str:
+    """Convert a PDB string to XYZ format (Ångström coordinates).
+
+    Element symbols are taken from BioPython's atom.element attribute;
+    if absent, they are inferred from the first non-numeric character of
+    the atom name.
+    """
+    from Bio.PDB import PDBParser
+    parser = PDBParser(QUIET=True)
+    struct = parser.get_structure("mol", StringIO(pdb_str))
+
+    atoms = []
+    for model in struct:
+        for chain in model:
+            for res in chain:
+                for atom in res:
+                    element = (atom.element or "").strip().capitalize()
+                    if not element:
+                        name = atom.get_name().strip().lstrip("0123456789")
+                        element = name[0].upper() if name else "X"
+                    coord = atom.get_vector()
+                    atoms.append((element, coord[0], coord[1], coord[2]))
+        break  # first model only
+
+    lines = [
+        str(len(atoms)),
+        "BEER structure export — XYZ format (Angstrom)",
+    ]
+    for elem, x, y, z in atoms:
+        lines.append(f"{elem:<4s}  {x:12.6f}  {y:12.6f}  {z:12.6f}")
+    return "\n".join(lines) + "\n"

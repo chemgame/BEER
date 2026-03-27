@@ -110,11 +110,6 @@ class AnalysisTools:
         kappa   = calc_kappa(seq)
         ch_asym = (pos_n / neg_n) if neg_n > 0 else float('inf')
 
-        kappa_interp = (
-            "well-mixed"           if kappa < 0.2 else
-            "moderately patterned" if kappa < 0.5 else
-            "strongly segregated"
-        )
 
         # --- Aromatic & π features ---
         n_tyr  = aa_counts.get("Y", 0)
@@ -141,11 +136,6 @@ class AnalysisTools:
             + 3.9 * (aa_counts.get("I", 0) + aa_counts.get("L", 0))
         ) / seq_length * 100
         omega = calc_omega(seq)
-        omega_interp = (
-            "evenly distributed"   if omega < 0.2 else
-            "moderately clustered" if omega < 0.5 else
-            "strongly clustered"
-        )
 
         # --- Repeat motifs ---
         rgg_n  = seq.count("RGG")
@@ -237,7 +227,7 @@ class AnalysisTools:
           <tr><td>FCR (fraction charged)</td><td>{fcr:.3f}</td></tr>
           <tr><td>NCPR (net charge/residue)</td><td>{ncpr:+.3f}</td></tr>
           <tr><td>Charge asymmetry (pos/neg)</td><td>{"%.2f" % ch_asym if neg_n > 0 else "&#8734; (no neg.)"}</td></tr>
-          <tr><td>Kappa (&kappa;)</td><td>{kappa:.3f} &mdash; {kappa_interp}</td></tr>
+          <tr><td>Kappa (&kappa;)</td><td>{kappa:.3f}</td></tr>
         </table>
         <p class="note">&kappa;: 0 = well-mixed, 1 = fully segregated (Das &amp; Pappu 2013)</p>
         """
@@ -281,7 +271,7 @@ class AnalysisTools:
           <tr><td>Disorder-promoting fraction (A,E,G,K,P,Q,R,S)</td><td>{disorder_f:.3f}</td></tr>
           <tr><td>Order-promoting fraction (C,F,H,I,L,M,V,W,Y)</td><td>{order_f:.3f}</td></tr>
           <tr><td>Aliphatic index</td><td>{aliphatic_idx:.1f}</td></tr>
-          <tr><td>Omega (&Omega;)</td><td>{omega:.3f} &mdash; {omega_interp}</td></tr>
+          <tr><td>Omega (&Omega;)</td><td>{omega:.3f}</td></tr>
           <tr><td>Mean per-residue disorder score</td><td>{mean_disorder:.3f}</td></tr>
           <tr><td>Disordered fraction (score &gt; 0.5)</td><td>{disordered_frac:.3f} ({disordered_frac*100:.1f}%)</td></tr>
         </table>

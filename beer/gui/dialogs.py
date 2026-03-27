@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QSpinBox, QLabel, QComboBox,
     QDialogButtonBox, QVBoxLayout, QHBoxLayout, QWidget,
-    QGridLayout,
+    QGridLayout, QRadioButton, QPushButton,
 )
 
 from beer.constants import VALID_AMINO_ACIDS
@@ -114,4 +114,62 @@ class _FigureComposerDialog(QDialog):
         return layout_str, titles
 
 
-__all__ = ["MutationDialog", "_FigureComposerDialog"]
+class FormatChooserDialog(QDialog):
+    """Modal dialog presenting a list of export format options as radio buttons.
+
+    Parameters
+    ----------
+    title:
+        Window title string.
+    options:
+        List of ``(display_label, key, enabled)`` tuples.
+        *key* is the short identifier returned by :meth:`selected_key`.
+        Disabled items are shown greyed-out and cannot be selected.
+    parent:
+        Parent widget.
+    """
+
+    def __init__(self, title: str, options: list, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(300)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+        layout.addWidget(QLabel("Choose export format:"))
+
+        self._buttons: list[QRadioButton] = []
+        for label, key, enabled in options:
+            rb = QRadioButton(label)
+            rb.setEnabled(enabled)
+            rb.setProperty("fmt_key", key)
+            self._buttons.append(rb)
+            layout.addWidget(rb)
+
+        # Pre-select the first enabled option
+        for rb in self._buttons:
+            if rb.isEnabled():
+                rb.setChecked(True)
+                break
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        ok_btn = QPushButton("Export")
+        ok_btn.setDefault(True)
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(ok_btn)
+        btn_row.addWidget(cancel_btn)
+        layout.addSpacing(4)
+        layout.addLayout(btn_row)
+
+    def selected_key(self) -> str | None:
+        """Return the *key* of the currently checked radio button, or None."""
+        for rb in self._buttons:
+            if rb.isChecked():
+                return rb.property("fmt_key")
+        return None
+
+
+__all__ = ["MutationDialog", "_FigureComposerDialog", "FormatChooserDialog"]

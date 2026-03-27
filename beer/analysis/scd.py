@@ -219,16 +219,6 @@ def calc_pos_neg_block_lengths(seq: str) -> dict:
 # HTML report
 # ---------------------------------------------------------------------------
 
-def _scd_interpretation(scd: float) -> str:
-    """Return a human-readable interpretation of the SCD value."""
-    if scd < -1.0:
-        return "well-mixed polyampholyte"
-    elif scd < 0.0:
-        return "mixed"
-    elif scd < 1.0:
-        return "mildly segregated"
-    else:
-        return "strongly charge-segregated"
 
 
 def format_scd_report(seq: str, style_tag: str) -> str:
@@ -254,7 +244,6 @@ def format_scd_report(seq: str, style_tag: str) -> str:
         return _s + "<h2>Charge Patterning (SCD)</h2><p>Empty sequence.</p>"
 
     scd = calc_scd(seq)
-    interp = _scd_interpretation(scd)
     seg_score = calc_charge_segregation_score(seq)
     blocks = calc_pos_neg_block_lengths(seq)
 
@@ -264,18 +253,11 @@ def format_scd_report(seq: str, style_tag: str) -> str:
     fcr = (n_pos + n_neg) / n if n > 0 else 0.0
     ncpr = (n_pos - n_neg) / n if n > 0 else 0.0
 
-    seg_interp = (
-        "strongly segregated (+)" if seg_score > 0.5 else
-        "moderately segregated" if seg_score > 0.2 else
-        "well mixed" if seg_score > -0.2 else
-        "alternating / polyampholyte-like"
-    )
-
     rows = (
         f"<tr><td>Sequence Charge Decoration (SCD)</td>"
-        f"<td>{scd:.4f} &mdash; {interp}</td></tr>"
+        f"<td>{scd:.4f}</td></tr>"
         f"<tr><td>Charge Segregation Score (&#177;5 aa)</td>"
-        f"<td>{seg_score:.4f} &mdash; {seg_interp}</td></tr>"
+        f"<td>{seg_score:.4f}</td></tr>"
         f"<tr><td>Positive residues (K, R)</td><td>{n_pos} ({n_pos/n*100:.1f}%)</td></tr>"
         f"<tr><td>Negative residues (D, E)</td><td>{n_neg} ({n_neg/n*100:.1f}%)</td></tr>"
         f"<tr><td>FCR (fraction charged)</td><td>{fcr:.3f}</td></tr>"

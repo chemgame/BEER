@@ -185,11 +185,8 @@ def create_rbp_profile_figure(
     ax = fig.add_subplot(111)
 
     ax.plot(x, y, color="teal", linewidth=1.4, label="RBP propensity")
-    ax.fill_between(x, RBP_THRESHOLD, y, where=(y > RBP_THRESHOLD),
-                    interpolate=True, color="teal", alpha=0.4,
-                    label=f"Above threshold ({RBP_THRESHOLD})")
-    ax.axhline(RBP_THRESHOLD, color="black", linestyle="--", linewidth=1.0,
-               label=f"Threshold ({RBP_THRESHOLD})")
+    ax.fill_between(x, 0, y, where=(y > 0), interpolate=True,
+                    color="teal", alpha=0.25)
 
     motif_colors = [
         "#e6194b", "#3cb44b", "#ffe119", "#4363d8", "#f58231",

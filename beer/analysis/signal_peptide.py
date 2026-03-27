@@ -131,27 +131,13 @@ def predict_signal_peptide(seq: str) -> dict:
 
     c_region_score = 1.0 if c_has_axa else 0.0
 
-    # ---- Composite score ----
-    score = (
-        0.20 * n_score_norm
-        + 0.50 * h_score_norm
-        + 0.30 * c_region_score
-    )
-    score = round(min(max(score, 0.0), 1.0), 4)
-
-    verdict = (
-        "Signal peptide predicted"
-        if score >= 0.55 and h_length >= 7
-        else "No signal peptide predicted"
-    )
-
     return {
-        'score': score,
-        'verdict': verdict,
         'n_end': n_end,
         'h_start': h_start,
         'h_end': h_end,
+        'h_length': h_length,
         'c_start': c_start,
+        'c_has_axa': c_has_axa,
         'cleavage_site': cleavage_site,
         'h_region_seq': h_region_seq,
         'h_region_score': round(h_kd, 4),
@@ -219,28 +205,16 @@ def predict_gpi_anchor(seq: str) -> dict:
         spacer_len = 0
     spacer_ok = 5 <= spacer_len <= 10
 
-    # ---- Composite score ----
-    score = (
-        0.30 * float(omega_found)
-        + 0.50 * float(tail_ok)
-        + 0.20 * float(spacer_ok)
-    )
-    score = round(min(max(score, 0.0), 1.0), 4)
-
-    verdict = (
-        "GPI anchor signal predicted"
-        if score >= 0.6
-        else "No GPI anchor predicted"
-    )
-
     omega_position = (offset + omega_pos_local + 1) if omega_found else -1
     tail_start_global = offset + tail_start_local + 1  # 1-based
 
     return {
-        'score': score,
-        'verdict': verdict,
+        'omega_found': omega_found,
         'omega_position': omega_position,
         'omega_aa': omega_aa,
+        'spacer_length': spacer_len,
+        'spacer_ok': spacer_ok,
+        'tail_ok': tail_ok,
         'tail_start': tail_start_global,
         'tail_seq': tail_seq,
         'tail_kd_mean': round(tail_kd, 4),
@@ -273,67 +247,65 @@ def format_signal_report(seq: str, style_tag: str) -> str:
     gpi = predict_gpi_anchor(seq)
 
     # ---- Signal peptide table ----
-    sp_verdict_colour = "#16a34a" if "predicted" in sp['verdict'].lower() and "no" not in sp['verdict'].lower() else "#dc2626"
-    gpi_verdict_colour = "#16a34a" if "predicted" in gpi['verdict'].lower() and "no" not in gpi['verdict'].lower() else "#dc2626"
-
-    # Cleavage site display: highlight cleavage position in sequence context
+    # Cleavage site display
     if sp['cleavage_site'] > 0 and sp['cleavage_site'] <= len(seq):
         cs = sp['cleavage_site']
-        cs_context = (
-            seq[max(0, cs - 5):cs] + " | " + seq[cs:min(len(seq), cs + 5)]
-        )
+        cs_context = seq[max(0, cs - 5):cs] + " | " + seq[cs:min(len(seq), cs + 5)]
     else:
         cs_context = "N/A"
 
+    axa_str = "Yes" if sp['c_has_axa'] else "No"
+
     sp_rows = (
-        f"<tr><td>Verdict</td>"
-        f"<td style='color:{sp_verdict_colour};font-weight:600'>{sp['verdict']}</td></tr>"
-        f"<tr><td>Score (0&ndash;1)</td><td>{sp['score']:.3f}</td></tr>"
         f"<tr><td>n-region basic residues (K,R in pos 1&ndash;5)</td><td>{sp['n_score']}</td></tr>"
         f"<tr><td>h-region position</td>"
-        f"<td>{sp['h_start']+1}&ndash;{sp['h_end']} ({sp['h_end']-sp['h_start']} aa)</td></tr>"
+        f"<td>{sp['h_start']+1}&ndash;{sp['h_end']} ({sp['h_length']} aa)</td></tr>"
         f"<tr><td>h-region sequence</td><td><code>{sp['h_region_seq']}</code></td></tr>"
-        f"<tr><td>h-region mean KD</td><td>{sp['h_region_score']:.3f}</td></tr>"
+        f"<tr><td>h-region mean KD hydrophobicity</td><td>{sp['h_region_score']:.3f}</td></tr>"
+        f"<tr><td>c-region AXA cleavage motif found</td><td>{axa_str}</td></tr>"
         f"<tr><td>Predicted cleavage site (after pos)</td>"
         f"<td>{sp['cleavage_site']} &nbsp;[{cs_context}]</td></tr>"
     )
 
     sp_html = (
-        "<h2>Signal Peptide Prediction (von Heijne 1986)</h2>"
+        "<h2>Signal Peptide Features (von Heijne 1986)</h2>"
         "<table>"
         "<tr><th>Parameter</th><th>Value</th></tr>"
         f"{sp_rows}"
         "</table>"
         "<p class='note'>"
-        "Method: three-region (n, h, c) model. "
-        "von Heijne, G. (1986) Nucleic Acids Res. 14:4683. "
-        "Score &ge; 0.55 and h-region &ge; 7 aa required for positive prediction."
+        "Three-region (n/h/c) model: von Heijne, G. (1986) Nucleic Acids Res. 14:4683. "
+        "Reports structural features only. For validated signal peptide prediction use "
+        "the ESM2-based score above (AUC = 1.00 on UniProt ft_signal) or SignalP 6.0."
         "</p>"
     )
 
     # ---- GPI anchor table ----
+    omega_str = (
+        f"Position {gpi['omega_position']} ({gpi['omega_aa']})"
+        if gpi['omega_found'] else "Not found"
+    )
+    spacer_ok_str = f"{gpi['spacer_length']} aa ({'within' if gpi['spacer_ok'] else 'outside'} 5–10 aa range)"
+    tail_ok_str = f"{gpi['tail_kd_mean']:.3f} ({'≥' if gpi['tail_ok'] else '<'} 1.6 threshold)"
+
     gpi_rows = (
-        f"<tr><td>Verdict</td>"
-        f"<td style='color:{gpi_verdict_colour};font-weight:600'>{gpi['verdict']}</td></tr>"
-        f"<tr><td>Score (0&ndash;1)</td><td>{gpi['score']:.3f}</td></tr>"
-        f"<tr><td>&omega;-site position</td>"
-        f"<td>{'Position ' + str(gpi['omega_position']) + ' (' + gpi['omega_aa'] + ')' if gpi['omega_position'] > 0 else 'Not found'}</td></tr>"
+        f"<tr><td>&omega;-site (small neutral at &minus;8 to &minus;11)</td><td>{omega_str}</td></tr>"
+        f"<tr><td>Spacer length</td><td>{spacer_ok_str}</td></tr>"
         f"<tr><td>Hydrophobic tail start</td><td>{gpi['tail_start']}</td></tr>"
         f"<tr><td>Hydrophobic tail sequence</td><td><code>{gpi['tail_seq']}</code></td></tr>"
-        f"<tr><td>Tail mean KD</td><td>{gpi['tail_kd_mean']:.3f}</td></tr>"
+        f"<tr><td>Tail mean KD hydrophobicity</td><td>{tail_ok_str}</td></tr>"
     )
 
     gpi_html = (
-        "<h2>GPI Anchor Prediction (Eisenhaber et al. 1999)</h2>"
+        "<h2>GPI Anchor Features (Eisenhaber et al. 1999)</h2>"
         "<table>"
         "<tr><th>Parameter</th><th>Value</th></tr>"
         f"{gpi_rows}"
         "</table>"
         "<p class='note'>"
-        "Method: Eisenhaber, B., Bork, P. &amp; Eisenhaber, F. (1999) "
-        "J. Mol. Biol. 292:741. "
-        "Requires &omega;-site small neutral, 5&ndash;10 aa spacer, and "
-        "hydrophobic C-terminal tail (KD &gt; 1.6)."
+        "Eisenhaber, B., Bork, P. &amp; Eisenhaber, F. (1999) J. Mol. Biol. 292:741. "
+        "Reports structural features only (&omega;-site, spacer, hydrophobic tail). "
+        "All three criteria must be satisfied for a canonical GPI anchor signal."
         "</p>"
     )
 

@@ -1,12 +1,9 @@
-# BEER – Biochemical Estimator & Explorer of Residues
+# BEER — Biophysical and Evolutionary Evaluation of Residues
 
-A cross-platform desktop GUI for rapid physicochemical analysis of protein sequences.
+A cross-platform desktop GUI for integrated biophysical analysis of protein sequences.
 **BEER** accepts FASTA, PDB, or plain-text input (single or multi-sequence / multi-chain),
 fetches sequences from **UniProt** or **RCSB PDB** by accession, and produces comprehensive
 biochemical profiles with interactive, publication-quality visualisations.
-
-This repository contains the main application `beer.py`, an example structure file
-`1GP2.pdb`, `README.md`, and `LICENSE`.
 
 ## Reference
 
@@ -17,264 +14,214 @@ If you use BEER in your research, please cite:
 
 ---
 
-## Prerequisites
+## Requirements
 
 | Requirement | Version |
 |-------------|---------|
-| Operating system | Windows, macOS, Linux (tested on CentOS Stream 8, macOS Sequoia 15.3.2, Windows 11) |
-| Python | 3.11 – 3.12 |
+| Python | ≥ 3.10 |
+| OS | Windows, macOS, Linux (X11/Wayland) |
+| Disk space | ~200 MB (base install) |
 
-## Dependencies
+---
+
+## Installation
+
+### Recommended (conda environment)
 
 ```bash
-conda create -n beer python=3.12
+conda create -n beer python=3.12 -y
 conda activate beer
-pip install biopython matplotlib pyqt5 mplcursors
-# Optional: 3D structure viewer
-pip install PyQtWebEngine
+git clone https://github.com/chemgame/BEER.git
+cd BEER
+pip install .
 ```
 
-## Getting Started
+### With ESM2 neural network features
+
+ESM2 improves disorder, aggregation, signal peptide, and PTM predictions using a protein language model. Bundled head weights are included — you only need the runtime:
 
 ```bash
-git clone https://github.com/chemgame/beer.git
-cd beer
+# CPU-only (recommended for most users):
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install fair-esm
+
+# Or install everything at once:
+pip install ".[esm2]"
+```
+
+BEER detects ESM2 automatically at startup. Without it, all analyses still run using classical algorithms — no functionality is lost except the neural augmentation.
+
+### Optional: 3D structure viewer
+
+```bash
+pip install PySide6-WebEngine
+```
+
+Without it, BEER still works fully — the 3D viewer in the Structure tab is replaced by a message. PDB files can still be saved and opened in PyMOL or ChimeraX.
+
+### From PyPI (once published)
+
+```bash
+pip install beer-biophys
+```
+
+---
+
+## Launching BEER
+
+```bash
 conda activate beer
-python beer.py
+beer
 ```
 
-**Optional — make the script executable system-wide:**
+The GUI window opens. No internet connection is required for local analysis. Internet is only needed for UniProt / AlphaFold / Pfam / ELM / DisProt / PhaSepDB fetches.
 
-```bash
-chmod +x beer.py
-mkdir -p ~/bin && cp beer.py ~/bin/
-export PATH="$HOME/bin:$PATH"
+> **Linux note:** If BEER fails with a Qt platform error, install: `sudo apt-get install libxcb-cursor0`
+
+---
+
+## Quick Start
+
+1. **Paste** an amino-acid sequence into the sequence box.
+2. Click **Analyze** or press `Ctrl+Enter`.
+3. Browse the 19 report sections in the left panel of the Analysis tab.
+4. Switch to the **Graphs** tab and click any graph name.
+5. Click **Export PDF** to save the full report.
+
+> **Drag & Drop:** Drag a `.fasta` file directly onto the BEER window to load it instantly.
+
+---
+
+## Input Methods
+
+| Method | How |
+|--------|-----|
+| **Paste sequence** | Type or paste a bare amino-acid string or FASTA block and click **Analyze** |
+| **Import FASTA** | Click **Import FASTA** → select a `.fa` / `.fasta` file (single or multi-sequence) |
+| **Import PDB** | Click **Import PDB** → select a `.pdb` file; all chains are extracted |
+| **Fetch UniProt** | Enter a UniProt accession (e.g. `P04637`) → click **Fetch** |
+| **Fetch PDB ID** | Enter a 4-character RCSB code (e.g. `1UBQ`) → click **Fetch** |
+
+---
+
+## Analysis Modules (19 sections)
+
+| Section | Contents |
+|---------|----------|
+| **Properties** | MW, pI, GRAVY, aromaticity, extinction coefficient |
+| **Composition** | AA counts and frequencies with sort controls |
+| **Hydrophobicity** | Kyte-Doolittle statistics; hydrophobic/hydrophilic fractions |
+| **Charge** | FCR, NCPR, κ, Ω, net charge, charge asymmetry |
+| **Aromatic & π** | Aromatic fraction, cation–π and π–π pair counts |
+| **Low Complexity** | Shannon entropy, prion-like score, LC fraction |
+| **Disorder** | ESM2 logistic probe (DisProt 2024, AUC 0.831); classical propensity scale fallback |
+| **Aggregation** | ESM2 probe (UniProt amyloid, AUC 0.972); ZYGGREGATOR hotspots; CamSol solubility |
+| **PTM Sites** | ESM2 probe (UniProt mod_res, AUC 0.927); CK2, PKA, ubiquitination, SUMOylation, glycosylation, methylation |
+| **Signal Peptide** | ESM2 probe (UniProt ft_signal, AUC 1.000); n/h/c-region annotation; GPI signal |
+| **RNA Binding** | Per-residue propensity; RGG, RRM, KH, SR, DEAD-box, Zinc finger motif hits |
+| **Amphipathic Helices** | Detected helices with hydrophobic moment |
+| **SCD / κ / Ω** | Sequence charge decoration profile |
+| **LARKS** | Low-complexity Aromatic-Rich Kinked Segments (Hughes et al. 2018) |
+| **Tandem Repeats** | Direct, tandem, and compositional repeats |
+| **TM Topology** | KD sliding-window TM helix prediction; inside-positive topology |
+| **Coiled Coil** | Heptad-periodicity score profile |
+| **Linear Motifs** | Regex scan: NLS, NES, PxxP, 14-3-3, KFERQ, KDEL, SxIP, NxS/T, … |
+| **Comparison** | Side-by-side disorder / hydrophobicity / aggregation overlays |
+
+---
+
+## Graphs (25 total)
+
+Navigate via the **category tree** on the left of the Graphs tab.
+
+| Category | Graphs |
+|----------|--------|
+| Composition | AA Composition (Bar), AA Composition (Pie) |
+| Profiles | Hydrophobicity, Local Charge, Local Complexity, Disorder, Linear Sequence Map, Coiled-Coil |
+| Charge & π | Isoelectric Focus, Charge Decoration, Cation–π Map |
+| Structure & Folding | Bead Model (Hydrophobicity), Bead Model (Charge), Sticker Map, Helical Wheel, TM Topology |
+| Aggregation | β-Aggregation Profile, Solubility Profile, Hydrophobic Moment |
+| IDP / Phase Sep | Uversky Phase Plot, Saturation Mutagenesis |
+| New Features | PTM Map, RNA-Binding Profile, SCD Profile, pI/MW Map |
+| AlphaFold / Structural | pLDDT Profile, Distance Map, Domain Architecture, Ramachandran Plot, Contact Network |
+
+All graphs are rendered at 120 dpi on-screen and 200 dpi on export. Right-click any graph to copy to clipboard or save.
+
+---
+
+## ESM2 Neural Features
+
+BEER uses Meta's ESM2 protein language model (pre-trained linear probe heads bundled in `beer/models/`). No training is required.
+
+| Prediction | AUC (test set) | Test set |
+|------------|---------------|----------|
+| Disorder | 0.831 | DisProt 2024 (n=324) |
+| Aggregation | 0.972 | UniProt amyloid (n=59) |
+| Signal peptide | 1.000 | UniProt ft_signal (n=80) |
+| PTM sites | 0.927 | UniProt mod_res (n=40) |
+
+All benchmarks use protein-level 80/20 splits (seed=42) to prevent data leakage.
+
+### Model sizes
+
+| Model | Parameters | Speed | Download |
+|-------|-----------|-------|----------|
+| `esm2_t6_8M_UR50D` *(default)* | 8 M | Fastest | ~30 MB |
+| `esm2_t12_35M_UR50D` | 35 M | Fast | ~140 MB |
+| `esm2_t30_150M_UR50D` | 150 M | Moderate | ~580 MB |
+| `esm2_t33_650M_UR50D` | 650 M | Slow | ~2.6 GB |
+
+Weights are downloaded once on the first `Analyze` call and cached in `~/.cache/torch/hub/`.
+
+---
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Enter` | Run analysis |
+| `Ctrl+E` | Export PDF report |
+| `Ctrl+G` | Jump to Graphs tab |
+| `Ctrl+S` | Save session |
+| `Ctrl+O` | Load session |
+| `Ctrl+F` | Focus motif search box |
+| `Ctrl+/` | Show all shortcuts |
+
+---
+
+## Package Structure
+
 ```
-
----
-
-## Application Overview
-
-BEER is organised into eight sections, accessible via the **left sidebar**:
-
-| Section | Purpose |
-|---------|---------|
-| **Analysis** | Sequence input, chain selector, sequence viewer, 13 report sections |
-| **Graphs** | 23 interactive, publication-quality plots |
-| **Structure** | Interactive 3D viewer (requires PyQtWebEngine) + AlphaFold fetch |
-| **BLAST** | NCBI blastp against nr, SwissProt, PDB, or RefSeq |
-| **Compare** | Side-by-side physicochemical comparison of two sequences |
-| **Multichain Analysis** | Batch summary table; CSV / JSON export |
-| **Settings** | All configurable parameters |
-| **Help** | Built-in method and graph reference |
-
----
-
-## Sequence Input
-
-1. **Paste / type** a plain amino-acid string or FASTA block.
-2. **Import FASTA** — single or multi-record `.fa` / `.fasta` file.
-3. **Import PDB** — all protein chains extracted; named `<PDB>_<chain>`.
-4. **Fetch by accession:**
-   - **UniProt ID** (e.g. `P04637`) — fetches from UniProt REST API; also enables
-     **Fetch AlphaFold** and **Fetch Pfam** buttons.
-   - **PDB ID** (e.g. `1ABC`) — fetches the FASTA sequence from RCSB PDB.
-     After fetching a PDB ID, clicking **Fetch AlphaFold** or **Fetch Pfam** will
-     prompt you to enter a UniProt accession.
-
-The **Sequence Viewer** displays the active sequence in UniProt-style formatting
-(groups of 10, ruler every 10 residues). A built-in regex motif search and highlight
-tool is provided.
-
----
-
-## Analysis Modules
-
-Each module is shown in a dedicated section within the Analysis tab.
-
-### Composition
-Amino acid count and frequency (%) for all 20 standard residues.
-Sort buttons: A–Z, by frequency, hydrophobicity ascending/descending.
-
-### Properties
-Molecular weight · pI · Net charge (pH 7.0 and custom) · Extinction coefficient (280 nm,
-reducing/non-reducing) · GRAVY · Instability index · Aromaticity.
-
-### Hydrophobicity
-Kyte-Doolittle per-residue values, GRAVY, and fraction of hydrophobic / hydrophilic / neutral.
-
-### Charge
-FCR · NCPR · Charge asymmetry · κ (Das & Pappu 2013).
-
-### Aromatic & π-Interactions
-Aromatic fraction (F+W+Y), cation–π pairs (K/R ↔ F/W/Y, ±4 residues), π–π pairs.
-
-### Low Complexity
-Shannon entropy · Normalised entropy · Unique AA count · Prion-like score (N,Q,S,G,Y) ·
-LC fraction (windows with entropy < 2.0 bits, w=12).
-
-### Disorder
-Disorder-promoting fraction (Uversky) · Order-promoting fraction · Aliphatic index ·
-Ω (Das et al. 2015).
-
-### Secondary Structure (Chou-Fasman)
-Mean Pα and Pβ propensities, count of helix- and sheet-promoting residues, mean IUPred-inspired disorder score.
-
-### Repeat Motifs
-RGG · FG · YG/GY · SR/RS · QN/NQ.
-
-### Sticker & Spacer
-Sticker counts (aromatic + electrostatic), mean/min/max inter-sticker spacing (Mittag & Pappu).
-
-### TM Helices
-Kyte-Doolittle sliding-window (w=19, threshold=1.6) transmembrane helix prediction with
-inside-positive topology. See algorithm details below.
-
-### Phase Separation
-Composite LLPS propensity score (0–1) weighted from aromatic fraction, prion-like score,
-disorder fraction, FCR, Omega, LARKS density, and |NCPR| penalty. LARKS detection (7-residue
-windows: ≥1 aromatic, ≥50% LC residues, entropy < 1.8 bits; Hughes et al. 2018 *Science*).
-
-### Linear Motifs
-Regex scan against 15 built-in SLiM patterns: NLS, NES, PxxP, 14-3-3, RGG, FG, KFERQ,
-KDEL, PKA (RxxS/T), SxIP, WW ligand, caspase-3, N-glycosylation, SUMOylation, CK2 sites.
-
----
-
-## Transmembrane Helix Prediction
-
-1. Full 19-residue windows (no partial edges) are scored by KD average.
-2. Residues covered by any window ≥ 1.6 are marked as TM candidates.
-3. Contiguous segments of 17–25 aa are retained as helices; over-long segments are trimmed to the single best window.
-4. Topology assigned by **inside-positive rule (von Heijne)**: the flanking side with more K/R is cytoplasmic.
-
----
-
-## Graphs (23 total)
-
-All graphs are rendered at 120 dpi on-screen and 200 dpi on export with interactive
-cursors (`mplcursors`).
-
-### Composition
-| Graph | Description |
-|-------|-------------|
-| AA Composition (Bar) | Residue counts with frequency annotations |
-| AA Composition (Pie) | Residue frequencies (zero-count residues hidden) |
-
-### Profiles
-| Graph | Description |
-|-------|-------------|
-| Hydrophobicity Profile | Sliding-window KD average (window from Settings) |
-| Local Charge Profile | Sliding-window NCPR |
-| Local Complexity | Sliding-window Shannon entropy; LC threshold line |
-| Disorder Profile | IUPred-inspired per-residue score; orange fill = disordered |
-| Coiled-Coil Profile | Per-residue heptad-periodicity score; fill above 0.50 = predicted coiled-coil |
-| Linear Sequence Map | Four-track: hydrophobicity, NCPR, disorder, helix Pα |
-| Secondary Structure | **Two-panel**: helix Pα (top) and sheet Pβ (bottom); fill above 1.0 |
-
-### Charge & π-Interactions
-| Graph | Description |
-|-------|-------------|
-| Net Charge vs pH | Henderson-Hasselbalch curve 0–14; pI annotated |
-| Isoelectric Focus | Enhanced curve with pH 7.4 annotation |
-| Charge Decoration | Das-Pappu FCR vs \|NCPR\| phase diagram |
-| Cation–π Map | K/R ↔ F/W/Y proximity heat map (score = 1/distance, ±8 residues) |
-
-### Structure & Folding
-| Graph | Description |
-|-------|-------------|
-| Bead Model (Hydrophobicity) | Per-residue KD scatter; 30+ colourmap choices |
-| Bead Model (Charge) | K/R blue, D/E red, H cyan, neutral grey |
-| Sticker Map | Aromatic amber, basic blue, acidic pink, spacer grey |
-| Helical Wheel | Cartesian 18-residue projection; connecting lines; luminance-contrast labels |
-| TM Topology | Snake-plot of predicted TM helices |
-
-### AlphaFold / Structural
-| Graph | Description |
-|-------|-------------|
-| pLDDT Profile | Per-residue confidence (0–100); requires Fetch AlphaFold |
-| Cα Distance Map | Pairwise distance heatmap; 8 Å contact contour; requires Fetch AlphaFold |
-| Domain Architecture | Multi-track: Pfam domains + Disorder + Low Complexity + TM Helices |
-
-### Phase Separation / IDP
-| Graph | Description |
-|-------|-------------|
-| Uversky Phase Plot | Mean \|net charge\| vs mean hydrophobicity; Uversky 2000 boundary line; IDP vs ordered classification |
-| Saturation Mutagenesis | 20×n heatmap of \|ΔGRAVY\| + \|ΔNCPR\| for all single substitutions; white dot = wild type (≤500 aa) |
-
----
-
-## AlphaFold Integration
-
-After fetching a UniProt accession, click **Fetch AlphaFold** to download the
-AlphaFold2 predicted structure from EBI. Provides:
-- Per-residue **pLDDT** confidence (stored in B-factor column)
-- **Cα distance matrix** for the contact map
-- Interactive **3D viewer** in the Structure section (requires PyQtWebEngine)
-
----
-
-## Pfam Domain Annotations
-
-After fetching a UniProt accession, click **Fetch Pfam** to query the
-EMBL-EBI InterPro REST API for Pfam domain positions. The **Domain Architecture**
-graph adds a Pfam track on top of the always-available Disorder, Low Complexity,
-and TM Helix tracks.
-
----
-
-## BLAST
-
-Submits the current sequence to NCBI via `Bio.Blast.NCBIWWW` (blastp).
-Databases: nr, swissprot, pdb, refseq_protein. Returns top hits with accession,
-description, length, score, E-value, % identity. Clicking **Load** re-analyses
-a hit sequence directly in BEER.
-
----
-
-## Export
-
-| Action | Output |
-|--------|--------|
-| **Export PDF** | Formatted PDF report (text/tables; graphs saved separately) |
-| **Save Graph** | Single graph, 200 dpi, PNG / SVG / PDF |
-| **Save All Graphs** | All graphs to a directory; respects transparent-background setting |
-| **Export CSV / JSON** | Multichain summary table |
-
----
-
-## Settings
-
-All parameters take effect when **Apply Settings** is clicked.
-**Reset to Defaults** restores everything to factory values immediately.
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Default pH | 7.0 | pH for net-charge calculations |
-| Sliding Window Size | 9 | Window for hydrophobicity, charge, and entropy profiles |
-| Override pKa | — | N-term, C-term, D, E, C, Y, H, K, R (comma-separated) |
-| Reducing conditions | off | Free Cys for extinction coefficient |
-| Label / Tick Font Size | 14 / 12 | Graph axis and tick label sizes (pt) |
-| Default Graph Format | PNG | PNG / SVG / PDF |
-| Bead Colormap | coolwarm | 30+ matplotlib colourmap choices |
-| Graph Accent Colour | Royal Blue | 24 named colour choices; applied immediately on update |
-| Show Graph Titles | on | Toggle titles above graphs |
-| Show Grid | on | Toggle gridlines |
-| Show bead labels | on | Residue letters on bead models (≤ 60 aa) |
-| Transparent background | **on** | Transparent PNG/SVG export |
-| UI Font Size | 12 pt | Global font size (8–24 pt) |
-| Dark Theme | off | Light ↔ dark toggle |
-| Enable Tooltips | **on** | Hover tooltips on Settings widgets |
+beer/
+  analysis/      — computation modules
+  utils/         — biophysics primitives
+  graphs/        — 25 Matplotlib figure factories
+  gui/           — PySide6 application and tabs
+  embeddings/    — ESM2Embedder with LRU cache
+  models/        — pre-trained .npz head weights
+  reports/       — HTML report generation
+  io/            — session save/load and PDF export
+  network/       — QThread workers
+scripts/
+  train_heads.py      — retrain ESM2 linear probe heads
+  benchmark.py        — full benchmarking pipeline
+  case_studies.py     — 10-protein case study figures
+  proteome_analysis.py — IDP vs globular proteome figures
+manuscript/           — JCIM article (LaTeX)
+results/              — benchmark figures and reports
+tests/                — pytest test suite (125 tests)
+```
 
 ---
 
 ## License
 
-Released under the GNU General Public License v2. See the `LICENSE` file for full details.
+Released under the GNU General Public License v2. See `LICENSE` for full details.
 
 ---
 
 ## Author & Contact
 
-Developed by Saumyak Mukherjee with help from LLMs
-Email: saumyak.mukherjee@biophys.mpg.de
+Developed by **Saumyak Mukherjee**
+Department of Theoretical Biophysics, Max Planck Institute of Biophysics, Frankfurt am Main, Germany
+Email: mukherjee.saumyak50@gmail.com

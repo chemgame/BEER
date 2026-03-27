@@ -66,7 +66,8 @@ from PySide6.QtWidgets import (
     QSplitter, QScrollArea, QFrame, QDialog, QDialogButtonBox,
     QSpinBox, QProgressDialog, QAbstractItemView,
     QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QStackedWidget,
-    QInputDialog, QApplication, QDoubleSpinBox, QGroupBox, QMenu,
+    QInputDialog, QApplication, QDoubleSpinBox, QGroupBox, QMenu, QSlider,
+    QColorDialog,
 )
 from PySide6.QtGui import QFont, QKeySequence, QAction, QShortcut, QImage
 from PySide6.QtCore import Qt, QThread, Signal
@@ -80,7 +81,8 @@ except ImportError:
 from beer.gui.themes import LIGHT_THEME_CSS, DARK_THEME_CSS
 from beer import config as _config
 from beer.gui.nav_widget import NavTabWidget
-from beer.gui.dialogs import MutationDialog, _FigureComposerDialog
+from beer.gui.dialogs import MutationDialog, _FigureComposerDialog, FormatChooserDialog
+from beer.io.structure_formats import pdb_to_mmcif, pdb_to_gro, pdb_to_xyz
 from beer.constants import (
     NAMED_COLORS, NAMED_COLORMAPS, GRAPH_TITLES, GRAPH_CATEGORIES,
     REPORT_SECTIONS, VALID_AMINO_ACIDS, _AA_COLOURS,
@@ -178,6 +180,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._tooltips: dict     = {}
         self._analysis_worker    = None
         self._progress_dlg       = None
+        self._pending_pdb        = None   # stored when loadPDB is called before page ready
 
         # --- New state for AlphaFold / Pfam / BLAST ---
         self.current_accession   = ""   # last successfully fetched UniProt accession
@@ -252,7 +255,16 @@ class ProteinAnalyzerGUI(QMainWindow):
         canvas.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         canvas.customContextMenuRequested.connect(
             lambda pos, c=canvas: self._graph_context_menu(c, pos))
-        vb.addWidget(NavigationToolbar2QT(canvas, self))
+        toolbar = NavigationToolbar2QT(canvas, self)
+        toolbar.setStyleSheet(
+            "QToolBar { background: #2d3748; border-radius: 4px; padding: 2px; spacing: 1px; }"
+            "QToolButton { background: transparent; border: none; border-radius: 3px;"
+            "              padding: 3px; color: #e8eaef; }"
+            "QToolButton:hover   { background: rgba(255,255,255,0.15); }"
+            "QToolButton:pressed { background: rgba(255,255,255,0.25); }"
+            "QToolButton:checked { background: rgba(67,97,238,0.55); }"
+        )
+        vb.addWidget(toolbar)
         vb.addWidget(canvas)
         btn = QPushButton("Save Graph")
         btn.clicked.connect(lambda _, t=title: self.save_graph(t))
@@ -322,7 +334,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         # after calling _load_batch.
         self.batch_struct   = {}
         self.alphafold_data = None
-        self.save_pdb_btn.setEnabled(False)
+        self.export_structure_btn.setEnabled(False)
         for rec_id, seq in entries:
             if not is_valid_protein(seq):
                 continue
@@ -340,38 +352,52 @@ class ProteinAnalyzerGUI(QMainWindow):
         outer.setSpacing(6)
         self.main_tabs.addTab(container, "Analysis")
 
-        # ---- toolbar row 1 ----
+        # ---- toolbar row 1: core actions ----
         toolbar = QHBoxLayout()
         toolbar.setSpacing(6)
         self.import_fasta_btn = QPushButton("Import FASTA")
+        self.import_fasta_btn.setToolTip("Load a .fasta / .fa file (single or multi-sequence)")
         self.import_fasta_btn.clicked.connect(self.import_fasta)
         self.import_pdb_btn = QPushButton("Import PDB")
+        self.import_pdb_btn.setToolTip("Load sequences from a local PDB file")
         self.import_pdb_btn.clicked.connect(self.import_pdb)
         self.analyze_btn = QPushButton("Analyze  [Ctrl+↵]")
+        self.analyze_btn.setToolTip("Run full biophysical analysis on the current sequence")
         self.analyze_btn.clicked.connect(self.on_analyze)
-        self.save_pdf_btn = QPushButton("Export PDF")
-        self.save_pdf_btn.clicked.connect(self.export_pdf)
+        self.export_analysis_btn = QPushButton("Export Analysis")
+        self.export_analysis_btn.setToolTip(
+            "Export analysis results — choose CSV, JSON, PDF, or DAT (run analysis first)")
+        self.export_analysis_btn.setEnabled(False)
+        self.export_analysis_btn.clicked.connect(self.export_analysis_dialog)
         self.mutate_btn = QPushButton("Mutate…")
+        self.mutate_btn.setToolTip("Introduce a point mutation at any position (run analysis first)")
+        self.mutate_btn.setEnabled(False)
         self.mutate_btn.clicked.connect(self.open_mutation_dialog)
-        self.session_save_btn = QPushButton("Save Session")
-        self.session_save_btn.clicked.connect(self.session_save)
-        self.session_load_btn = QPushButton("Load Session")
-        self.session_load_btn.clicked.connect(self.session_load)
-        self.figure_composer_btn = QPushButton("Figure Composer")
-        self.figure_composer_btn.clicked.connect(self.open_figure_composer)
-        self._set_tooltip(self.figure_composer_btn,
-                          "Compose a multi-panel publication figure from any combination of graphs.")
-        self.export_csv_btn = QPushButton("Export CSV")
-        self.export_csv_btn.setToolTip("Export all scalar metrics to CSV")
-        self.export_csv_btn.clicked.connect(self.export_metrics_csv)
         for w in (self.import_fasta_btn, self.import_pdb_btn, self.analyze_btn,
-                  self.save_pdf_btn, self.mutate_btn,
-                  self.session_save_btn, self.session_load_btn,
-                  self.figure_composer_btn, self.export_csv_btn):
+                  self.export_analysis_btn, self.mutate_btn):
             w.setMinimumHeight(32)
             toolbar.addWidget(w)
         toolbar.addStretch()
         outer.addLayout(toolbar)
+
+        # ---- toolbar row 1b: session / tools ----
+        tb1b = QHBoxLayout()
+        tb1b.setSpacing(6)
+        self.session_save_btn = QPushButton("Save Session")
+        self.session_save_btn.setToolTip("Save the current sequence and settings to a .beer file")
+        self.session_save_btn.clicked.connect(self.session_save)
+        self.session_load_btn = QPushButton("Load Session")
+        self.session_load_btn.setToolTip("Restore a previously saved .beer session file")
+        self.session_load_btn.clicked.connect(self.session_load)
+        self.figure_composer_btn = QPushButton("Figure Composer")
+        self.figure_composer_btn.setToolTip(
+            "Compose a multi-panel publication figure from any combination of graphs.")
+        self.figure_composer_btn.clicked.connect(self.open_figure_composer)
+        for w in (self.session_save_btn, self.session_load_btn, self.figure_composer_btn):
+            w.setMinimumHeight(30)
+            tb1b.addWidget(w)
+        tb1b.addStretch()
+        outer.addLayout(tb1b)
 
         # ---- toolbar row 2: UniProt/NCBI fetch + history ----
         tb2 = QHBoxLayout()
@@ -391,14 +417,14 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.fetch_af_btn.setEnabled(False)
         self.fetch_af_btn.clicked.connect(self.fetch_alphafold)
         self._set_tooltip(self.fetch_af_btn,
-                          "Fetch AlphaFold predicted structure (requires a UniProt accession).")
+                          "Fetch AlphaFold predicted structure. Requires a UniProt accession — fetch one first.")
         tb2.addWidget(self.fetch_af_btn)
         self.fetch_pfam_btn = QPushButton("Fetch Pfam")
         self.fetch_pfam_btn.setMinimumHeight(28)
         self.fetch_pfam_btn.setEnabled(False)
         self.fetch_pfam_btn.clicked.connect(self.fetch_pfam)
         self._set_tooltip(self.fetch_pfam_btn,
-                          "Fetch Pfam domain annotations from InterPro (requires a UniProt accession).")
+                          "Fetch Pfam domain annotations from InterPro. Requires a UniProt accession — fetch one first.")
         tb2.addWidget(self.fetch_pfam_btn)
 
         self.fetch_elm_btn = QPushButton("Fetch ELM")
@@ -406,7 +432,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.fetch_elm_btn.setEnabled(False)
         self.fetch_elm_btn.clicked.connect(self.fetch_elm)
         self._set_tooltip(self.fetch_elm_btn,
-                          "Fetch experimentally validated linear motifs from ELM database.")
+                          "Fetch experimentally validated linear motifs from ELM. Requires a UniProt accession — fetch one first.")
         tb2.addWidget(self.fetch_elm_btn)
 
         self.fetch_disprot_btn = QPushButton("DisProt")
@@ -414,7 +440,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.fetch_disprot_btn.setEnabled(False)
         self.fetch_disprot_btn.clicked.connect(self.fetch_disprot)
         self._set_tooltip(self.fetch_disprot_btn,
-                          "Fetch experimentally validated disorder regions from DisProt.")
+                          "Fetch disorder annotations from DisProt. Requires a UniProt accession — fetch one first.")
         tb2.addWidget(self.fetch_disprot_btn)
 
         self.fetch_phasepdb_btn = QPushButton("PhaSepDB")
@@ -422,7 +448,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.fetch_phasepdb_btn.setEnabled(False)
         self.fetch_phasepdb_btn.clicked.connect(self.fetch_phasepdb)
         self._set_tooltip(self.fetch_phasepdb_btn,
-                          "Check if protein is in PhaSepDB (phase separation database).")
+                          "Check if protein is in PhaSepDB (phase separation database). Requires a UniProt accession — fetch one first.")
         tb2.addWidget(self.fetch_phasepdb_btn)
 
         tb2.addSpacing(20)
@@ -485,6 +511,9 @@ class ProteinAnalyzerGUI(QMainWindow):
         clr_btn.setMinimumHeight(26)
         clr_btn.clicked.connect(self.clear_motif_highlight)
         sv_hdr.addWidget(clr_btn)
+        self.motif_match_lbl = QLabel("")
+        self.motif_match_lbl.setStyleSheet("color:#4361ee; font-size:9pt;")
+        sv_hdr.addWidget(self.motif_match_lbl)
         left_layout.addLayout(sv_hdr)
         self.seq_viewer = QTextBrowser()
         self.seq_viewer.setFont(QFont("Courier New", 10))
@@ -493,6 +522,26 @@ class ProteinAnalyzerGUI(QMainWindow):
             " border-radius:4px; padding:6px; }"
         )
         left_layout.addWidget(self.seq_viewer, 1)
+
+        # ── Sequence action row (copy / clear) ────────────────────────────
+        seq_action_row = QHBoxLayout()
+        seq_action_row.setSpacing(6)
+        copy_seq_btn = QPushButton("Copy Sequence")
+        copy_seq_btn.setToolTip("Copy the full sequence or a selected range to clipboard")
+        copy_seq_btn.setMinimumHeight(28)
+        copy_seq_btn.clicked.connect(self._copy_sequence_menu)
+        seq_action_row.addWidget(copy_seq_btn)
+        clear_protein_btn = QPushButton("Clear All")
+        clear_protein_btn.setToolTip("Clear the loaded protein, analysis, graphs and structure")
+        clear_protein_btn.setMinimumHeight(28)
+        clear_protein_btn.setStyleSheet(
+            "QPushButton { background-color: #e63946; }"
+            "QPushButton:hover { background-color: #c1121f; }"
+        )
+        clear_protein_btn.clicked.connect(self._clear_all)
+        seq_action_row.addWidget(clear_protein_btn)
+        seq_action_row.addStretch()
+        left_layout.addLayout(seq_action_row)
 
         splitter.addWidget(left)
 
@@ -642,6 +691,63 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.graph_tree.setCurrentItem(first_leaf)
             self.graph_stack.setCurrentIndex(0)
 
+    # ── colour-scheme options per colour mode ────────────────────────────────
+    _STRUCT_SCHEMES = {
+        "pLDDT / B-factor":  ["Red-White-Blue", "Blue-White-Red", "Rainbow", "Sinebow"],
+        "Residue Type":      ["Amino Acid (UniProt)", "Shapely"],
+        "Chain":             ["Chain Colors"],
+        "Charge":            ["Blue / Red / Grey"],
+        "Hydrophobicity":    ["Cyan-White-Orange", "Blue-White-Red", "Green-White-Red"],
+        "Mass":              ["Blue-to-Red", "Rainbow"],
+    }
+    _STRUCT_MODE_KEY = {
+        "pLDDT / B-factor": "plddt",
+        "Residue Type":      "residue",
+        "Chain":             "chain",
+        "Charge":            "charge",
+        "Hydrophobicity":    "hydrophobicity",
+        "Mass":              "mass",
+    }
+    _STRUCT_PANEL_CSS = """
+        QScrollArea { border: 1px solid #d1d9f0; border-radius: 8px; background: #f4f6fd; }
+        QGroupBox {
+            font-weight: 700; font-size: 9pt; color: #3b4fc8;
+            border: 1px solid #e2e6f5; border-radius: 6px;
+            margin-top: 8px; padding: 10px 6px 6px 6px; background: white;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin; subcontrol-position: top left;
+            left: 8px; padding: 0 4px; color: #3b4fc8; background: white;
+        }
+        QPushButton {
+            border: 1px solid #c8d0ec; border-radius: 5px;
+            padding: 4px 8px; background: white; color: #2d3748;
+            font-size: 9pt; min-height: 26px;
+        }
+        QPushButton:hover { background: #eef1fc; border-color: #4361ee; color: #4361ee; }
+        QPushButton:pressed { background: #dce2fb; }
+        QPushButton:checked { background: #4361ee; color: white; border-color: #3451c5; font-weight: 600; }
+        QComboBox {
+            border: 1px solid #c8d0ec; border-radius: 5px;
+            padding: 3px 6px; background: white; color: #2d3748;
+            font-size: 9pt; min-height: 24px;
+        }
+        QComboBox:hover { border-color: #4361ee; }
+        QLabel { font-size: 9pt; color: #5a6787; background: transparent; }
+        QCheckBox { font-size: 9pt; color: #2d3748; spacing: 6px; background: transparent; }
+        QCheckBox::indicator {
+            width: 14px; height: 14px;
+            border: 1px solid #c8d0ec; border-radius: 3px; background: white;
+        }
+        QCheckBox::indicator:checked { background: #4361ee; border-color: #3451c5; }
+        QSlider::groove:horizontal { height: 4px; background: #dde3f5; border-radius: 2px; }
+        QSlider::handle:horizontal {
+            width: 14px; height: 14px; margin: -5px 0;
+            background: #4361ee; border-radius: 7px;
+        }
+        QSlider::sub-page:horizontal { background: #4361ee; border-radius: 2px; }
+    """
+
     def init_structure_tab(self):
         """Tab for interactive 3D structure viewer (PDB upload, RCSB PDB fetch, or AlphaFold fetch)."""
         container = QWidget()
@@ -650,108 +756,720 @@ class ProteinAnalyzerGUI(QMainWindow):
         layout.setSpacing(6)
         self.main_tabs.addTab(container, "Structure")
 
+        # ── top info row ──────────────────────────────────────────────────────
         info_row = QHBoxLayout()
         self.af_status_lbl = QLabel("No structure loaded.  Import a PDB file, fetch a PDB ID, or fetch AlphaFold.")
         self.af_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
         info_row.addWidget(self.af_status_lbl, 1)
-        self.save_pdb_btn = QPushButton("Save PDB")
-        self.save_pdb_btn.setEnabled(False)
-        self.save_pdb_btn.clicked.connect(self._save_pdb)
-        info_row.addWidget(self.save_pdb_btn)
+        self.export_structure_btn = QPushButton("Export Structure / Sequence")
+        self.export_structure_btn.setToolTip(
+            "Export as PDB, mmCIF, GRO, XYZ (requires loaded structure) or FASTA (requires analysis)")
+        self.export_structure_btn.clicked.connect(self.export_structure_dialog)
+        info_row.addWidget(self.export_structure_btn)
         layout.addLayout(info_row)
 
         if _WEBENGINE_AVAILABLE:
+            # ── content: left control panel + right viewer ────────────────────
+            content_row = QHBoxLayout()
+            content_row.setSpacing(8)
+
+            # ── left control panel ────────────────────────────────────────────
+            ctrl_scroll = QScrollArea()
+            ctrl_scroll.setWidgetResizable(True)
+            ctrl_scroll.setFixedWidth(226)
+            ctrl_scroll.setStyleSheet(self._STRUCT_PANEL_CSS)
+            ctrl_inner = QWidget()
+            ctrl_inner.setObjectName("structCtrl")
+            ctrl_layout = QVBoxLayout(ctrl_inner)
+            ctrl_layout.setContentsMargins(6, 6, 6, 8)
+            ctrl_layout.setSpacing(6)
+            ctrl_scroll.setWidget(ctrl_inner)
+
+            # ── panel title ───────────────────────────────────────────────────
+            title_lbl = QLabel("Visualization Controls")
+            title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            title_lbl.setStyleSheet(
+                "font-weight:700; font-size:10pt; color:#3b4fc8;"
+                " padding:4px 0; background:transparent;"
+            )
+            ctrl_layout.addWidget(title_lbl)
+
+            # ── Representation ────────────────────────────────────────────────
+            rep_grp = QGroupBox("Representation")
+            rep_gl = QVBoxLayout(rep_grp)
+            rep_gl.setSpacing(5)
+            self.struct_rep_combo = QComboBox()
+            self.struct_rep_combo.addItems(["Cartoon", "Stick", "Sphere", "Line", "Surface"])
+            self.struct_rep_combo.setToolTip(
+                "Cartoon: ribbon\nStick: bonds\nSphere: VDW\nLine: wireframe\nSurface: molecular surface")
+            self.struct_rep_combo.currentTextChanged.connect(self._on_struct_rep_changed)
+            rep_gl.addWidget(self.struct_rep_combo)
+
+            op_row = QHBoxLayout()
+            op_lbl = QLabel("Opacity:")
+            op_lbl.setFixedWidth(50)
+            op_row.addWidget(op_lbl)
+            self.struct_opacity_slider = QSlider(Qt.Orientation.Horizontal)
+            self.struct_opacity_slider.setRange(10, 100)
+            self.struct_opacity_slider.setValue(90)
+            self.struct_opacity_slider.setToolTip("Representation opacity (10–100 %)")
+            self.struct_opacity_slider.valueChanged.connect(
+                lambda v: self.struct_opacity_lbl.setText(f"{v}%"))
+            self.struct_opacity_slider.sliderReleased.connect(self._on_struct_opacity_released)
+            op_row.addWidget(self.struct_opacity_slider, 1)
+            self.struct_opacity_lbl = QLabel("90%")
+            self.struct_opacity_lbl.setFixedWidth(32)
+            op_row.addWidget(self.struct_opacity_lbl)
+            rep_gl.addLayout(op_row)
+            ctrl_layout.addWidget(rep_grp)
+
+            # ── Color ─────────────────────────────────────────────────────────
+            color_grp = QGroupBox("Color")
+            color_gl = QFormLayout(color_grp)
+            color_gl.setSpacing(5)
+            color_gl.setContentsMargins(6, 4, 6, 6)
+            self.struct_color_mode_combo = QComboBox()
+            self.struct_color_mode_combo.addItems(list(self._STRUCT_SCHEMES.keys()))
+            self.struct_color_mode_combo.currentTextChanged.connect(self._on_struct_color_mode_changed)
+            color_gl.addRow("Mode:", self.struct_color_mode_combo)
+            self.struct_scheme_combo = QComboBox()
+            self.struct_scheme_combo.currentTextChanged.connect(self._on_struct_scheme_changed)
+            color_gl.addRow("Scheme:", self.struct_scheme_combo)
+            ctrl_layout.addWidget(color_grp)
+
+            # ── Legend ────────────────────────────────────────────────────────
+            legend_grp = QGroupBox("Legend")
+            legend_gl = QVBoxLayout(legend_grp)
+            legend_gl.setContentsMargins(8, 4, 8, 6)
+            self.struct_colorbar_cb = QCheckBox("Show color bar")
+            self.struct_colorbar_cb.setChecked(True)
+            self.struct_colorbar_cb.toggled.connect(self._on_struct_colorbar_toggled)
+            legend_gl.addWidget(self.struct_colorbar_cb)
+
+            self.struct_axes_cb = QCheckBox("Show XYZ axes")
+            self.struct_axes_cb.setChecked(True)
+            self.struct_axes_cb.setToolTip("Show coordinate axis arrows in the corner")
+            self.struct_axes_cb.toggled.connect(
+                lambda v: self._js(f"setAxesVisible({'true' if v else 'false'});"))
+            legend_gl.addWidget(self.struct_axes_cb)
+            ctrl_layout.addWidget(legend_grp)
+
+            # ── Background ───────────────────────────────────────────────────
+            bg_grp = QGroupBox("Background")
+            bg_gl = QGridLayout(bg_grp)
+            bg_gl.setSpacing(4)
+            bg_gl.setContentsMargins(6, 4, 6, 6)
+            for col, (lbl, hex_) in enumerate([("Black", "#1a1a2e"), ("White", "#ffffff"), ("Grey", "#555566")]):
+                b = QPushButton(lbl)
+                b.clicked.connect(lambda _, c=hex_: self._js(f"setBackground('{c}');"))
+                bg_gl.addWidget(b, 0, col)
+            custom_bg = QPushButton("Custom color…")
+            custom_bg.clicked.connect(self._pick_background_color)
+            bg_gl.addWidget(custom_bg, 1, 0, 1, 3)
+            ctrl_layout.addWidget(bg_grp)
+
+            # ── Motion ────────────────────────────────────────────────────────
+            motion_grp = QGroupBox("Motion")
+            motion_gl = QVBoxLayout(motion_grp)
+            motion_gl.setSpacing(5)
+            motion_gl.setContentsMargins(6, 4, 6, 6)
+
+            axis_row = QHBoxLayout()
+            axis_lbl = QLabel("Spin axis:")
+            axis_lbl.setFixedWidth(62)
+            axis_row.addWidget(axis_lbl)
+            self.struct_spin_axis_combo = QComboBox()
+            self.struct_spin_axis_combo.addItems(["Y  (vertical)", "X  (tilt)", "Z  (roll)"])
+            self.struct_spin_axis_combo.setToolTip("Axis of rotation for auto-spin")
+            self.struct_spin_axis_combo.currentIndexChanged.connect(self._on_struct_spin_axis_changed)
+            axis_row.addWidget(self.struct_spin_axis_combo, 1)
+            motion_gl.addLayout(axis_row)
+
+            self.struct_spin_btn = QPushButton("Spin: Off")
+            self.struct_spin_btn.setCheckable(True)
+            self.struct_spin_btn.setToolTip("Toggle continuous auto-rotation")
+            self.struct_spin_btn.toggled.connect(self._on_struct_spin_toggled)
+            motion_gl.addWidget(self.struct_spin_btn)
+            ctrl_layout.addWidget(motion_grp)
+
+            # ── Export / Snapshot ─────────────────────────────────────────────
+            snap_grp = QGroupBox("Export")
+            snap_gl = QVBoxLayout(snap_grp)
+            snap_gl.setContentsMargins(6, 4, 6, 6)
+            reset_btn = QPushButton("Reset View")
+            reset_btn.setToolTip("Zoom to fit the whole structure")
+            reset_btn.clicked.connect(lambda: self._js("viewer.zoomTo(); viewer.render();"))
+            snap_gl.addWidget(reset_btn)
+            snapshot_btn = QPushButton("Snapshot PNG")
+            snapshot_btn.setToolTip("Render the current view to a PNG file")
+            snapshot_btn.clicked.connect(self._take_structure_snapshot)
+            snap_gl.addWidget(snapshot_btn)
+            ctrl_layout.addWidget(snap_grp)
+
+            ctrl_layout.addStretch()
+            content_row.addWidget(ctrl_scroll)
+
+            # ── 3-D viewer ────────────────────────────────────────────────────
             self.structure_viewer = QWebEngineView()
             self.structure_viewer.setMinimumHeight(500)
-            layout.addWidget(self.structure_viewer, 1)
-            # Colour-mode buttons
-            btn_row = QHBoxLayout()
-            for label, js in [
-                ("Color: pLDDT",       "colorByPLDDT()"),
-                ("Color: Residue Type","colorByResidue()"),
-                ("Color: Chain",       "colorByChain()"),
-                ("Cartoon / Sphere",   "toggleStyle()"),
-            ]:
-                b = QPushButton(label)
-                b.setMinimumHeight(28)
-                b.clicked.connect(lambda _, call=js: self.structure_viewer.page().runJavaScript(call))
-                btn_row.addWidget(b)
-            btn_row.addStretch()
-            layout.addLayout(btn_row)
+            # When the base page finishes loading, deliver any queued PDB
+            self.structure_viewer.loadFinished.connect(self._on_structure_page_loaded)
+            content_row.addWidget(self.structure_viewer, 1)
+
+            layout.addLayout(content_row, 1)
+
+            # Load the base page once.  All subsequent structure swaps go via
+            # loadPDB() JS call, never reloading the page.
+            self.structure_viewer.setHtml(
+                self._3DMOL_HTML.format(pdb_json='null'))
+
+            # Populate scheme combo for the default mode
+            self._update_scheme_combo(self.struct_color_mode_combo.currentText())
+
         else:
             msg = QLabel(
                 "PySide6-WebEngine is not installed.\n"
                 "Install it with:  pip install PySide6-WebEngine\n\n"
-                "You can still save the PDB file and open it in PyMOL, UCSF ChimeraX, or 3Dmol.csb.pitt.edu."
+                "You can still export the structure and open it in PyMOL or UCSF ChimeraX."
             )
             msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
             msg.setStyleSheet("color:#718096; font-size:11pt;")
             layout.addWidget(msg, 1)
             self.structure_viewer = None
 
+    # ─── 3-D viewer HTML ─────────────────────────────────────────────────────
     _3DMOL_HTML = """<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>
-  html, body {{ margin:0; padding:0; overflow:hidden; background:#1a1a2e; width:100%; height:100%; }}
+  html,body {{ margin:0; padding:0; overflow:hidden; background:transparent; width:100%; height:100%; }}
   #vp {{ width:100%; height:100vh; position:relative; }}
+
+  /* ── color bar overlay ──────────────────────────────────────────────────── */
+  #colorbar {{
+    display:none; position:absolute; bottom:16px; right:14px;
+    background:rgba(15,18,38,0.82); border-radius:8px;
+    padding:10px 10px 8px 10px; font-family:system-ui,sans-serif;
+    font-size:10px; color:#e8eaf0; pointer-events:none; z-index:99;
+    box-shadow:0 4px 16px rgba(0,0,0,0.55);
+    border:1px solid rgba(255,255,255,0.10); user-select:none;
+  }}
+  #colorbar.cb-wide {{ min-width:110px; }}
+  #cb-title {{
+    text-align:center; font-size:9.5px; font-weight:700; letter-spacing:0.04em;
+    color:#a8b4f0; margin-bottom:6px; white-space:nowrap;
+  }}
+  #cb-bar-wrap {{ display:flex; align-items:stretch; gap:6px; }}
+  #cb-gradient {{
+    width:16px; min-height:100px; border-radius:4px;
+    border:1px solid rgba(255,255,255,0.12); flex-shrink:0;
+  }}
+  #cb-tick-col {{ display:flex; flex-direction:column; justify-content:space-between; min-width:30px; }}
+  .cb-tick {{ font-size:9px; color:#c8d0ec; white-space:nowrap; }}
+  .cb-tick-top {{ text-align:left; }}
+  .cb-tick-mid {{ text-align:left; color:#8890b8; }}
+  .cb-tick-bot {{ text-align:left; }}
+  #cb-unit {{ text-align:center; font-size:8.5px; color:#7880a8; margin-top:5px; }}
+  /* categorical */
+  #cb-entries {{ display:none; }}
+  .cb-entry {{ display:flex; align-items:center; gap:7px; margin-bottom:4px; white-space:nowrap; }}
+  .cb-swatch {{ width:12px; height:12px; border-radius:3px; flex-shrink:0; border:1px solid rgba(255,255,255,0.2); }}
+
+  /* ── axes overlay canvas ───────────────────────────────────────────────── */
+  #axes-canvas {{
+    position:absolute; bottom:16px; left:16px;
+    width:100px; height:100px;
+    pointer-events:none; z-index:99;
+  }}
 </style>
 </head><body>
-<div id="vp"></div>
+<div id="vp">
+  <canvas id="axes-canvas" width="200" height="200"></canvas>
+  <div id="colorbar">
+    <div id="cb-title"></div>
+    <div id="cb-bar-wrap">
+      <div id="cb-gradient"></div>
+      <div id="cb-tick-col">
+        <span class="cb-tick cb-tick-top" id="cb-tick-max"></span>
+        <span class="cb-tick cb-tick-mid" id="cb-tick-mid"></span>
+        <span class="cb-tick cb-tick-bot" id="cb-tick-min"></span>
+      </div>
+    </div>
+    <div id="cb-unit"></div>
+    <div id="cb-entries"></div>
+  </div>
+</div>
 <script src="https://3dmol.org/build/3Dmol-min.js"></script>
 <script>
-var viewer = null;
-var pdbData = {pdb_json};
-var cartoonMode = true;
+var viewer   = null;
+var pdbData  = {pdb_json};       // null on initial empty load
+var repMode  = 'cartoon';
+var colorMode   = 'plddt';
+var colorScheme = 'Red-White-Blue';
+var repOpacity  = 0.90;
+var colorBarVisible = true;
+var surfaceObj  = null;   // numeric surface ID (set in addSurface .then callback)
+var surfaceGen  = 0;      // generation counter — incremented on every applyStyle call
 
-function init() {{
-    viewer = $3Dmol.createViewer("vp", {{backgroundColor:"#1a1a2e", antialias:true}});
-    viewer.addModel(pdbData, "pdb");
-    colorByPLDDT();
-    viewer.zoomTo();
-    viewer.render();
+// ── Kyte-Doolittle ──────────────────────────────────────────────────────────
+var KD = {{'ILE':4.5,'VAL':4.2,'LEU':3.8,'PHE':2.8,'CYS':2.5,'MET':1.9,'ALA':1.8,
+           'GLY':-0.4,'THR':-0.7,'SER':-0.8,'TRP':-0.9,'TYR':-1.3,'PRO':-1.6,
+           'HIS':-3.2,'GLU':-3.5,'GLN':-3.5,'ASP':-3.5,'ASN':-3.5,'LYS':-3.9,'ARG':-4.5}};
+
+// ── Residue masses (Da) ────────────────────────────────────────────────────
+var MASS = {{'ALA':89,'ARG':174,'ASN':132,'ASP':133,'CYS':121,'GLN':146,'GLU':147,
+             'GLY':75,'HIS':155,'ILE':131,'LEU':131,'LYS':146,'MET':149,'PHE':165,
+             'PRO':115,'SER':105,'THR':119,'TRP':204,'TYR':181,'VAL':117}};
+
+function lerp(a,b,t){{ return a+(b-a)*t; }}
+function rgb(r,g,b){{ return 'rgb('+Math.round(r)+','+Math.round(g)+','+Math.round(b)+')'; }}
+
+// ── hydrophobicity colorfuncs ──────────────────────────────────────────────
+function _hydro_CWO(atom){{
+    var kd=KD[atom.resn]!==undefined?KD[atom.resn]:0;
+    var t=(kd+4.5)/9.0;
+    if(t<0.5){{ var s=t*2; return rgb(lerp(44,255,s),lerp(123,255,s),255); }}
+    var s=(t-0.5)*2; return rgb(255,lerp(255,140,s),lerp(255,0,s));
+}}
+function _hydro_BWR(atom){{
+    var kd=KD[atom.resn]!==undefined?KD[atom.resn]:0;
+    var t=(kd+4.5)/9.0;
+    if(t<0.5){{ var s=t*2; return rgb(lerp(0,255,s),lerp(0,255,s),255); }}
+    var s=(t-0.5)*2; return rgb(255,lerp(255,0,s),lerp(255,0,s));
+}}
+function _hydro_GWR(atom){{
+    var kd=KD[atom.resn]!==undefined?KD[atom.resn]:0;
+    var t=(kd+4.5)/9.0;
+    if(t<0.5){{ var s=t*2; return rgb(lerp(0,255,s),255,lerp(0,255,s)); }}
+    var s=(t-0.5)*2; return rgb(255,lerp(255,0,s),0);
 }}
 
-function colorByPLDDT() {{
-    if (!viewer) return;
-    viewer.setStyle({{}}, {{cartoon:{{colorscheme:{{prop:"b",gradient:"rwb",min:0,max:100}}}}}});
-    viewer.render();
+// ── mass colorfuncs ────────────────────────────────────────────────────────
+function _mass_BR(atom){{
+    var m=MASS[atom.resn]!==undefined?MASS[atom.resn]:110;
+    var t=Math.max(0,Math.min(1,(m-75)/129.0));
+    return rgb(lerp(68,220,t),lerp(119,60,t),lerp(204,68,t));
+}}
+function _mass_RB(atom){{
+    var m=MASS[atom.resn]!==undefined?MASS[atom.resn]:110;
+    var t=Math.max(0,Math.min(1,(m-75)/129.0));
+    var seg=t*4; var i=Math.min(Math.floor(seg),3); var f=seg-i;
+    var cols=[[0,0,255],[0,255,255],[0,255,0],[255,255,0],[255,0,0]];
+    return rgb(lerp(cols[i][0],cols[i+1][0],f),lerp(cols[i][1],cols[i+1][1],f),lerp(cols[i][2],cols[i+1][2],f));
 }}
 
-function colorByResidue() {{
-    if (!viewer) return;
-    viewer.setStyle({{}}, {{cartoon:{{colorscheme:"amino"}}}});
-    viewer.render();
+// ── charge colorfunc ───────────────────────────────────────────────────────
+function _charge(atom){{
+    if(['ARG','LYS','HIS'].indexOf(atom.resn)>=0) return '#5588ff';
+    if(['ASP','GLU'].indexOf(atom.resn)>=0)        return '#ff5555';
+    return '#aaaaaa';
 }}
 
-function colorByChain() {{
-    if (!viewer) return;
-    viewer.setStyle({{}}, {{cartoon:{{colorscheme:"chain"}}}});
-    viewer.render();
+function _getColorFunc(){{
+    if(colorMode==='hydrophobicity'){{
+        if(colorScheme==='Blue-White-Red')  return _hydro_BWR;
+        if(colorScheme==='Green-White-Red') return _hydro_GWR;
+        return _hydro_CWO;
+    }}
+    if(colorMode==='mass'){{
+        if(colorScheme==='Rainbow') return _mass_RB;
+        return _mass_BR;
+    }}
+    if(colorMode==='charge') return _charge;
+    return null;
 }}
 
-function toggleStyle() {{
-    if (!viewer) return;
-    cartoonMode = !cartoonMode;
-    var scheme = {{prop:"b",gradient:"rwb",min:0,max:100}};
-    if (cartoonMode) {{
-        viewer.setStyle({{}}, {{cartoon:{{colorscheme:scheme}}}});
+// ── pLDDT colorscheme object (string-based gradients — constructor objects
+//    cause range().length errors in some 3Dmol CDN builds) ─────────────────
+function _plddtScheme(){{
+    // "rwb"   : min value → red, max value → blue  (AlphaFold convention)
+    // reversed min/max achieves blue-at-low / red-at-high
+    if(colorScheme==='Blue-White-Red') return {{prop:'b',gradient:'rwb',min:100,max:0}};
+    if(colorScheme==='Rainbow')        return {{prop:'b',gradient:'roygb',min:0,max:100}};
+    if(colorScheme==='Sinebow')        return {{prop:'b',gradient:'sinebow',min:0,max:100}};
+    return {{prop:'b',gradient:'rwb',min:0,max:100}};  // Red-White-Blue (default)
+}}
+
+// ── build per-representation style options ─────────────────────────────────
+function _styleOpts(rep,opacity){{
+    var op=opacity!==undefined?opacity:repOpacity;
+    var o={{}};
+    if(colorMode==='plddt'){{
+        o[rep]={{colorscheme:_plddtScheme(),opacity:op}};
+    }} else if(colorMode==='residue'){{
+        o[rep]={{colorscheme:colorScheme==='Shapely'?'shapely':'amino',opacity:op}};
+    }} else if(colorMode==='chain'){{
+        o[rep]={{colorscheme:'chain',opacity:op}};
     }} else {{
-        viewer.setStyle({{}}, {{sphere:{{colorscheme:scheme,radius:0.5}}}});
+        o[rep]={{colorfunc:_getColorFunc(),opacity:op}};
+    }}
+    return o;
+}}
+
+// ── apply representation ───────────────────────────────────────────────────
+function applyStyle(){{
+    if(!viewer) return;
+
+    // Remove any existing surface.  surfaceObj holds the numeric ID that was
+    // stored asynchronously in the addSurface .then() callback.
+    if(surfaceObj!==null){{ viewer.removeSurface(surfaceObj); surfaceObj=null; }}
+
+    // Bump the generation so any in-flight addSurface callback knows it's stale.
+    surfaceGen++;
+    var myGen=surfaceGen;
+
+    if(repMode==='surface'){{
+        // Show a ghost cartoon immediately while the surface is computing.
+        viewer.setStyle({{}},_styleOpts('cartoon',Math.min(repOpacity*0.22,0.20)));
+        var sOpts={{opacity:repOpacity}};
+        if(colorMode==='plddt')        sOpts.colorscheme=_plddtScheme();
+        else if(colorMode==='residue') sOpts.colorscheme=colorScheme==='Shapely'?'shapely':'amino';
+        else if(colorMode==='chain')   sOpts.colorscheme='chain';
+        else                           sOpts.colorfunc=_getColorFunc();
+        // addSurface is async — store the ID only when the Promise resolves.
+        viewer.addSurface($3Dmol.SurfaceType.MS,sOpts).then(function(id){{
+            if(surfaceGen===myGen){{
+                surfaceObj=id;   // still the current generation — keep it
+            }} else {{
+                viewer.removeSurface(id);  // user switched away — discard immediately
+                viewer.render();
+            }}
+        }});
+    }} else {{
+        var opts=_styleOpts(repMode);
+        if(repMode==='sphere') opts[repMode].radius=0.5;
+        viewer.setStyle({{}},opts);
     }}
     viewer.render();
+    updateColorBar();
+    drawAxesOverlay();
 }}
 
-window.addEventListener("load", init);
+// ── color bar ─────────────────────────────────────────────────────────────
+var _CB = {{
+  plddt:{{
+    'Red-White-Blue':{{css:'linear-gradient(to top,#cc0000,#ffffff,#0044dd)',min:'0',mid:'50',max:'100',unit:'pLDDT score'}},
+    'Blue-White-Red':{{css:'linear-gradient(to top,#0044dd,#ffffff,#cc0000)',min:'0',mid:'50',max:'100',unit:'pLDDT score'}},
+    'Rainbow':       {{css:'linear-gradient(to top,#ff0000,#ff8800,#ffff00,#00cc00,#0000ff)',min:'0',mid:'50',max:'100',unit:'pLDDT score'}},
+    'Sinebow':       {{css:'linear-gradient(to top,#ff4040,#ffcc00,#40ff80,#0080ff,#cc00ff)',min:'0',mid:'50',max:'100',unit:'pLDDT score'}},
+  }},
+  hydrophobicity:{{
+    'Cyan-White-Orange':{{css:'linear-gradient(to top,#00b4d8,#caf0f8,#ffffff,#ffd6a5,#ff8800)',min:'-4.5',mid:'0.0',max:'+4.5',unit:'Kyte-Doolittle'}},
+    'Blue-White-Red':   {{css:'linear-gradient(to top,#3b82f6,#ffffff,#ef4444)',min:'-4.5',mid:'0.0',max:'+4.5',unit:'Kyte-Doolittle'}},
+    'Green-White-Red':  {{css:'linear-gradient(to top,#22c55e,#ffffff,#ef4444)',min:'-4.5',mid:'0.0',max:'+4.5',unit:'Kyte-Doolittle'}},
+  }},
+  mass:{{
+    'Blue-to-Red':{{css:'linear-gradient(to top,#4477cc,#88bbee,#eeddaa,#cc5522)',min:'75 Da',mid:'~140',max:'204 Da',unit:'Residue mass (Da)'}},
+    'Rainbow':    {{css:'linear-gradient(to top,#0000ff,#00ffff,#00ff00,#ffff00,#ff0000)',min:'75 Da',mid:'~140',max:'204 Da',unit:'Residue mass (Da)'}},
+  }},
+  charge:   {{type:'cat',entries:[
+    {{c:'#5588ff',l:'Positive (K/R/H)'}},{{c:'#ff5555',l:'Negative (D/E)'}},{{c:'#aaaaaa',l:'Neutral'}}
+  ]}},
+  residue:  {{type:'cat',entries:[
+    {{c:'#64F73F',l:'Nonpolar (A/V/I/L/M/F/W/P)'}},{{c:'#12D3FF',l:'Polar (S/T/C/Y/N/Q)'}},
+    {{c:'#FF2655',l:'Negative (D/E)'}},{{c:'#4550FA',l:'Positive (K/R/H)'}},{{c:'#E2E2E2',l:'Glycine (G)'}}
+  ]}},
+  chain:    {{type:'cat',entries:[
+    {{c:'#ff8800',l:'Chain A'}},{{c:'#00aaff',l:'Chain B'}},
+    {{c:'#ff44cc',l:'Chain C'}},{{c:'#44ff88',l:'Chain D'}},{{c:'#bbbbbb',l:'+ others'}}
+  ]}},
+}};
+
+function updateColorBar(){{
+    var bar=document.getElementById('colorbar');
+    if(!colorBarVisible){{ bar.style.display='none'; return; }}
+    var meta=_CB[colorMode];
+    if(!meta){{ bar.style.display='none'; return; }}
+    bar.style.display='block';
+    var title=document.getElementById('cb-title');
+    var grad =document.getElementById('cb-gradient');
+    var tmax =document.getElementById('cb-tick-max');
+    var tmid =document.getElementById('cb-tick-mid');
+    var tmin =document.getElementById('cb-tick-min');
+    var unit =document.getElementById('cb-unit');
+    var ents =document.getElementById('cb-entries');
+    var wrap =document.getElementById('cb-bar-wrap');
+
+    if(meta.type==='cat'){{
+        wrap.style.display='none'; unit.style.display='none';
+        ents.style.display='block'; bar.classList.add('cb-wide');
+        var label={{'charge':'Charge','residue':'Residue type','chain':'Chain'}};
+        title.textContent=label[colorMode]||colorMode;
+        ents.innerHTML='';
+        meta.entries.forEach(function(e){{
+            var row=document.createElement('div'); row.className='cb-entry';
+            var sw=document.createElement('div');  sw.className='cb-swatch'; sw.style.background=e.c;
+            var lbl=document.createElement('span'); lbl.textContent=e.l;
+            row.appendChild(sw); row.appendChild(lbl); ents.appendChild(row);
+        }});
+    }} else {{
+        var cfg=meta[colorScheme]||Object.values(meta)[0];
+        wrap.style.display='flex'; unit.style.display='block';
+        ents.style.display='none'; bar.classList.remove('cb-wide');
+        title.textContent=colorMode==='plddt'?'pLDDT':colorMode==='hydrophobicity'?'Hydrophobicity':'Mass';
+        grad.style.background=cfg.css;
+        tmax.textContent=cfg.max; tmid.textContent=cfg.mid; tmin.textContent=cfg.min;
+        unit.textContent=cfg.unit;
+    }}
+}}
+
+// ── coordinate axes overlay (VMD-style) ───────────────────────────────────
+var axesVisible = true;
+// Canvas physical size = 200px (CSS 100px × DPR 2 for retina)
+var _AXES_PX = 100;   // logical CSS pixels
+
+function drawAxesOverlay(){{
+    var canvas = document.getElementById('axes-canvas');
+    if(!canvas || !viewer) return;
+    var ctx = canvas.getContext('2d');
+
+    // Draw in physical pixel coordinates — canvas was already sized to
+    // _AXES_PX * devicePixelRatio in init(), so canvas.width is the full buffer.
+    var W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    if(!axesVisible) return;
+
+    // viewer.getView() → [tx, ty, tz, qx, qy, qz, qw, zoom]
+    var v = viewer.getView();
+    if(!v || v.length < 7) return;
+    var qx=v[3], qy=v[4], qz=v[5], qw=v[6];
+
+    // Row-major rotation matrix: R * v_world → v_screen
+    var R = [
+        1-2*(qy*qy+qz*qz),  2*(qx*qy-qw*qz),  2*(qx*qz+qw*qy),
+          2*(qx*qy+qw*qz),1-2*(qx*qx+qz*qz),  2*(qy*qz-qw*qx),
+          2*(qx*qz-qw*qy),  2*(qy*qz+qw*qx),1-2*(qx*qx+qy*qy)
+    ];
+
+    var cx=W*0.5, cy=H*0.5, scale=W*0.33;
+    var dpr = window.devicePixelRatio || 1;
+    var lw = dpr;  // base line-width in physical pixels
+
+    function proj(ax,ay,az){{
+        return [
+            cx + scale*(R[0]*ax + R[1]*ay + R[2]*az),
+            cy - scale*(R[3]*ax + R[4]*ay + R[5]*az)
+        ];
+    }}
+    function depth(ax,ay,az){{ return R[6]*ax + R[7]*ay + R[8]*az; }}
+
+    var axes = [
+        {{ dir:[1,0,0], color:'#ff3333', dark:'#881111', label:'X' }},
+        {{ dir:[0,1,0], color:'#22dd22', dark:'#0a6600', label:'Y' }},
+        {{ dir:[0,0,1], color:'#2288ff', dark:'#0033aa', label:'Z' }}
+    ];
+
+    axes.forEach(function(a){{ a.sz = depth(a.dir[0],a.dir[1],a.dir[2]); }});
+    axes.sort(function(a,b){{ return a.sz - b.sz; }});   // back-to-front
+
+    // ── background disc ───────────────────────────────────────────────────
+    var r = W*0.46;
+    var bgr = ctx.createRadialGradient(cx,cy,0,cx,cy,r);
+    bgr.addColorStop(0,   'rgba(14,16,38,0.82)');
+    bgr.addColorStop(0.75,'rgba(10,12,28,0.75)');
+    bgr.addColorStop(1,   'rgba(6,8,20,0.0)');
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.fillStyle=bgr; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy,r-lw*0.5,0,Math.PI*2);
+    ctx.strokeStyle='rgba(160,180,220,0.20)'; ctx.lineWidth=lw*0.7; ctx.stroke();
+
+    // ── negative stubs ────────────────────────────────────────────────────
+    ctx.setLineDash([lw*2, lw*3]);
+    axes.forEach(function(a){{
+        var n=proj(-a.dir[0]*0.40,-a.dir[1]*0.40,-a.dir[2]*0.40);
+        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(n[0],n[1]);
+        ctx.strokeStyle=a.color; ctx.globalAlpha=0.28; ctx.lineWidth=lw*1.5; ctx.stroke();
+    }});
+    ctx.setLineDash([]); ctx.globalAlpha=1.0;
+
+    // ── positive axes ─────────────────────────────────────────────────────
+    axes.forEach(function(a){{
+        var tip=proj(a.dir[0],a.dir[1],a.dir[2]);
+        var dx=tip[0]-cx, dy=tip[1]-cy;
+        var plen=Math.sqrt(dx*dx+dy*dy)||0.001;
+        var ux=dx/plen, uy=dy/plen;
+        var hw=lw*5, hl=lw*11;
+        var st=[tip[0]-hl*ux, tip[1]-hl*uy];  // shaft tip (before arrowhead)
+
+        // Shadow
+        ctx.beginPath(); ctx.moveTo(cx+lw,cy+lw); ctx.lineTo(st[0]+lw,st[1]+lw);
+        ctx.strokeStyle='rgba(0,0,0,0.50)'; ctx.lineWidth=lw*4; ctx.stroke();
+
+        // Shaft
+        var sg=ctx.createLinearGradient(cx,cy,st[0],st[1]);
+        sg.addColorStop(0,a.dark); sg.addColorStop(1,a.color);
+        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(st[0],st[1]);
+        ctx.strokeStyle=sg; ctx.lineWidth=lw*3.2; ctx.stroke();
+
+        // Arrowhead shadow
+        ctx.beginPath();
+        ctx.moveTo(tip[0]+lw,tip[1]+lw);
+        ctx.lineTo(tip[0]-hl*ux-hw*uy+lw, tip[1]-hl*uy+hw*ux+lw);
+        ctx.lineTo(tip[0]-hl*ux+hw*uy+lw, tip[1]-hl*uy-hw*ux+lw);
+        ctx.closePath(); ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fill();
+
+        // Arrowhead
+        ctx.beginPath();
+        ctx.moveTo(tip[0],tip[1]);
+        ctx.lineTo(tip[0]-hl*ux-hw*uy, tip[1]-hl*uy+hw*ux);
+        ctx.lineTo(tip[0]-hl*ux+hw*uy, tip[1]-hl*uy-hw*ux);
+        ctx.closePath(); ctx.fillStyle=a.color; ctx.fill();
+
+        // Label
+        var fsize = Math.round(13*dpr);
+        var lx=tip[0]+ux*fsize, ly=tip[1]+uy*fsize;
+        ctx.font='bold '+fsize+'px system-ui,sans-serif';
+        ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.lineWidth=lw*3; ctx.strokeStyle='rgba(0,0,0,0.75)';
+        ctx.strokeText(a.label,lx,ly);
+        ctx.fillStyle='#ffffff'; ctx.fillText(a.label,lx,ly);
+    }});
+
+    // ── origin dot ────────────────────────────────────────────────────────
+    var or=lw*4.5;
+    var og=ctx.createRadialGradient(cx-or*0.3,cy-or*0.3,0,cx,cy,or);
+    og.addColorStop(0,'#ffffff'); og.addColorStop(1,'#9999bb');
+    ctx.beginPath(); ctx.arc(cx,cy,or,0,Math.PI*2);
+    ctx.fillStyle=og; ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.35)'; ctx.lineWidth=lw*0.8; ctx.stroke();
+}}
+
+// ── public API ─────────────────────────────────────────────────────────────
+function setRepresentation(r)  {{ repMode=r; applyStyle(); }}
+function setColorMode(m,s)     {{ colorMode=m; if(s) colorScheme=s; applyStyle(); }}
+function setScheme(s)          {{ colorScheme=s; applyStyle(); }}
+function setOpacity(v)         {{ repOpacity=v; applyStyle(); }}
+function setBackground(c)      {{ document.documentElement.style.background=c; document.body.style.background=c; if(viewer){{ viewer.setBackgroundColor(c); viewer.render(); drawAxesOverlay(); }} }}
+function setColorBarVisible(v) {{ colorBarVisible=v; updateColorBar(); }}
+function setSpin(on,axis)      {{ if(!viewer) return; if(on) viewer.spin(axis||'y',1); else viewer.spin(false); viewer.render(); }}
+function setAxesVisible(v)     {{ axesVisible=v; drawAxesOverlay(); }}
+
+// ── loadPDB: swap in a new structure without reloading the page ────────────
+function loadPDB(data){{
+    if(!viewer) return;
+    viewer.clear();
+    pdbData = data || null;
+    if(pdbData){{
+        viewer.addModel(pdbData, "pdb");
+        viewer.zoomTo();   // set camera BEFORE rendering
+        applyStyle();      // renders with correct camera
+    }} else {{
+        viewer.render();
+        updateColorBar();
+        drawAxesOverlay();
+    }}
+}}
+
+function init(){{
+    viewer=$3Dmol.createViewer("vp",{{backgroundColor:"#1a1a2e",antialias:true}});
+    // Resize axes canvas for correct DPR (retina support)
+    var dpr = window.devicePixelRatio || 1;
+    var ac = document.getElementById('axes-canvas');
+    if(ac){{ ac.width = _AXES_PX * dpr; ac.height = _AXES_PX * dpr; }}
+    if(pdbData){{          // null on the initial empty-page load
+        viewer.addModel(pdbData,"pdb");
+        viewer.zoomTo();   // set camera BEFORE rendering
+        applyStyle();      // renders with correct camera
+    }}
+    viewer.render();
+    updateColorBar();
+    drawAxesOverlay();
+    // Redraw axes whenever the camera moves
+    viewer.setViewChangeCallback(function(){{ drawAxesOverlay(); }});
+}}
+window.addEventListener("load",init);
 </script>
 </body></html>"""
 
-    def _load_structure_viewer(self, pdb_str: str):
-        """Load PDB string into the 3D viewer widget."""
+    def _js(self, code: str) -> None:
+        """Run JavaScript in the structure viewer (no-op if unavailable)."""
+        if self.structure_viewer is not None:
+            self.structure_viewer.page().runJavaScript(code)
+
+    def _update_scheme_combo(self, mode: str) -> None:
+        schemes = self._STRUCT_SCHEMES.get(mode, ["Default"])
+        self.struct_scheme_combo.blockSignals(True)
+        self.struct_scheme_combo.clear()
+        self.struct_scheme_combo.addItems(schemes)
+        self.struct_scheme_combo.blockSignals(False)
+
+    def _on_struct_rep_changed(self, rep_label: str) -> None:
+        self._js(f"setRepresentation('{rep_label.lower()}');")
+
+    def _on_struct_color_mode_changed(self, mode: str) -> None:
+        self._update_scheme_combo(mode)
+        key = self._STRUCT_MODE_KEY.get(mode, "plddt")
+        scheme = self.struct_scheme_combo.currentText()
+        self._js(f"setColorMode('{key}','{scheme}');")
+
+    def _on_struct_scheme_changed(self, scheme: str) -> None:
+        if scheme:
+            self._js(f"setScheme('{scheme}');")
+
+    def _on_struct_opacity_released(self) -> None:
+        value = self.struct_opacity_slider.value()
+        self._js(f"setOpacity({value / 100.0:.2f});")
+
+    def _on_struct_colorbar_toggled(self, checked: bool) -> None:
+        self._js(f"setColorBarVisible({'true' if checked else 'false'});")
+
+    def _on_struct_spin_toggled(self, checked: bool) -> None:
+        self.struct_spin_btn.setText("Spin: On" if checked else "Spin: Off")
+        axis = self.struct_spin_axis_combo.currentText()[0].lower()  # 'y', 'x', or 'z'
+        self._js(f"setSpin({'true' if checked else 'false'},'{axis}');")
+
+    def _on_struct_spin_axis_changed(self) -> None:
+        if self.struct_spin_btn.isChecked():
+            axis = self.struct_spin_axis_combo.currentText()[0].lower()
+            self._js(f"setSpin(true,'{axis}');")
+
+    def _pick_background_color(self) -> None:
+        color = QColorDialog.getColor(parent=self)
+        if color.isValid():
+            self._js(f"setBackground('{color.name()}');")
+
+    def _take_structure_snapshot(self) -> None:
+        if self.structure_viewer is None:
+            return
+        fn, _ = QFileDialog.getSaveFileName(
+            self, "Save Snapshot", "structure.png", "PNG Images (*.png)",
+            options=QFileDialog.Option.DontUseNativeDialog)
+        if not fn:
+            return
+        if not fn.lower().endswith(".png"):
+            fn += ".png"
+
+        def _receive(uri):
+            if not uri:
+                QMessageBox.warning(self, "Snapshot", "No structure loaded — nothing to render.")
+                return
+            try:
+                data = base64.b64decode(uri.split(",", 1)[1])
+                with open(fn, "wb") as fh:
+                    fh.write(data)
+                self.statusBar.showMessage(f"Snapshot saved: {fn}", 4000)
+            except Exception as exc:
+                QMessageBox.critical(self, "Snapshot Failed", str(exc))
+
+        self.structure_viewer.page().runJavaScript(
+            "viewer ? viewer.pngURI() : null", 0, _receive)
+
+    def _on_structure_page_loaded(self, ok: bool) -> None:
+        """Called once when the base 3Dmol page finishes loading.
+        If a PDB was queued before the page was ready, deliver it now."""
+        if ok and self._pending_pdb is not None:
+            pdb_json = self._pending_pdb
+            self._pending_pdb = None
+            self.structure_viewer.page().runJavaScript(f"loadPDB({pdb_json});")
+
+    def _load_structure_viewer(self, pdb_str: str) -> None:
+        """Swap in a new structure without reloading the 3Dmol page."""
         if not _WEBENGINE_AVAILABLE or self.structure_viewer is None:
             return
         pdb_json = json.dumps(pdb_str)
-        html     = self._3DMOL_HTML.format(pdb_json=pdb_json)
-        self.structure_viewer.setHtml(html)
+        # Keep as pending so loadFinished can retry if the page is still loading.
+        self._pending_pdb = pdb_json
+        # 1-arg form is the only safe form in PySide6 (no 2-arg callback variant).
+        self._js(f"loadPDB({pdb_json});")
 
     def _save_pdb(self):
         if not self.alphafold_data:
@@ -861,8 +1579,13 @@ window.addEventListener("load", init);
         self.batch_export_json_btn = QPushButton("Export JSON")
         self.batch_export_json_btn.setMinimumHeight(30)
         self.batch_export_json_btn.clicked.connect(self.export_batch_json)
+        self.batch_load_btn = QPushButton("Load Selected")
+        self.batch_load_btn.setMinimumHeight(30)
+        self.batch_load_btn.setToolTip("Load the selected sequence into the Analysis tab and run analysis")
+        self.batch_load_btn.clicked.connect(self._load_selected_batch_row)
         btn_row.addWidget(self.batch_export_csv_btn)
         btn_row.addWidget(self.batch_export_json_btn)
+        btn_row.addWidget(self.batch_load_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
@@ -875,6 +1598,7 @@ window.addEventListener("load", init);
         ])
         self.batch_table.horizontalHeader().setStretchLastSection(True)
         self.batch_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.batch_table.setToolTip("Select a row and click 'Load Selected', or double-click to view details")
         self.batch_table.cellDoubleClicked.connect(self.show_batch_details)
         layout.addWidget(self.batch_table, 1)
 
@@ -1099,6 +1823,7 @@ window.addEventListener("load", init);
   <tr><td>Ctrl+S</td><td>Save session</td></tr>
   <tr><td>Ctrl+O</td><td>Load session</td></tr>
   <tr><td>Ctrl+F</td><td>Focus motif search</td></tr>
+  <tr><td>Ctrl+/</td><td>Show full keyboard shortcut reference</td></tr>
 </table>
 """),
             ("Sequence Analysis", """
@@ -1563,7 +2288,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             if first_id in self.batch_struct:
                 self.alphafold_data = self.batch_struct[first_id]
                 self._load_structure_viewer(self.alphafold_data["pdb_str"])
-                self.save_pdb_btn.setEnabled(True)
+                self.export_structure_btn.setEnabled(True)
         self.sequence_name = entries[0][0] if entries else pdb_base
         # Auto-populate the sequence viewer and run graphs immediately.
         # _load_batch already analysed every chain; use the first chain's data.
@@ -1975,6 +2700,17 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 self.update_graph_tabs()
                 return
 
+    def _load_selected_batch_row(self):
+        """Load the currently selected multichain table row into the Analysis tab."""
+        rows = self.batch_table.selectedItems()
+        if not rows:
+            QMessageBox.information(self, "Load Selected",
+                                    "Select a row in the table first.")
+            return
+        row = self.batch_table.currentRow()
+        self.show_batch_details(row, None)
+        self.main_tabs.setCurrentIndex(0)
+
     # --- Graph tree handler ---
 
     def _on_graph_tree_clicked(self, item: QTreeWidgetItem, _col: int):
@@ -1984,16 +2720,161 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     # --- Export ---
 
-    def export_pdf(self):
+    def export_analysis_dialog(self):
+        """Show format chooser then export analysis data (CSV / JSON / PDF / DAT)."""
         if not self.analysis_data:
-            QMessageBox.warning(self, "No Data", "Run analysis first.")
+            QMessageBox.warning(self, "Export Analysis", "Run analysis first.")
             return
-        fn, _ = QFileDialog.getSaveFileName(self, "Export PDF", "", "PDF Files (*.pdf)")
-        if fn:
-            ExportTools.export_pdf(
-                self.analysis_data, fn, self,
-                seq_name=self.sequence_name
-            )
+        dlg = FormatChooserDialog(
+            "Export Analysis",
+            [
+                ("CSV — comma-separated values (.csv)",  "csv",  True),
+                ("JSON — structured key-value file (.json)", "json", True),
+                ("PDF — formatted report (.pdf)",         "pdf",  True),
+                ("DAT — tab-separated text (.dat)",       "dat",  True),
+            ],
+            self,
+        )
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self._export_analysis_as(dlg.selected_key())
+
+    def _export_analysis_as(self, fmt: str):
+        """Dispatch analysis export to the chosen format."""
+        name = self.sequence_name or "analysis"
+        filters = {
+            "csv":  ("CSV Files (*.csv)",  f"{name}.csv"),
+            "json": ("JSON Files (*.json)", f"{name}.json"),
+            "pdf":  ("PDF Files (*.pdf)",   f"{name}.pdf"),
+            "dat":  ("DAT Files (*.dat)",   f"{name}.dat"),
+        }
+        flt, default = filters[fmt]
+        fn, _ = QFileDialog.getSaveFileName(self, "Export Analysis", default, flt)
+        if not fn:
+            return
+
+        d = self.analysis_data
+        rows = [
+            ("Sequence Name",                  self.sequence_name or ""),
+            ("Length (aa)",                    len(d.get("seq", ""))),
+            ("Molecular Weight (Da)",          f"{d.get('mol_weight', 0):.2f}"),
+            ("Isoelectric Point",              f"{d.get('iso_point', 0):.2f}"),
+            ("GRAVY",                          f"{d.get('gravy', 0):.3f}"),
+            ("Net Charge (pH 7)",              f"{d.get('net_charge_7', 0):.2f}"),
+            ("FCR",                            f"{d.get('fcr', 0):.3f}"),
+            ("NCPR",                           f"{d.get('ncpr', 0):+.3f}"),
+            ("Aromaticity",                    f"{d.get('aromaticity', 0):.3f}"),
+            ("Extinction Coeff. (reduced)",    d.get('extinction', ('', ''))[0]
+                                               if isinstance(d.get('extinction'), tuple)
+                                               else d.get('extinction', '')),
+            ("Extinction Coeff. (non-reduced)", d.get('extinction', ('', ''))[1]
+                                                if isinstance(d.get('extinction'), tuple)
+                                                else ''),
+            ("Kappa (κ)",                      f"{d.get('kappa', 0):.4f}"),
+            ("Omega (Ω)",                      f"{d.get('omega', 0):.4f}"),
+            ("SCD",                            f"{d.get('scd', 0):.3f}"),
+            ("Fraction Disorder",              f"{d.get('disorder_f', 0):.3f}"),
+            ("% Aggregation-prone",            f"{d.get('solub_stats', {}).get('pct_aggregation_prone', 0):.1f}"),
+            ("RNA-binding propensity",         f"{d.get('rbp', {}).get('mean_propensity', 0):.3f}"),
+            ("Signal peptide h-region KD",     f"{d.get('sp_result', {}).get('h_region_score', 0):.3f}"),
+        ]
+
+        try:
+            if fmt == "csv":
+                with open(fn, "w", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["Metric", "Value"])
+                    writer.writerows(rows)
+
+            elif fmt == "json":
+                with open(fn, "w") as f:
+                    json.dump({"sequence_name": self.sequence_name,
+                               "metrics": {k: v for k, v in rows}}, f, indent=2)
+
+            elif fmt == "pdf":
+                ExportTools.export_pdf(self.analysis_data, fn, self,
+                                       seq_name=self.sequence_name)
+                return  # ExportTools shows its own success dialog
+
+            elif fmt == "dat":
+                with open(fn, "w") as f:
+                    f.write("Metric\tValue\n")
+                    for k, v in rows:
+                        f.write(f"{k}\t{v}\n")
+
+            self.statusBar.showMessage(
+                f"Analysis exported as {fmt.upper()} to {os.path.basename(fn)}", 4000)
+        except OSError as e:
+            QMessageBox.critical(self, "Export Error", str(e))
+
+    def export_structure_dialog(self):
+        """Show format chooser then export structure or sequence."""
+        has_struct = bool(self.alphafold_data)
+        has_seq    = bool(self.analysis_data)
+        if not has_struct and not has_seq:
+            QMessageBox.warning(self, "Export Structure / Sequence",
+                                "No structure or sequence loaded.")
+            return
+        dlg = FormatChooserDialog(
+            "Export Structure / Sequence",
+            [
+                ("PDB (.pdb)   — requires loaded structure",   "pdb",   has_struct),
+                ("mmCIF (.cif) — requires loaded structure",   "mmcif", has_struct),
+                ("GRO (.gro)   — requires loaded structure",   "gro",   has_struct),
+                ("XYZ (.xyz)   — requires loaded structure",   "xyz",   has_struct),
+                ("FASTA (.fasta) — requires analysis",         "fasta", has_seq),
+            ],
+            self,
+        )
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self._export_structure_as(dlg.selected_key())
+
+    def _export_structure_as(self, fmt: str):
+        """Write the current structure/sequence in the requested format."""
+        name = self.sequence_name or "structure"
+        ext_map = {"pdb": "pdb", "mmcif": "cif", "gro": "gro",
+                   "xyz": "xyz", "fasta": "fasta"}
+        flt_map = {
+            "pdb":   "PDB Files (*.pdb)",
+            "mmcif": "mmCIF Files (*.cif)",
+            "gro":   "GROMACS GRO Files (*.gro)",
+            "xyz":   "XYZ Files (*.xyz)",
+            "fasta": "FASTA Files (*.fasta *.fa)",
+        }
+        ext = ext_map[fmt]
+        fn, _ = QFileDialog.getSaveFileName(
+            self, "Export Structure / Sequence",
+            f"{name}.{ext}", flt_map[fmt])
+        if not fn:
+            return
+
+        try:
+            if fmt == "fasta":
+                seq  = self.analysis_data.get("seq", "")
+                sname = self.sequence_name or "protein"
+                with open(fn, "w") as f:
+                    f.write(f">{sname}\n")
+                    for i in range(0, len(seq), 60):
+                        f.write(seq[i:i + 60] + "\n")
+
+            else:
+                pdb_str = self.alphafold_data["pdb_str"]
+                if fmt == "pdb":
+                    content = pdb_str
+                elif fmt == "mmcif":
+                    content = pdb_to_mmcif(pdb_str)
+                elif fmt == "gro":
+                    content = pdb_to_gro(pdb_str)
+                elif fmt == "xyz":
+                    content = pdb_to_xyz(pdb_str)
+                with open(fn, "w") as f:
+                    f.write(content)
+
+            self.statusBar.showMessage(
+                f"Exported {fmt.upper()} to {os.path.basename(fn)}", 4000)
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", str(e))
 
     def save_graph(self, title: str):
         tab, vb = self.graph_tabs[title]
@@ -2038,8 +2919,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             QMessageBox.critical(self, "Export Error", f"Could not save graphs: {e}")
 
     def export_batch_csv(self):
+        if not self.batch_data:
+            QMessageBox.warning(self, "Export CSV",
+                                "No multichain data loaded. Import a multi-FASTA or multi-chain PDB first.")
+            return
         fn, _ = QFileDialog.getSaveFileName(self, "Save CSV", "", "CSV Files (*.csv)")
-        if not fn or not self.batch_data:
+        if not fn:
             return
         try:
             with open(fn, "w", newline="") as f:
@@ -2061,8 +2946,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             QMessageBox.critical(self, "Export Error", f"Could not write file: {e}")
 
     def export_batch_json(self):
+        if not self.batch_data:
+            QMessageBox.warning(self, "Export JSON",
+                                "No multichain data loaded. Import a multi-FASTA or multi-chain PDB first.")
+            return
         fn, _ = QFileDialog.getSaveFileName(self, "Save JSON", "", "JSON Files (*.json)")
-        if not fn or not self.batch_data:
+        if not fn:
             return
         try:
             out = []
@@ -2084,48 +2973,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             QMessageBox.information(self, "Saved", "Batch JSON exported.")
         except OSError as e:
             QMessageBox.critical(self, "Export Error", f"Could not write file: {e}")
-
-    def export_metrics_csv(self):
-        """Export all scalar metrics from current analysis to CSV."""
-        if not self.analysis_data:
-            QMessageBox.warning(self, "Export", "Run analysis first.")
-            return
-        fn, _ = QFileDialog.getSaveFileName(
-            self, "Export Metrics CSV",
-            f"{self.sequence_name or 'metrics'}.csv",
-            "CSV Files (*.csv)"
-        )
-        if not fn:
-            return
-        d = self.analysis_data
-        rows = [
-            ("Sequence Name",       self.sequence_name or ""),
-            ("Length (aa)",         len(d.get("seq", ""))),
-            ("Molecular Weight (Da)", f"{d.get('mol_weight', 0):.2f}"),
-            ("Isoelectric Point",   f"{d.get('iso_point', 0):.2f}"),
-            ("GRAVY",               f"{d.get('gravy', 0):.3f}"),
-            ("Net Charge (pH 7)",   f"{d.get('net_charge_7', 0):.2f}"),
-            ("FCR",                 f"{d.get('fcr', 0):.3f}"),
-            ("NCPR",                f"{d.get('ncpr', 0):+.3f}"),
-            ("Aromaticity",         f"{d.get('aromaticity', 0):.3f}"),
-            ("Extinction Coeff. (reduced)", d.get('extinction', ('',''))[0] if isinstance(d.get('extinction'), tuple) else d.get('extinction', '')),
-            ("Extinction Coeff. (non-reduced)", d.get('extinction', ('',''))[1] if isinstance(d.get('extinction'), tuple) else ''),
-            ("Kappa (\u03ba)",      f"{d.get('kappa', 0):.4f}"),
-            ("Omega (\u03a9)",      f"{d.get('omega', 0):.4f}"),
-            ("SCD",                 f"{d.get('scd', 0):.3f}"),
-            ("Fraction Disorder",   f"{d.get('disorder_f', 0):.3f}"),
-            ("% Aggregation-prone", f"{d.get('solub_stats', {}).get('pct_aggregation_prone', 0):.1f}"),
-            ("RNA-binding propensity", f"{d.get('rbp', {}).get('mean_propensity', 0):.3f}"),
-            ("Signal peptide score", f"{d.get('sp_result', {}).get('score', 0):.3f}"),
-        ]
-        try:
-            with open(fn, "w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(["Metric", "Value"])
-                writer.writerows(rows)
-            self.statusBar.showMessage(f"Metrics exported to {os.path.basename(fn)}", 3000)
-        except OSError as e:
-            QMessageBox.critical(self, "Export Error", str(e))
 
     # --- Settings ---
 
@@ -2254,7 +3101,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             "esm2_model":       self.esm2_combo.currentText(),
             "recent_sequences": self._history,
         })
-        self.statusBar.showMessage("Settings applied", 2000)
+        self.statusBar.showMessage("Settings applied and saved.", 5000)
 
     def reset_defaults(self):
         self.window_size_input.setText("9")
@@ -2298,9 +3145,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.alphafold_data = struct
         if struct:
             self._load_structure_viewer(struct["pdb_str"])
-            self.save_pdb_btn.setEnabled(True)
+            self.export_structure_btn.setEnabled(True)
         else:
-            self.save_pdb_btn.setEnabled(False)
+            self.export_structure_btn.setEnabled(False)
 
     def on_chain_selected(self, text: str):
         for cid, seq, data in self.batch_data:
@@ -2361,7 +3208,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _setup_shortcuts(self):
         QShortcut(QKeySequence("Ctrl+Return"), self, self.on_analyze)
-        QShortcut(QKeySequence("Ctrl+E"),      self, self.export_pdf)
+        QShortcut(QKeySequence("Ctrl+E"),      self, self.export_analysis_dialog)
         QShortcut(QKeySequence("Ctrl+G"),      self,
                   lambda: self.main_tabs.setCurrentIndex(1))
         QShortcut(QKeySequence("Ctrl+S"),      self, self.session_save)
@@ -2419,6 +3266,13 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._update_seq_viewer()
         self.update_graph_tabs()
         self.analyze_btn.setEnabled(True)
+        # Enable all analysis-dependent buttons
+        for btn in (self.export_analysis_btn, self.mutate_btn, self.trunc_run_btn):
+            btn.setEnabled(True)
+        self.trunc_run_btn.setToolTip("Run truncation series analysis")
+        # Update window title with current sequence name
+        title = self.sequence_name or "Untitled"
+        self.setWindowTitle(f"BEER — {title}")
         self.statusBar.showMessage(
             f"Analysis complete  |  {len(seq)} aa  |  {self.sequence_name}", 4000
         )
@@ -2444,13 +3298,13 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._history = [(n, s) for n, s in self._history if s != seq]
         self._history.insert(0, (name or "Sequence", seq))
         self._history = self._history[:10]
-        # Rebuild combo
+        # Rebuild combo and show the just-analyzed sequence as selected
         self.history_combo.blockSignals(True)
         self.history_combo.clear()
         self.history_combo.addItem("— recent sequences —")
         for n, _ in self._history:
             self.history_combo.addItem(n)
-        self.history_combo.setCurrentIndex(0)
+        self.history_combo.setCurrentIndex(1)  # show current sequence name
         self.history_combo.blockSignals(False)
         _config.set_value("recent_sequences", [(n, s) for n, s in self._history])
 
@@ -2460,7 +3314,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         name, seq = self._history[idx - 1]
         self.seq_text.setPlainText(seq)
         self.sequence_name = name
-        self.history_combo.setCurrentIndex(0)
         self.on_analyze()
 
     # --- Accession fetch ---
@@ -2512,7 +3365,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 if tagged[0][0] in self.batch_struct:
                     self.alphafold_data = self.batch_struct[tagged[0][0]]
                     self._load_structure_viewer(self.alphafold_data["pdb_str"])
-                    self.save_pdb_btn.setEnabled(True)
+                    self.export_structure_btn.setEnabled(True)
             except Exception:
                 pass  # Structure fetch is best-effort; sequences are already loaded
         else:
@@ -2588,7 +3441,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self.sequence_name:
             self.batch_struct[self.sequence_name] = data
         self.fetch_af_btn.setEnabled(True)
-        self.save_pdb_btn.setEnabled(True)
+        self.export_structure_btn.setEnabled(True)
         n_res = len(data.get("plddt", []))
         mean_plddt = (sum(data["plddt"]) / n_res) if n_res else 0
         self.af_status_lbl.setText(
@@ -2633,8 +3486,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.pfam_domains = domains
         self.fetch_pfam_btn.setEnabled(True)
         if not domains:
-            self.statusBar.showMessage("No Pfam domains found.", 3000)
-            QMessageBox.information(self, "Pfam", "No Pfam domain annotations found.")
+            self.statusBar.showMessage("No Pfam domains found for this protein.", 4000)
             return
         if self.analysis_data:
             self.update_graph_tabs()
@@ -2669,6 +3521,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_blast_finished(self, hits: list):
         self.blast_run_btn.setEnabled(True)
+        self.blast_status_lbl.setStyleSheet("color:#2d6a2d;")
         self.blast_status_lbl.setText(f"{len(hits)} hit(s) returned.")
         self.blast_table.setRowCount(0)
         for hit in hits:
@@ -2681,6 +3534,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self.blast_table.setItem(row, 4, QTableWidgetItem(f"{hit['e_value']:.2e}"))
             self.blast_table.setItem(row, 5, QTableWidgetItem(f"{hit['identity']:.1f}%"))
             load_btn = QPushButton("Load")
+            load_btn.setToolTip("Load this sequence into the Analysis tab and run analysis")
             load_btn.clicked.connect(
                 lambda _, h=hit: self._load_blast_hit(h))
             self.blast_table.setCellWidget(row, 6, load_btn)
@@ -2689,6 +3543,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_blast_error(self, msg: str):
         self.blast_run_btn.setEnabled(True)
+        self.blast_status_lbl.setStyleSheet("color:#c0392b;")
         self.blast_status_lbl.setText(f"Error: {msg}")
         QMessageBox.warning(self, "BLAST Error", msg)
 
@@ -2737,13 +3592,101 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self.statusBar.showMessage(f"Invalid regex: {e}", 3000)
             return
         self._update_seq_viewer(highlight_pattern=pattern)
+        count = len(matches)
+        self.motif_match_lbl.setText(f"{count} match{'es' if count != 1 else ''}")
         self.statusBar.showMessage(
-            f"{len(matches)} match(es) found for '{pattern}'", 3000
+            f"{count} match(es) found for '{pattern}'", 3000
         )
 
     def clear_motif_highlight(self):
         self.motif_input.clear()
+        self.motif_match_lbl.setText("")
         self._update_seq_viewer()
+
+    # ── Copy Sequence ──────────────────────────────────────────────────────
+    def _copy_sequence_menu(self):
+        """Show popup menu: copy whole sequence or a user-defined range."""
+        seq = self.seq_text.toPlainText().strip()
+        # Strip FASTA header lines if present
+        lines = [l for l in seq.splitlines() if not l.startswith(">")]
+        seq = "".join(lines).replace(" ", "").upper()
+        if not seq:
+            QMessageBox.information(self, "Copy Sequence", "No sequence loaded.")
+            return
+
+        menu = QMenu(self)
+        act_full  = menu.addAction(f"Copy whole sequence  ({len(seq)} aa)")
+        act_range = menu.addAction("Copy range…")
+        action = menu.exec(self.sender().mapToGlobal(
+            self.sender().rect().bottomLeft()))
+        if action == act_full:
+            QApplication.clipboard().setText(seq)
+            self.statusBar.showMessage("Whole sequence copied to clipboard.", 2500)
+        elif action == act_range:
+            start, ok1 = QInputDialog.getInt(
+                self, "Copy Range", f"Start residue (1–{len(seq)}):",
+                1, 1, len(seq))
+            if not ok1:
+                return
+            end, ok2 = QInputDialog.getInt(
+                self, "Copy Range", f"End residue ({start}–{len(seq)}):",
+                min(start + 9, len(seq)), start, len(seq))
+            if not ok2:
+                return
+            subseq = seq[start - 1:end]
+            QApplication.clipboard().setText(subseq)
+            self.statusBar.showMessage(
+                f"Residues {start}–{end} ({len(subseq)} aa) copied to clipboard.", 2500)
+
+    # ── Clear All ──────────────────────────────────────────────────────────
+    def _clear_all(self):
+        """Reset the entire session: sequence, analysis, graphs, structure."""
+        reply = QMessageBox.question(
+            self, "Clear All",
+            "This will clear the loaded protein, all analysis results, graphs and structure.\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # ── Sequence & identity ───────────────────────────────────────────
+        self.seq_text.clear()
+        self.seq_viewer.clear()
+        self.sequence_name = ""
+        self.analysis_data = None
+        self.batch_data.clear()
+        self.current_accession = ""
+        self.alphafold_data = None
+        self.pfam_domains = []
+        self.motif_input.clear()
+        self.motif_match_lbl.setText("")
+
+        # ── Chain selector ────────────────────────────────────────────────
+        self.chain_combo.blockSignals(True)
+        self.chain_combo.clear()
+        self.chain_combo.setEnabled(False)
+        self.chain_combo.blockSignals(False)
+
+        # ── Analysis report browsers ──────────────────────────────────────
+        for browser in self.report_section_tabs.values():
+            browser.clear()
+
+        # ── Graphs ───────────────────────────────────────────────────────
+        for _tab, vb in self.graph_tabs.values():
+            self._clear_layout(vb)
+
+        # ── Structure viewer ──────────────────────────────────────────────
+        if self.structure_viewer is not None:
+            self._js("loadPDB(null);")
+
+        # ── Toolbar buttons ───────────────────────────────────────────────
+        self.export_analysis_btn.setEnabled(False)
+        self.mutate_btn.setEnabled(False)
+        self.export_structure_btn.setEnabled(False)
+
+        self.statusBar.showMessage("Session cleared.", 2500)
 
     # --- Sequence comparison ---
 
@@ -2890,10 +3833,16 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.use_reducing     = state.get("use_reducing", False)
         self.custom_pka       = state.get("custom_pka", None)
         self.transparent_bg   = state.get("transparent_bg", False)
+        self.app_font_size    = state.get("app_font_size", 12)
+        self.label_font_size  = state.get("label_font_size", 14)
+        self.tick_font_size   = state.get("tick_font_size", 12)
         # Update settings UI widgets
         self.ph_input.setText(str(self.default_pH))
         self.window_size_input.setText(str(self.default_window_size))
         self.transparent_bg_checkbox.setChecked(self.transparent_bg)
+        self.app_font_size_input.setText(str(self.app_font_size))
+        self.label_font_input.setText(str(self.label_font_size))
+        self.tick_font_input.setText(str(self.tick_font_size))
         self.statusBar.showMessage(f"Session loaded: {fn}", 3000)
         if seq:
             self.on_analyze()
@@ -2923,10 +3872,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         ctrl.addWidget(self.trunc_nterm_cb)
         ctrl.addWidget(self.trunc_cterm_cb)
         ctrl.addSpacing(10)
-        run_trunc_btn = QPushButton("Run Truncation Series")
-        run_trunc_btn.setMinimumHeight(30)
-        run_trunc_btn.clicked.connect(self.run_truncation_series)
-        ctrl.addWidget(run_trunc_btn)
+        self.trunc_run_btn = QPushButton("Run Truncation Series")
+        self.trunc_run_btn.setMinimumHeight(30)
+        self.trunc_run_btn.setEnabled(False)
+        self.trunc_run_btn.setToolTip("Run analysis on the Analysis tab first")
+        self.trunc_run_btn.clicked.connect(self.run_truncation_series)
+        ctrl.addWidget(self.trunc_run_btn)
         ctrl.addStretch()
         layout.addLayout(ctrl)
 
@@ -2956,9 +3907,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.msa_aligned_cb.setChecked(False)
         ctrl.addWidget(self.msa_aligned_cb)
         ctrl.addSpacing(16)
-        run_msa_btn = QPushButton("Align & Show Conservation")
-        run_msa_btn.setMinimumHeight(30)
-        run_msa_btn.clicked.connect(self.run_msa)
+        self.msa_run_btn = QPushButton("Align & Show Conservation")
+        self.msa_run_btn.setMinimumHeight(30)
+        self.msa_run_btn.clicked.connect(self.run_msa)
+        run_msa_btn = self.msa_run_btn
         ctrl.addWidget(run_msa_btn)
         clear_msa_btn = QPushButton("Clear")
         clear_msa_btn.setMinimumHeight(30)

@@ -405,11 +405,12 @@ def create_uversky_phase_plot(
     ax.text(0.25, 0.15, "Disordered / IDP", fontsize=tick_font - 3,
             color="#f72585", alpha=0.8, style="italic")
 
-    region = "IDP" if h_norm < (2.785 * mean_charge + 0.446) else "Ordered"
-    pt_color = "#f72585" if region == "IDP" else "#4361ee"
+    # Plot the protein's position without a binary verdict label
+    is_below = h_norm < (2.785 * mean_charge + 0.446)
+    pt_color = "#f72585" if is_below else "#4361ee"
     ax.scatter([mean_charge], [h_norm], color=pt_color, s=120, zorder=5,
                edgecolors="white", linewidths=1.2)
-    ax.annotate(f"  ({mean_charge:.3f}, {h_norm:.3f})\n  \u2192 {region}",
+    ax.annotate(f"  ({mean_charge:.3f}, {h_norm:.3f})",
                 xy=(mean_charge, h_norm),
                 fontsize=tick_font - 3, color=pt_color,
                 xytext=(mean_charge + 0.02, h_norm + 0.04))

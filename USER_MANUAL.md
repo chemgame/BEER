@@ -109,7 +109,7 @@ The GUI window opens. No internet connection is required for local analysis. Int
 2. Click **Analyze** or press `Ctrl+Enter`.
 3. Browse the 19 report sections in the left panel of the Analysis tab.
 4. Switch to the **Graphs** tab and click any graph name in the tree on the left.
-5. Click **Export PDF** to save the full report.
+5. Click **Export Analysis** to save the full report (choose CSV, JSON, PDF, or DAT).
 
 ---
 
@@ -136,8 +136,7 @@ The main results tab. After running analysis the left panel shows 19 report sect
 | **Import FASTA** | Load sequence(s) from a FASTA file |
 | **Import PDB** | Load sequence(s) from a PDB file |
 | **Analyze** | Run analysis on the current sequence (`Ctrl+Enter`) |
-| **Export PDF** | Generate and save the full HTML/PDF report |
-| **Export CSV** | Export all scalar metrics for the current sequence to a CSV file |
+| **Export Analysis** | Export the full analysis in your chosen format — opens a dialog to select CSV, JSON, PDF, or DAT (`Ctrl+E`) |
 | **Mutate…** | Open the point-mutation dialog — pick position and new amino acid |
 | **Save Session** | Save the current state to a `.beer` JSON file |
 | **Load Session** | Restore a previously saved session |
@@ -165,6 +164,13 @@ Displays the sequence with colour-coded residues (UniProt style):
 | Purple | Special (G P) |
 
 Use the **Search** box and **Highlight** button to find and colour-highlight any motif or regex pattern in the sequence.
+
+Below the sequence viewer:
+
+| Button | Action |
+|--------|--------|
+| **Copy Sequence** | Popup menu: *Copy whole sequence* (entire chain) or *Copy range…* (enter start and end residue numbers) — result goes to clipboard. |
+| **Clear All** | Clears the loaded protein, sequence input, all analysis results, all graphs, and the structure viewer. Asks for confirmation. |
 
 ### Report sections
 
@@ -273,17 +279,54 @@ Navigate using the **category tree** on the left. Click any graph name to displa
 Displays an interactive 3D structure viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu).
 
 **Requires:** `pip install PySide6-WebEngine`
-If not installed, the tab shows a message; PDB files can still be saved locally and opened in PyMOL or ChimeraX.
+If not installed, the tab shows a message; structures can still be exported locally and opened in PyMOL or ChimeraX.
 
-### Colour modes
-| Button | Meaning |
-|--------|---------|
-| Color: pLDDT | Red (low confidence) → white → blue (high confidence) |
-| Color: Residue Type | Standard amino-acid colour scheme |
-| Color: Chain | Each chain a different colour |
-| Cartoon / Sphere | Toggle between cartoon and sphere representation |
+The tab is split into a **left control panel** and a **3D canvas**.
 
-**Save PDB** — saves the currently loaded structure as a `.pdb` file.
+### Representation
+| Option | Description |
+|--------|-------------|
+| Cartoon | Ribbon/helix cartoon (default) |
+| Stick | Licorice stick bonds |
+| Sphere | Space-filling VDW spheres |
+| Line | Wireframe lines |
+| Surface | Molecular surface (SAS) with semi-transparent cartoon underneath |
+| Opacity slider | Sets surface/sphere opacity (10–100 %) |
+
+### Color mode & scheme
+| Mode | Available schemes |
+|------|-------------------|
+| pLDDT / B-factor | Red-White-Blue · Blue-White-Red · Rainbow · Spectral |
+| Residue Type | Amino Acid (UniProt) · Shapely |
+| Chain | Chain Colors |
+| Charge | Blue / Red / Grey (categorical) |
+| Hydrophobicity | Cyan-White-Orange · Blue-White-Red · Green-White-Red |
+| Mass | Blue-Red · Rainbow |
+
+### Legend
+- **Show color bar** — toggles an overlay in the bottom-right corner of the canvas showing the gradient scale (min/max + units) for continuous modes, or a categorical legend for Charge / Residue / Chain modes.
+- **Show XYZ axes** — toggles a VMD-style coordinate-axis indicator in the bottom-left corner. Three coloured arrows with arrowheads (X = red, Y = green, Z = blue) track the molecule's orientation in real time as you rotate the view. Negative half-axes are shown as dashed stubs.
+
+### Background
+Preset buttons: **Black**, **White**, **Grey**.
+**Custom…** opens a colour picker for any background colour.
+
+### View
+| Control | Action |
+|---------|--------|
+| Reset View | Zoom to fit entire structure |
+| Spin: Off / On | Toggle continuous auto-rotation |
+| Snapshot PNG | Render the current view and save as a PNG file |
+
+**Export Structure / Sequence** — opens a format chooser dialog to export the loaded structure or sequence in one of the following formats:
+
+| Format | Description |
+|--------|-------------|
+| PDB | Standard Protein Data Bank format |
+| mmCIF | Macromolecular Crystallographic Information File (PDBx/mmCIF) |
+| GRO | GROMACS coordinate format (coordinates in nm, default 10×10×10 nm box) |
+| XYZ | Simple XYZ format (element + Cartesian coordinates in Ångström) |
+| FASTA | Amino-acid sequence only |
 
 ---
 
@@ -391,7 +434,7 @@ Two additional buttons appear at the bottom of the Help tab:
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+Enter` | Run analysis |
-| `Ctrl+E` | Export PDF report |
+| `Ctrl+E` | Export Analysis (opens format chooser: CSV / JSON / PDF / DAT) |
 | `Ctrl+G` | Jump to Graphs tab |
 | `Ctrl+S` | Save session |
 | `Ctrl+O` | Load session |
@@ -413,14 +456,18 @@ Sessions are saved as `.beer` JSON files that capture:
 
 ---
 
-## 18. Export PDF Report
+## 18. Export Analysis
 
-Click **Export PDF** (or `Ctrl+E`). BEER generates a self-contained HTML report with:
-- All 19 report sections
-- All graphs embedded as base64 PNG images
-- Consistent BEER styling
+Click **Export Analysis** (or `Ctrl+E`) to open the format chooser dialog. BEER exports the current analysis in the chosen format:
 
-The file is saved as `.html` (openable in any browser and printable to PDF from there) or `.pdf` if a Qt print driver is available.
+| Format | Contents |
+|--------|----------|
+| **CSV** | All scalar metrics for the current sequence as a comma-separated table |
+| **JSON** | All scalar metrics as a structured JSON object |
+| **PDF** | Full HTML report with all 19 sections and graphs embedded as base64 PNG images (saved as `.html`, openable in any browser and printable to PDF) |
+| **DAT** | Plain-text tab-separated metrics file |
+
+> The **Export Analysis** button and `Ctrl+E` shortcut are disabled until an analysis has been run.
 
 ---
 
