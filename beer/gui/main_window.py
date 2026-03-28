@@ -362,10 +362,20 @@ class ProteinAnalyzerGUI(QMainWindow):
                 "QToolButton:checked { background: rgba(67,97,238,0.55); }"
             )
         else:
-            # Clear custom CSS — let the global LIGHT_THEME_CSS rule
-            # (QToolBar QToolButton { background:#fff; color:#2d3748 }) apply
-            # so matplotlib icons render with correct dark-on-light colours.
-            toolbar.setStyleSheet("")
+            toolbar.setStyleSheet(
+                "QToolBar { background: #eef0f8; border: 1px solid #d0d4e0;"
+                "           border-radius: 4px; padding: 2px; spacing: 1px; }"
+                "QToolButton { background: #ffffff; border: 1px solid #d0d4e0;"
+                "              border-radius: 3px; padding: 3px; color: #2d3748; }"
+                "QToolButton:hover   { background: #e0e4f4; border-color: #4361ee; }"
+                "QToolButton:pressed { background: #c8d0ec; }"
+                "QToolButton:checked { background: #dce3f8; border-color: #4361ee; }"
+            )
+            # matplotlib reads QPalette to decide icon colour at __init__ time;
+            # on macOS system-dark-mode the palette reports a dark window even
+            # when BEER's CSS theme is light, producing white icons on a light
+            # background.  Re-tint every icon to dark after toolbar creation.
+            self._tint_toolbar_icons_dark(toolbar)
         vb.addWidget(toolbar)
         vb.addWidget(canvas)
         try:
@@ -387,6 +397,37 @@ class ProteinAnalyzerGUI(QMainWindow):
         btn = QPushButton("Save Graph")
         btn.clicked.connect(lambda _, t=title: self.save_graph(t))
         vb.addWidget(btn, alignment=Qt.AlignmentFlag.AlignRight)
+
+    @staticmethod
+    def _tint_toolbar_icons_dark(toolbar):
+        """Re-colour all matplotlib toolbar icons to a dark shade.
+
+        NavigationToolbar2QT reads QPalette at __init__ time to decide whether
+        to invert icons.  On macOS with system dark mode the palette reports a
+        dark window even when BEER's CSS theme is light, so icons end up white
+        on a white background.  This method forces every icon to #2d3748 while
+        preserving the alpha channel.
+        """
+        from PySide6.QtGui import QPainter, QColor, QPixmap, QIcon
+        from PySide6.QtCore import Qt, QSize
+        from PySide6.QtWidgets import QToolButton as _TB
+        target = QColor("#2d3748")
+        for btn in toolbar.findChildren(_TB):
+            icon = btn.icon()
+            if icon.isNull():
+                continue
+            src = icon.pixmap(QSize(24, 24))
+            if src.isNull():
+                continue
+            result = QPixmap(src.size())
+            result.fill(Qt.GlobalColor.transparent)
+            p = QPainter(result)
+            p.drawPixmap(0, 0, src)
+            p.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_SourceIn)
+            p.fillRect(result.rect(), target)
+            p.end()
+            btn.setIcon(QIcon(result))
 
     def _graph_context_menu(self, canvas, pos):
         menu = QMenu(self)
