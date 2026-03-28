@@ -491,12 +491,8 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.mutate_btn.setToolTip("Introduce a point mutation at any position (run analysis first)")
         self.mutate_btn.setEnabled(False)
         self.mutate_btn.clicked.connect(self.open_mutation_dialog)
-        self.load_example_btn = QPushButton("Load Example")
-        self.load_example_btn.setMinimumHeight(32)
-        self.load_example_btn.setToolTip("Load FUS (human) as an example IDP sequence")
-        self.load_example_btn.clicked.connect(self._load_example_sequence)
         for w in (self.import_fasta_btn, self.import_pdb_btn, self.analyze_btn,
-                  self.export_analysis_btn, self.mutate_btn, self.load_example_btn):
+                  self.export_analysis_btn, self.mutate_btn):
             w.setMinimumHeight(32)
             toolbar.addWidget(w)
         toolbar.addStretch()
@@ -529,53 +525,114 @@ class ProteinAnalyzerGUI(QMainWindow):
             tb1b.addWidget(w)
         outer.addLayout(tb1b)
 
-        # ---- toolbar row 3: Annotate dropdown + history ----
+        # ---- toolbar row 3: annotation chip buttons grouped by category + history ----
         tb2 = QHBoxLayout()
-        tb2.setSpacing(6)
+        tb2.setSpacing(4)
 
-        self._annotate_menu = QMenu(self)
+        # Chip style: coloured when enabled, muted when disabled — state visible at a glance
+        _chip = (
+            "QPushButton { background:transparent; color:#4361ee;"
+            "  border:1px solid #b0bae8; border-radius:10px;"
+            "  padding:2px 9px; font-size:10px; min-height:24px; }"
+            "QPushButton:hover:!disabled { background:#e8eeff; border-color:#4361ee; }"
+            "QPushButton:pressed:!disabled { background:#d0d8f8; }"
+            "QPushButton:disabled { color:#b8bdd4; border-color:#dcdee8; }"
+        )
+        _lbl_css = "QLabel { color:#8892b0; font-size:9px; font-weight:600; }"
 
-        self._act_af       = self._annotate_menu.addAction("AlphaFold Structure")
-        self._act_pfam     = self._annotate_menu.addAction("Pfam Domains")
-        self._act_elm      = self._annotate_menu.addAction("ELM Linear Motifs")
-        self._annotate_menu.addSeparator()
-        self._act_disprot  = self._annotate_menu.addAction("DisProt Disorder Regions")
-        self._act_phasepdb = self._annotate_menu.addAction("PhaSepDB Phase Separation")
-        self._act_mobidb   = self._annotate_menu.addAction("MobiDB Disorder Consensus")
-        self._annotate_menu.addSeparator()
-        self._act_variants = self._annotate_menu.addAction("UniProt Variants")
-        self._act_intact   = self._annotate_menu.addAction("IntAct Interactions")
+        def _sep():
+            f = QFrame()
+            f.setFrameShape(QFrame.Shape.VLine)
+            f.setFrameShadow(QFrame.Shadow.Plain)
+            f.setStyleSheet("color:#d0d4e0;")
+            f.setMaximumHeight(20)
+            return f
 
-        self._act_af.triggered.connect(self.fetch_alphafold)
-        self._act_pfam.triggered.connect(self.fetch_pfam)
-        self._act_elm.triggered.connect(self.fetch_elm)
-        self._act_disprot.triggered.connect(self.fetch_disprot)
-        self._act_phasepdb.triggered.connect(self.fetch_phasepdb)
-        self._act_mobidb.triggered.connect(self.fetch_mobidb)
-        self._act_variants.triggered.connect(self.fetch_variants)
-        self._act_intact.triggered.connect(self.fetch_intact)
+        # — Structure —
+        grp_lbl = QLabel("Structure")
+        grp_lbl.setStyleSheet(_lbl_css)
+        tb2.addWidget(grp_lbl)
+        self.fetch_af_btn = QPushButton("AlphaFold")
+        self.fetch_af_btn.setStyleSheet(_chip)
+        self.fetch_af_btn.setEnabled(False)
+        self.fetch_af_btn.setToolTip("Fetch AlphaFold predicted structure (requires UniProt accession)")
+        self.fetch_af_btn.clicked.connect(self.fetch_alphafold)
+        tb2.addWidget(self.fetch_af_btn)
+        self.fetch_pfam_btn = QPushButton("Pfam")
+        self.fetch_pfam_btn.setStyleSheet(_chip)
+        self.fetch_pfam_btn.setEnabled(False)
+        self.fetch_pfam_btn.setToolTip("Fetch Pfam domain annotations from InterPro")
+        self.fetch_pfam_btn.clicked.connect(self.fetch_pfam)
+        tb2.addWidget(self.fetch_pfam_btn)
 
-        # Disable all until accession fetched
-        for act in (self._act_af, self._act_pfam, self._act_elm,
-                    self._act_disprot, self._act_phasepdb, self._act_mobidb,
-                    self._act_variants, self._act_intact):
-            act.setEnabled(False)
+        tb2.addSpacing(4)
+        tb2.addWidget(_sep())
+        tb2.addSpacing(4)
 
-        self._annotate_btn = QPushButton("Annotate \u25be")
-        self._annotate_btn.setMinimumHeight(28)
-        self._annotate_btn.setMinimumWidth(110)
-        self._annotate_btn.clicked.connect(self._show_annotate_menu)
-        self._annotate_btn.setEnabled(False)
-        tb2.addWidget(self._annotate_btn)
+        # — Disorder / IDP —
+        grp_lbl2 = QLabel("Disorder / IDP")
+        grp_lbl2.setStyleSheet(_lbl_css)
+        tb2.addWidget(grp_lbl2)
+        self.fetch_elm_btn = QPushButton("ELM")
+        self.fetch_elm_btn.setStyleSheet(_chip)
+        self.fetch_elm_btn.setEnabled(False)
+        self.fetch_elm_btn.setToolTip("Fetch experimentally validated linear motifs from ELM (UniProt only)")
+        self.fetch_elm_btn.clicked.connect(self.fetch_elm)
+        tb2.addWidget(self.fetch_elm_btn)
+        self.fetch_disprot_btn = QPushButton("DisProt")
+        self.fetch_disprot_btn.setStyleSheet(_chip)
+        self.fetch_disprot_btn.setEnabled(False)
+        self.fetch_disprot_btn.setToolTip("Fetch disorder annotations from DisProt (UniProt only)")
+        self.fetch_disprot_btn.clicked.connect(self.fetch_disprot)
+        tb2.addWidget(self.fetch_disprot_btn)
+        self.fetch_mobidb_btn = QPushButton("MobiDB")
+        self.fetch_mobidb_btn.setStyleSheet(_chip)
+        self.fetch_mobidb_btn.setEnabled(False)
+        self.fetch_mobidb_btn.setToolTip("Fetch consensus disorder annotations from MobiDB (UniProt only)")
+        self.fetch_mobidb_btn.clicked.connect(self.fetch_mobidb)
+        tb2.addWidget(self.fetch_mobidb_btn)
+        self.fetch_phasepdb_btn = QPushButton("PhaSepDB")
+        self.fetch_phasepdb_btn.setStyleSheet(_chip)
+        self.fetch_phasepdb_btn.setEnabled(False)
+        self.fetch_phasepdb_btn.setToolTip("Check phase-separation database PhaSepDB (UniProt only)")
+        self.fetch_phasepdb_btn.clicked.connect(self.fetch_phasepdb)
+        tb2.addWidget(self.fetch_phasepdb_btn)
 
-        tb2.addSpacing(20)
+        tb2.addSpacing(4)
+        tb2.addWidget(_sep())
+        tb2.addSpacing(4)
+
+        # — Interactions —
+        grp_lbl3 = QLabel("Interactions")
+        grp_lbl3.setStyleSheet(_lbl_css)
+        tb2.addWidget(grp_lbl3)
+        self.fetch_variants_btn = QPushButton("Variants")
+        self.fetch_variants_btn.setStyleSheet(_chip)
+        self.fetch_variants_btn.setEnabled(False)
+        self.fetch_variants_btn.setToolTip("Fetch natural variants and mutagenesis data from UniProt")
+        self.fetch_variants_btn.clicked.connect(self.fetch_variants)
+        tb2.addWidget(self.fetch_variants_btn)
+        self.fetch_intact_btn = QPushButton("IntAct")
+        self.fetch_intact_btn.setStyleSheet(_chip)
+        self.fetch_intact_btn.setEnabled(False)
+        self.fetch_intact_btn.setToolTip("Fetch curated binary interactions from IntAct / EBI (UniProt only)")
+        self.fetch_intact_btn.clicked.connect(self.fetch_intact)
+        tb2.addWidget(self.fetch_intact_btn)
+
+        # Convenience list for bulk enable/disable
+        self._db_fetch_btns = [
+            self.fetch_af_btn, self.fetch_pfam_btn, self.fetch_elm_btn,
+            self.fetch_disprot_btn, self.fetch_mobidb_btn, self.fetch_phasepdb_btn,
+            self.fetch_variants_btn, self.fetch_intact_btn,
+        ]
+
+        tb2.addStretch()
         tb2.addWidget(QLabel("History:"))
         self.history_combo = QComboBox()
         self.history_combo.setMinimumWidth(200)
         self.history_combo.addItem("— recent sequences —")
         self.history_combo.currentIndexChanged.connect(self._on_history_selected)
         tb2.addWidget(self.history_combo)
-        tb2.addStretch()
         outer.addLayout(tb2)
 
         # ── Persistent sequence info bar ─────────────────────────────────────
@@ -3353,12 +3410,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 return
         super().dropEvent(event)
 
-    def _show_annotate_menu(self):
-        """Pop up the Annotate menu below the button (reliable on all platforms)."""
-        pos = self._annotate_btn.mapToGlobal(
-            self._annotate_btn.rect().bottomLeft())
-        self._annotate_menu.exec(pos)
-
     # --- Keyboard shortcuts ---
 
     def _setup_shortcuts(self):
@@ -3554,15 +3605,15 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.sequence_name = rid
         # Store accession; AlphaFold/Pfam/ELM/DisProt/PhaSepDB need a UniProt ID
         self.current_accession = acc if not is_pdb else ""
-        self._annotate_btn.setEnabled(True)
-        self._act_af.setEnabled(True)
-        self._act_pfam.setEnabled(True)
-        self._act_elm.setEnabled(not is_pdb)
-        self._act_disprot.setEnabled(not is_pdb)
-        self._act_phasepdb.setEnabled(not is_pdb)
-        self._act_mobidb.setEnabled(not is_pdb)
-        self._act_variants.setEnabled(not is_pdb)
-        self._act_intact.setEnabled(not is_pdb)
+        # Enable structure chips always; disorder/interaction chips require UniProt
+        self.fetch_af_btn.setEnabled(True)
+        self.fetch_pfam_btn.setEnabled(True)
+        self.fetch_elm_btn.setEnabled(not is_pdb)
+        self.fetch_disprot_btn.setEnabled(not is_pdb)
+        self.fetch_phasepdb_btn.setEnabled(not is_pdb)
+        self.fetch_mobidb_btn.setEnabled(not is_pdb)
+        self.fetch_variants_btn.setEnabled(not is_pdb)
+        self.fetch_intact_btn.setEnabled(not is_pdb)
         self.accession_input.clear()
         src = "PDB" if is_pdb else "UniProt"
         msg = f"Fetched {rid} from {src}  ({len(seq)} aa)"
@@ -3666,7 +3717,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self.current_accession = acc
         if self._alphafold_worker and self._alphafold_worker.isRunning():
             return
-        self._act_af.setEnabled(False)
+        self.fetch_af_btn.setEnabled(False)
         self._alphafold_worker = AlphaFoldWorker(acc)
         self._alphafold_worker.progress.connect(
             lambda msg: self.statusBar.showMessage(msg))
@@ -3680,7 +3731,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         # chains and then switches back to this sequence.
         if self.sequence_name:
             self.batch_struct[self.sequence_name] = data
-        self._act_af.setEnabled(True)
+        self.fetch_af_btn.setEnabled(True)
         self.export_structure_btn.setEnabled(True)
         n_res = len(data.get("plddt", []))
         mean_plddt = (sum(data["plddt"]) / n_res) if n_res else 0
@@ -3696,7 +3747,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             f"AlphaFold structure loaded  ({data['accession']})", 4000)
 
     def _on_alphafold_error(self, msg: str):
-        self._act_af.setEnabled(True)
+        self.fetch_af_btn.setEnabled(True)
         self.statusBar.showMessage("AlphaFold fetch failed", 3000)
         QMessageBox.warning(self, "AlphaFold Error", msg)
 
@@ -3715,7 +3766,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self.current_accession = acc
         if self._pfam_worker and self._pfam_worker.isRunning():
             return
-        self._act_pfam.setEnabled(False)
+        self.fetch_pfam_btn.setEnabled(False)
         self.statusBar.showMessage(f"Fetching Pfam domains for {acc}…")
         self._pfam_worker = PfamWorker(acc)
         self._pfam_worker.finished.connect(self._on_pfam_finished)
@@ -3724,7 +3775,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_pfam_finished(self, domains: list):
         self.pfam_domains = domains
-        self._act_pfam.setEnabled(True)
+        self.fetch_pfam_btn.setEnabled(True)
         if not domains:
             self.statusBar.showMessage("No Pfam domains found for this protein.", 4000)
             return
@@ -3734,7 +3785,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             f"Loaded {len(domains)} Pfam domain(s).", 4000)
 
     def _on_pfam_error(self, msg: str):
-        self._act_pfam.setEnabled(True)
+        self.fetch_pfam_btn.setEnabled(True)
         self.statusBar.showMessage("Pfam fetch failed", 3000)
         QMessageBox.warning(self, "Pfam Error", msg)
 
@@ -3965,11 +4016,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.export_analysis_btn.setEnabled(False)
         self.mutate_btn.setEnabled(False)
         self.export_structure_btn.setEnabled(False)
-        self._annotate_btn.setEnabled(False)
-        for act in (self._act_af, self._act_pfam, self._act_elm,
-                    self._act_disprot, self._act_phasepdb, self._act_mobidb,
-                    self._act_variants, self._act_intact):
-            act.setEnabled(False)
+        for btn in self._db_fetch_btns:
+            btn.setEnabled(False)
 
         self.statusBar.showMessage("Session cleared.", 2500)
 
@@ -4465,7 +4513,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         if self._elm_worker and self._elm_worker.isRunning():
             return
-        self._act_elm.setEnabled(False)
+        self.fetch_elm_btn.setEnabled(False)
         self.statusBar.showMessage(f"Fetching ELM instances for {acc}…")
         seq = self.analysis_data["seq"] if self.analysis_data else ""
         self._elm_worker = ELMWorker(acc, seq)
@@ -4475,7 +4523,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_elm_finished(self, instances: list):
         self.elm_data = instances
-        self._act_elm.setEnabled(True)
+        self.fetch_elm_btn.setEnabled(True)
         n = len(instances)
         if n == 0:
             QMessageBox.information(self, "ELM",
@@ -4501,7 +4549,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.statusBar.showMessage(f"ELM: {n} instance(s) found.", 3000)
 
     def _on_elm_error(self, msg: str):
-        self._act_elm.setEnabled(True)
+        self.fetch_elm_btn.setEnabled(True)
         QMessageBox.warning(self, "ELM Error", msg)
 
     def fetch_disprot(self):
@@ -4515,7 +4563,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         if self._disprot_worker and self._disprot_worker.isRunning():
             return
-        self._act_disprot.setEnabled(False)
+        self.fetch_disprot_btn.setEnabled(False)
         self.statusBar.showMessage(f"Fetching DisProt annotations for {acc}…")
         self._disprot_worker = DisPRotWorker(acc)
         self._disprot_worker.finished.connect(self._on_disprot_finished)
@@ -4524,7 +4572,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_disprot_finished(self, data: dict):
         self.disprot_data = data
-        self._act_disprot.setEnabled(True)
+        self.fetch_disprot_btn.setEnabled(True)
         regions = data.get("regions", [])
         n = len(regions)
         if n == 0:
@@ -4552,7 +4600,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.statusBar.showMessage(f"DisProt: {n} disorder region(s).", 3000)
 
     def _on_disprot_error(self, msg: str):
-        self._act_disprot.setEnabled(True)
+        self.fetch_disprot_btn.setEnabled(True)
         self.statusBar.showMessage("DisProt fetch failed.", 2000)
         QMessageBox.warning(self, "DisProt Error", msg)
 
@@ -4567,7 +4615,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         if self._phasepdb_worker and self._phasepdb_worker.isRunning():
             return
-        self._act_phasepdb.setEnabled(False)
+        self.fetch_phasepdb_btn.setEnabled(False)
         self.statusBar.showMessage(f"Checking PhaSepDB for {acc}…")
         self._phasepdb_worker = PhaSepDBWorker(acc)
         self._phasepdb_worker.finished.connect(self._on_phasepdb_finished)
@@ -4576,7 +4624,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_phasepdb_finished(self, data: dict):
         self.phasepdb_data = data
-        self._act_phasepdb.setEnabled(True)
+        self.fetch_phasepdb_btn.setEnabled(True)
         if not data.get("found"):
             QMessageBox.information(self, "PhaSepDB",
                 "This protein was not found in PhaSepDB (phase separation database).\n"
@@ -4598,7 +4646,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             "PhaSepDB: found" if data.get("found") else "PhaSepDB: not found", 3000)
 
     def _on_phasepdb_error(self, msg: str):
-        self._act_phasepdb.setEnabled(True)
+        self.fetch_phasepdb_btn.setEnabled(True)
         QMessageBox.warning(self, "PhaSepDB Error", msg)
 
     # ── MobiDB ────────────────────────────────────────────────────────────────
@@ -4610,7 +4658,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         if self._mobidb_worker and self._mobidb_worker.isRunning():
             return
-        self._act_mobidb.setEnabled(False)
+        self.fetch_mobidb_btn.setEnabled(False)
         self.statusBar.showMessage(f"Fetching MobiDB annotations for {acc}…")
         self._mobidb_worker = MobiDBWorker(acc)
         self._mobidb_worker.finished.connect(self._on_mobidb_finished)
@@ -4619,7 +4667,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_mobidb_finished(self, data: dict):
         self.mobidb_data = data
-        self._act_mobidb.setEnabled(True)
+        self.fetch_mobidb_btn.setEnabled(True)
         if not data.get("found"):
             QMessageBox.information(self, "MobiDB",
                 "This protein was not found in MobiDB, or has no consensus disorder annotations.")
@@ -4653,7 +4701,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             f"MobiDB: {frac:.1%} disordered, {len(regions)} region(s).", 4000)
 
     def _on_mobidb_error(self, msg: str):
-        self._act_mobidb.setEnabled(True)
+        self.fetch_mobidb_btn.setEnabled(True)
         self.statusBar.showMessage("MobiDB fetch failed.", 2000)
         QMessageBox.warning(self, "MobiDB Error", msg)
 
@@ -4666,7 +4714,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         if self._variants_worker and self._variants_worker.isRunning():
             return
-        self._act_variants.setEnabled(False)
+        self.fetch_variants_btn.setEnabled(False)
         self.statusBar.showMessage(f"Fetching UniProt variants for {acc}…")
         self._variants_worker = UniProtVariantsWorker(acc)
         self._variants_worker.finished.connect(self._on_variants_finished)
@@ -4675,7 +4723,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_variants_finished(self, variants: list):
         self.variants_data = variants
-        self._act_variants.setEnabled(True)
+        self.fetch_variants_btn.setEnabled(True)
         if not variants:
             QMessageBox.information(self, "UniProt Variants",
                 "No natural variants or mutagenesis data found for this protein.")
@@ -4708,7 +4756,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.statusBar.showMessage(f"Variants: {len(variants)} annotation(s) loaded.", 4000)
 
     def _on_variants_error(self, msg: str):
-        self._act_variants.setEnabled(True)
+        self.fetch_variants_btn.setEnabled(True)
         self.statusBar.showMessage("Variants fetch failed.", 2000)
         QMessageBox.warning(self, "Variants Error", msg)
 
@@ -4721,7 +4769,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         if self._intact_worker and self._intact_worker.isRunning():
             return
-        self._act_intact.setEnabled(False)
+        self.fetch_intact_btn.setEnabled(False)
         self.statusBar.showMessage(f"Fetching IntAct interactions for {acc}…")
         self._intact_worker = IntActWorker(acc)
         self._intact_worker.finished.connect(self._on_intact_finished)
@@ -4730,7 +4778,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_intact_finished(self, data: dict):
         self.intact_data = data
-        self._act_intact.setEnabled(True)
+        self.fetch_intact_btn.setEnabled(True)
         interactions = data.get("interactions", [])
         if not interactions:
             QMessageBox.information(self, "IntAct",
@@ -4787,7 +4835,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             f"IntAct: {len(interactions)} interaction(s) loaded.", 4000)
 
     def _on_intact_error(self, msg: str):
-        self._act_intact.setEnabled(True)
+        self.fetch_intact_btn.setEnabled(True)
         self.statusBar.showMessage("IntAct fetch failed.", 2000)
         QMessageBox.warning(self, "IntAct Error", msg)
 
@@ -4894,15 +4942,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     # ── New UX methods ────────────────────────────────────────────────────────
 
-    def _load_example_sequence(self):
-        """Load FUS (human RNA-binding protein / IDP) as a demo sequence."""
-        fus = (
-            "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQSTDTSGYGQSSYSSYGQSQNTGYGTQSTPQGYGSTGGYGSSSGSSQSSYGQQSSYPGQGGSQQSQNYMQNPMMGGGEWRGNSK"
-            "PGYGQAPRGNNQNQGNMQREPNQAFGSGNNSYSGSNSGAAIGWGSASNAGSGSGFNGGFGSSMDSRGEHRQDRRERPY"
-        )
-        self.seq_text.setPlainText(fus)
-        self.sequence_name = "FUS_HUMAN"
-        self.statusBar.showMessage("Loaded FUS (human) example sequence \u2014 click Analyze to run.", 4000)
 
     def _undo_mutation(self):
         if self._undo_seq is None:
