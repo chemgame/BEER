@@ -3948,6 +3948,19 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self.structure_viewer is not None:
             self._js("loadPDB(null);")
 
+        # ── MSA state ─────────────────────────────────────────────────────
+        self._msa_sequences = []
+        self._msa_names     = []
+        self._msa_mi_apc    = None
+
+        # ── Annotation data ───────────────────────────────────────────────
+        self.elm_data       = []
+        self.disprot_data   = {}
+        self.phasepdb_data  = {}
+        self.mobidb_data    = {}
+        self.variants_data  = []
+        self.intact_data    = {}
+
         # ── Toolbar buttons ───────────────────────────────────────────────
         self.export_analysis_btn.setEnabled(False)
         self.mutate_btn.setEnabled(False)

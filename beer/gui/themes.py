@@ -100,7 +100,7 @@ LIGHT_THEME_CSS = """
  QListWidget#nav_bar::item:hover:!selected { background-color: #d4d9ec; }
  QFrame#nav_sep { color: #c8cede; max-width: 1px; }
  /* --- Graph tree & report nav --- */
- QTreeWidget#graph_tree, QListWidget#report_nav {
+ QTreeWidget#graph_tree, QTreeWidget#report_nav {
      background-color: #f0f2fa;
      border: none;
      border-right: 1px solid #d0d4e0;
@@ -110,9 +110,10 @@ LIGHT_THEME_CSS = """
  QTreeWidget#graph_tree::item { padding: 5px 6px; color: #4a5568; }
  QTreeWidget#graph_tree::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 3px; }
  QTreeWidget#graph_tree::branch { background-color: #f0f2fa; }
- QListWidget#report_nav::item { padding: 8px 10px; color: #4a5568; }
- QListWidget#report_nav::item:selected { background-color: #4361ee; color: #ffffff; }
- QListWidget#report_nav::item:hover:!selected { background-color: #dce3f8; }
+ QTreeWidget#report_nav::item { padding: 6px 8px; color: #4a5568; }
+ QTreeWidget#report_nav::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 3px; }
+ QTreeWidget#report_nav::item:hover:!selected { background-color: #dce3f8; }
+ QTreeWidget#report_nav::branch { background-color: #f0f2fa; }
 """
 
 DARK_THEME_CSS = """
@@ -208,7 +209,7 @@ DARK_THEME_CSS = """
  QListWidget#nav_bar::item:hover:!selected { background-color: #1a3a5c; color: #e2e8f0; }
  QFrame#nav_sep { color: #1a3a5c; max-width: 1px; }
  /* --- Graph tree & report nav --- */
- QTreeWidget#graph_tree, QListWidget#report_nav {
+ QTreeWidget#graph_tree, QTreeWidget#report_nav {
      background-color: #16213e;
      border: none;
      border-right: 1px solid #2d3561;
@@ -218,9 +219,10 @@ DARK_THEME_CSS = """
  QTreeWidget#graph_tree::item { padding: 5px 6px; color: #94a3b8; }
  QTreeWidget#graph_tree::item:selected { background-color: #4cc9f0; color: #1a1a2e; border-radius: 3px; }
  QTreeWidget#graph_tree::branch { background-color: #16213e; }
- QListWidget#report_nav::item { padding: 8px 10px; color: #94a3b8; }
- QListWidget#report_nav::item:selected { background-color: #4cc9f0; color: #1a1a2e; }
- QListWidget#report_nav::item:hover:!selected { background-color: #1a3a5c; }
+ QTreeWidget#report_nav::item { padding: 6px 8px; color: #94a3b8; }
+ QTreeWidget#report_nav::item:selected { background-color: #4cc9f0; color: #1a1a2e; border-radius: 3px; }
+ QTreeWidget#report_nav::item:hover:!selected { background-color: #1a3a5c; }
+ QTreeWidget#report_nav::branch { background-color: #16213e; }
 """
 
 __all__ = [

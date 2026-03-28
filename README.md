@@ -148,14 +148,15 @@ Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, 
 
 | Category | Graphs |
 |----------|--------|
-| Composition | AA Composition (Bar), AA Composition (Pie) |
+| Composition | AA Composition (Bar), AA Composition (Pie), pI/MW Map |
 | Profiles | Hydrophobicity, Local Charge, Local Complexity, Disorder, Linear Sequence Map, Coiled-Coil |
 | Charge & π | Isoelectric Focus, Charge Decoration (Das-Pappu), Cation–π Map |
 | Structure & Folding | Bead Model (Hydrophobicity), Bead Model (Charge), Sticker Map, Helical Wheel, TM Topology |
-| Phase Sep / IDP | Uversky Phase Plot, Single-Residue Perturbation Map |
+| Phase Sep / IDP | Uversky Phase Plot, Single-Residue Perturbation Map, SCD Profile |
 | Aggregation | β-Aggregation Profile, Solubility Profile, Hydrophobic Moment |
 | Sequence Analysis | Annotation Track, Cleavage Map, PLAAC Profile |
-| New Features | PTM Map, RNA-Binding Profile, SCD Profile, pI/MW Map, Truncation Series, MSA Conservation, MSA Covariance, Complex Mass |
+| Post-Translational & Binding | PTM Map, RNA-Binding Profile |
+| Evolutionary & Comparative | Truncation Series, MSA Conservation, MSA Covariance, Complex Mass |
 | AlphaFold / Structural* | pLDDT Profile, Distance Map, Domain Architecture, Ramachandran Plot, Residue Contact Network |
 
 *Structural graphs require a loaded structure (from AlphaFold fetch or PDB import).
