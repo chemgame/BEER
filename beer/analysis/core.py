@@ -503,7 +503,6 @@ class AnalysisTools:
             "net_charge_7":    net_charge_7,
             "extinction":      extinction,
             "gravy":           gravy,
-            "instability":     instability,
             "aromaticity":     aromaticity,
             "fcr":             fcr,
             "ncpr":            ncpr,
