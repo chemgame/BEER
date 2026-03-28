@@ -387,9 +387,18 @@ class ProteinAnalyzerGUI(QMainWindow):
         toolbar.addStretch()
         outer.addLayout(toolbar)
 
-        # ---- toolbar row 1b: session / tools ----
+        # ---- toolbar row 2: fetch box (left) + session/tools (right) ----
         tb1b = QHBoxLayout()
         tb1b.setSpacing(6)
+        tb1b.addWidget(QLabel("Fetch:"))
+        self.accession_input = QLineEdit()
+        self.accession_input.setPlaceholderText("UniProt ID or PDB ID (e.g. P04637, 1ABC)")
+        tb1b.addWidget(self.accession_input, 1)   # stretch=1 so input takes all spare space
+        fetch_btn = QPushButton("Fetch")
+        fetch_btn.setMinimumHeight(30)
+        fetch_btn.clicked.connect(self.fetch_accession)
+        tb1b.addWidget(fetch_btn)
+        tb1b.addSpacing(20)
         self.session_save_btn = QPushButton("Save Session")
         self.session_save_btn.setToolTip("Save the current sequence and settings to a .beer file")
         self.session_save_btn.clicked.connect(self.session_save)
@@ -403,22 +412,11 @@ class ProteinAnalyzerGUI(QMainWindow):
         for w in (self.session_save_btn, self.session_load_btn, self.figure_composer_btn):
             w.setMinimumHeight(30)
             tb1b.addWidget(w)
-        tb1b.addStretch()
         outer.addLayout(tb1b)
 
-        # ---- toolbar row 2: UniProt/NCBI fetch + history ----
+        # ---- toolbar row 3: database fetch buttons + history ----
         tb2 = QHBoxLayout()
         tb2.setSpacing(6)
-        tb2.addWidget(QLabel("Fetch:"))
-        self.accession_input = QLineEdit()
-        self.accession_input.setPlaceholderText("UniProt ID or PDB ID (e.g. P04637, 1ABC)")
-        self.accession_input.setMaximumWidth(200)
-        tb2.addWidget(self.accession_input)
-        fetch_btn = QPushButton("Fetch")
-        fetch_btn.setMinimumHeight(28)
-        fetch_btn.clicked.connect(self.fetch_accession)
-        tb2.addWidget(fetch_btn)
-        tb2.addSpacing(16)
         self.fetch_af_btn = QPushButton("Fetch AlphaFold")
         self.fetch_af_btn.setMinimumHeight(28)
         self.fetch_af_btn.setEnabled(False)
