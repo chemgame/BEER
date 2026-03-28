@@ -29,7 +29,7 @@ def create_amino_acid_composition_figure(
                   xlabel="Amino Acid",
                   ylabel="Count",
                   grid=True,
-                  title_size=label_font + 1,
+                  title_size=label_font - 1,
                   label_size=label_font - 1,
                   tick_size=tick_font - 1)
     max_cnt = max(cnts) if cnts else 1
@@ -70,7 +70,7 @@ def create_amino_acid_composition_pie_figure(
         at.set_fontsize(label_font - 4)
         at.set_color("#ffffff")
         at.set_fontweight("bold")
-    ax.set_title("Amino Acid Composition", fontsize=label_font + 1,
+    ax.set_title("Amino Acid Composition", fontsize=label_font - 1,
                  fontweight="bold", color="#1a1a2e", pad=12)
     fig.tight_layout(pad=1.5)
     mplcursors.cursor(ax)

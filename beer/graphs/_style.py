@@ -31,7 +31,7 @@ def _pub_style_ax(
     ylabel: str = "",
     grid: bool = True,
     despine: bool = True,
-    title_size: int = 13,
+    title_size: int = 11,
     label_size: int = 11,
     tick_size: int = 10,
 ) -> None:
@@ -61,7 +61,7 @@ def _apply_font_sizes(ax, label_font: int, tick_font: int) -> None:
     """Apply consistent label and tick font sizes to an Axes object."""
     ax.xaxis.label.set_fontsize(label_font)
     ax.yaxis.label.set_fontsize(label_font)
-    ax.title.set_fontsize(label_font)
+    ax.title.set_fontsize(max(label_font - 2, 8))
     ax.tick_params(axis="both", labelsize=tick_font)
 
 

@@ -110,7 +110,7 @@ def create_ptm_profile_figure(
 
     ax.set_xlabel("Residue Position", fontsize=label_font)
     ax.set_ylabel("PTM Type", fontsize=label_font)
-    ax.set_title("Post-Translational Modification Sites (Predicted)", fontsize=label_font)
+    ax.set_title("Post-Translational Modification Sites (Predicted)", fontsize=label_font - 2)
     ax.set_xlim(0, len(seq) + 1)
     ax.tick_params(axis="x", labelsize=tick_font)
 
@@ -236,7 +236,7 @@ def create_domain_architecture_figure(
     _pub_style_ax(ax,
                   title="Domain Architecture",
                   xlabel="Residue Position", ylabel="",
-                  grid=False, title_size=label_font + 1,
+                  grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(1, seq_len)
     ax.set_ylim(-0.7, n_tracks - 0.3)
@@ -288,7 +288,7 @@ def create_cation_pi_map_figure(
                   xlabel="Residue Position",
                   ylabel="Residue Position",
                   grid=False,
-                  title_size=label_font + 1,
+                  title_size=label_font - 1,
                   label_size=label_font - 1,
                   tick_size=tick_font - 1)
     fig.tight_layout(pad=1.5)
@@ -320,7 +320,7 @@ def create_local_complexity_figure(
                   xlabel="Residue Position",
                   ylabel="Shannon Entropy (bits)",
                   grid=True,
-                  title_size=label_font + 1,
+                  title_size=label_font - 1,
                   label_size=label_font - 1,
                   tick_size=tick_font - 1)
     ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")

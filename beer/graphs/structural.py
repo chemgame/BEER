@@ -116,7 +116,7 @@ def create_ramachandran_figure(
     ax.set_ylim(-180, 180)
     ax.set_xlabel("\u03c6 (\u00b0)", fontsize=label_font)
     ax.set_ylabel("\u03c8 (\u00b0)", fontsize=label_font)
-    ax.set_title("Ramachandran Plot (from PDB structure)", fontsize=label_font)
+    ax.set_title("Ramachandran Plot (from PDB structure)", fontsize=label_font - 2)
     ax.tick_params(axis="both", labelsize=tick_font)
     ax.set_xticks(range(-180, 181, 60))
     ax.set_yticks(range(-180, 181, 60))
@@ -248,7 +248,7 @@ def create_plddt_figure(
     _pub_style_ax(ax,
                   title="pLDDT / B-factor Confidence",
                   xlabel="Residue Position", ylabel="pLDDT Score",
-                  grid=False, title_size=label_font + 1,
+                  grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_ylim(0, 100)
     ax.set_xlim(1, n)
@@ -285,7 +285,7 @@ def create_distance_map_figure(
     _pub_style_ax(ax,
                   title=f"C\u03b1 Distance Map  ({n} residues)  \u2014 pink contour = 8 \u00c5 contact",
                   xlabel="Residue Position", ylabel="Residue Position",
-                  grid=False, title_size=label_font,
+                  grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     fig.tight_layout(pad=1.5)
     return fig

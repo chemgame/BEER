@@ -51,7 +51,7 @@ def create_msa_conservation_figure(
     if not sequences:
         fig = Figure(figsize=(10, 4))
         ax = fig.add_subplot(111)
-        ax.set_title("MSA Conservation Profile (no data)", fontsize=label_font)
+        ax.set_title("MSA Conservation Profile (no data)", fontsize=label_font - 2)
         return fig
 
     n_seq = len(sequences)
@@ -97,7 +97,7 @@ def create_msa_conservation_figure(
 
     ax.set_xlabel("Alignment Position", fontsize=label_font)
     ax.set_ylabel("Conservation", fontsize=label_font)
-    ax.set_title("MSA Conservation Profile", fontsize=label_font)
+    ax.set_title("MSA Conservation Profile", fontsize=label_font - 2)
     ax.set_xlim(0.5, aln_len + 0.5)
     ax.set_ylim(0, 1.15)
     ax.tick_params(axis="both", labelsize=tick_font)
@@ -175,7 +175,7 @@ def create_complex_mw_figure(
     ax.set_xticks(range(len(bar_labels)))
     ax.set_xticklabels(bar_labels, fontsize=tick_font)
     ax.set_ylabel("Molecular Weight (kDa)", fontsize=label_font)
-    ax.set_title("Protein Complex Mass Composition", fontsize=label_font)
+    ax.set_title("Protein Complex Mass Composition", fontsize=label_font - 2)
     ax.tick_params(axis="y", labelsize=tick_font)
 
     return fig
@@ -293,7 +293,7 @@ def create_pI_MW_gel_figure(
 
     ax.set_xlabel("Isoelectric Point (pI)", fontsize=label_font)
     ax.set_ylabel("Molecular Weight", fontsize=label_font)
-    ax.set_title("pI / MW 2D Map (SDS-PAGE Proxy)", fontsize=label_font)
+    ax.set_title("pI / MW 2D Map (SDS-PAGE Proxy)", fontsize=label_font - 2)
     ax.set_xlim(0, 14)
     ax.tick_params(axis="x", labelsize=tick_font)
 
@@ -419,7 +419,7 @@ def create_uversky_phase_plot(
                   title="Uversky Charge\u2013Hydrophobicity Phase Plot",
                   xlabel="Mean |Net Charge| per residue",
                   ylabel="Mean Hydrophobicity (normalised 0\u20131)",
-                  grid=True, title_size=label_font + 1,
+                  grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(0, 0.5)
     ax.set_ylim(0, 1.0)

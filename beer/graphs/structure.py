@@ -52,7 +52,7 @@ def create_bead_model_hydrophobicity_figure(
                   xlabel="Residue Position",
                   grid=False,
                   despine=False,
-                  title_size=label_font,
+                  title_size=label_font - 1,
                   label_size=label_font - 2,
                   tick_size=tick_font - 2)
     ax.spines["top"].set_visible(False)
@@ -115,7 +115,7 @@ def create_bead_model_charge_figure(
                   xlabel="Residue Position",
                   grid=False,
                   despine=False,
-                  title_size=label_font,
+                  title_size=label_font - 1,
                   label_size=label_font - 2,
                   tick_size=tick_font - 2)
     ax.spines["top"].set_visible(False)
@@ -240,7 +240,7 @@ def create_tm_topology_figure(
     _pub_style_ax(ax,
                   title=f"TM Topology  ({len(helices)} predicted helix/es)",
                   xlabel="Residue Position", ylabel="",
-                  grid=False, title_size=label_font + 1,
+                  grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(0, n + 2)
     ax.set_ylim(-1.6, 1.8)
@@ -297,7 +297,7 @@ def create_sticker_map_figure(
                   xlabel="Residue Position",
                   grid=False,
                   despine=False,
-                  title_size=label_font,
+                  title_size=label_font - 1,
                   label_size=label_font - 2,
                   tick_size=tick_font - 2)
     ax.spines["top"].set_visible(False)
@@ -359,7 +359,7 @@ def create_hydrophobic_moment_figure(
 
     ax.set_xlabel("Residue Position", fontsize=label_font)
     ax.set_ylabel("\u03bcH", fontsize=label_font)
-    ax.set_title("Hydrophobic Moment Profile", fontsize=label_font)
+    ax.set_title("Hydrophobic Moment Profile", fontsize=label_font - 2)
     ax.set_xlim(x[0], x[-1])
     ax.set_ylim(bottom=0)
     ax.tick_params(axis="both", labelsize=tick_font)
@@ -393,7 +393,7 @@ def create_coiled_coil_profile_figure(
                   title="Coiled-Coil Propensity Profile (heptad-weighted, sequence-relative)",
                   xlabel="Residue Position",
                   ylabel="Relative Coiled-Coil Score",
-                  grid=True, title_size=label_font + 1,
+                  grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_ylim(0, 1.05)
     ax.legend(fontsize=tick_font - 3, framealpha=0.85,

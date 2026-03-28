@@ -65,7 +65,7 @@ def create_isoelectric_focus_figure(
     _pub_style_ax(ax,
                   title="Isoelectric Focusing Simulation",
                   xlabel="pH", ylabel="Net Charge",
-                  grid=True, title_size=label_font + 1,
+                  grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(0, 14)
     ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0", loc="upper right")
@@ -99,7 +99,7 @@ def create_local_charge_figure(
                   xlabel="Residue Position",
                   ylabel="NCPR",
                   grid=True,
-                  title_size=label_font + 1,
+                  title_size=label_font - 1,
                   label_size=label_font - 1,
                   tick_size=tick_font - 1)
     fig.tight_layout(pad=1.5)
@@ -145,7 +145,7 @@ def create_charge_decoration_figure(
                   title="Charge Decoration Phase Diagram (Das-Pappu)",
                   xlabel="FCR  (Fraction of Charged Residues)",
                   ylabel="|NCPR|  (|Net Charge Per Residue|)",
-                  grid=True, title_size=label_font + 1,
+                  grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(0, 0.72)
     ax.set_ylim(0, 0.72)

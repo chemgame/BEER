@@ -46,7 +46,7 @@ def create_hydrophobicity_figure(
                   xlabel="Residue Position",
                   ylabel="Kyte-Doolittle Score",
                   grid=True,
-                  title_size=label_font + 1,
+                  title_size=label_font - 1,
                   label_size=label_font - 1,
                   tick_size=tick_font - 1)
     fig.tight_layout(pad=1.5)
@@ -96,7 +96,7 @@ def create_aggregation_profile_figure(
 
     ax.set_xlabel("Residue Position", fontsize=label_font)
     ax.set_ylabel("beta-Aggregation Propensity", fontsize=label_font)
-    ax.set_title("beta-Aggregation Propensity Profile (Zyggregator)", fontsize=label_font)
+    ax.set_title("beta-Aggregation Propensity Profile (Zyggregator)", fontsize=label_font - 2)
     ax.set_xlim(x[0], x[-1])
     ax.tick_params(axis="both", labelsize=tick_font)
     ax.legend(fontsize=tick_font, loc="upper right")
@@ -126,7 +126,7 @@ def create_solubility_profile_figure(
 
     ax.set_xlabel("Residue Position", fontsize=label_font)
     ax.set_ylabel("CamSol Score", fontsize=label_font)
-    ax.set_title("CamSol Intrinsic Solubility Profile", fontsize=label_font)
+    ax.set_title("CamSol Intrinsic Solubility Profile", fontsize=label_font - 2)
     ax.set_xlim(x[0], x[-1])
     ax.tick_params(axis="both", labelsize=tick_font)
     ax.legend(fontsize=tick_font, loc="upper right")
@@ -202,7 +202,7 @@ def create_rbp_profile_figure(
 
     ax.set_xlabel("Residue Position", fontsize=label_font)
     ax.set_ylabel("RBP Propensity", fontsize=label_font)
-    ax.set_title("RNA-Binding Propensity Profile", fontsize=label_font)
+    ax.set_title("RNA-Binding Propensity Profile", fontsize=label_font - 2)
     ax.set_xlim(x[0], x[-1])
     ax.tick_params(axis="both", labelsize=tick_font)
     ax.legend(fontsize=tick_font, loc="upper right")
@@ -236,7 +236,7 @@ def create_disorder_profile_figure(
     _pub_style_ax(ax,
                   title="Disorder Profile (IUPred-inspired)",
                   xlabel="Residue Position", ylabel="Disorder Score",
-                  grid=True, title_size=label_font + 1,
+                  grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_ylim(-0.02, 1.05)
     ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")
@@ -280,7 +280,7 @@ def create_plaac_profile_figure(
     ax.set_xlabel("Residue position", fontsize=label_font - 1)
     ax.set_ylabel("Log-odds score", fontsize=label_font - 1)
     ax.set_title("PLAAC Prion-like Amino Acid Composition Profile",
-                 fontsize=label_font, fontweight="bold", color="#1a1a2e")
+                 fontsize=label_font - 2, fontweight="bold", color="#1a1a2e")
     ax.tick_params(labelsize=tick_font - 2)
     ax.set_xlim(1, n)
     ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")

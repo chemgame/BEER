@@ -380,7 +380,16 @@ class ProteinAnalyzerGUI(QMainWindow):
         vb.addWidget(canvas)
         try:
             import mplcursors as _mplcursors
-            _mplcursors.cursor(canvas.figure, hover=True)
+            _cur = _mplcursors.cursor(canvas.figure, hover=True)
+
+            @_cur.connect("add")
+            def _style_annot(sel):
+                sel.annotation.set_fontsize(9)
+                sel.annotation.set_color("#1a1a2e")
+                patch = sel.annotation.get_bbox_patch()
+                if patch is not None:
+                    patch.set(facecolor="white", edgecolor="#4361ee",
+                              alpha=0.92, linewidth=1.0, boxstyle="round,pad=0.4")
         except Exception:
             pass
         hint = self._GRAPH_HINTS.get(title, "")
@@ -428,6 +437,16 @@ class ProteinAnalyzerGUI(QMainWindow):
             p.fillRect(result.rect(), target)
             p.end()
             btn.setIcon(QIcon(result))
+
+    def _mark_chip_fetched(self, btn: "QPushButton") -> None:
+        """Turn a chip button green to signal that data has been fetched."""
+        btn.setStyleSheet(
+            "QPushButton { background:#e6f9f0; color:#1a7a4a;"
+            "  border:1px solid #43aa8b; border-radius:10px;"
+            "  padding:2px 9px; font-size:10px; min-height:24px; font-weight:600; }"
+            "QPushButton:hover { background:#cef2e3; border-color:#2e8b57; }"
+            "QPushButton:pressed { background:#b4e8d0; }"
+        )
 
     def _graph_context_menu(self, canvas, pos):
         menu = QMenu(self)
@@ -579,6 +598,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             "QPushButton:pressed:!disabled { background:#d0d8f8; }"
             "QPushButton:disabled { color:#b8bdd4; border-color:#dcdee8; }"
         )
+        self._chip_style = _chip
         _lbl_css = "QLabel { color:#8892b0; font-size:9px; font-weight:600; }"
 
         def _sep():
@@ -3773,6 +3793,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self.sequence_name:
             self.batch_struct[self.sequence_name] = data
         self.fetch_af_btn.setEnabled(True)
+        self._mark_chip_fetched(self.fetch_af_btn)
         self.export_structure_btn.setEnabled(True)
         n_res = len(data.get("plddt", []))
         mean_plddt = (sum(data["plddt"]) / n_res) if n_res else 0
@@ -3820,6 +3841,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if not domains:
             self.statusBar.showMessage("No Pfam domains found for this protein.", 4000)
             return
+        self._mark_chip_fetched(self.fetch_pfam_btn)
         if self.analysis_data:
             self.update_graph_tabs()
         self.statusBar.showMessage(
@@ -4059,6 +4081,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.export_structure_btn.setEnabled(False)
         for btn in self._db_fetch_btns:
             btn.setEnabled(False)
+            btn.setStyleSheet(self._chip_style)
 
         self.statusBar.showMessage("Session cleared.", 2500)
 
@@ -4565,6 +4588,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def _on_elm_finished(self, instances: list):
         self.elm_data = instances
         self.fetch_elm_btn.setEnabled(True)
+        if instances:
+            self._mark_chip_fetched(self.fetch_elm_btn)
         n = len(instances)
         if n == 0:
             QMessageBox.information(self, "ELM",
@@ -4615,6 +4640,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.disprot_data = data
         self.fetch_disprot_btn.setEnabled(True)
         regions = data.get("regions", [])
+        if regions:
+            self._mark_chip_fetched(self.fetch_disprot_btn)
         n = len(regions)
         if n == 0:
             QMessageBox.information(self, "DisProt",
@@ -4666,6 +4693,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def _on_phasepdb_finished(self, data: dict):
         self.phasepdb_data = data
         self.fetch_phasepdb_btn.setEnabled(True)
+        if data.get("found"):
+            self._mark_chip_fetched(self.fetch_phasepdb_btn)
         if not data.get("found"):
             QMessageBox.information(self, "PhaSepDB",
                 "This protein was not found in PhaSepDB (phase separation database).\n"
@@ -4709,6 +4738,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def _on_mobidb_finished(self, data: dict):
         self.mobidb_data = data
         self.fetch_mobidb_btn.setEnabled(True)
+        if data.get("found"):
+            self._mark_chip_fetched(self.fetch_mobidb_btn)
         if not data.get("found"):
             QMessageBox.information(self, "MobiDB",
                 "This protein was not found in MobiDB, or has no consensus disorder annotations.")
@@ -4765,6 +4796,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def _on_variants_finished(self, variants: list):
         self.variants_data = variants
         self.fetch_variants_btn.setEnabled(True)
+        if variants:
+            self._mark_chip_fetched(self.fetch_variants_btn)
         if not variants:
             QMessageBox.information(self, "UniProt Variants",
                 "No natural variants or mutagenesis data found for this protein.")
@@ -4821,6 +4854,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.intact_data = data
         self.fetch_intact_btn.setEnabled(True)
         interactions = data.get("interactions", [])
+        if interactions:
+            self._mark_chip_fetched(self.fetch_intact_btn)
         if not interactions:
             QMessageBox.information(self, "IntAct",
                 "No curated interactions found for this protein in IntAct.\n"
