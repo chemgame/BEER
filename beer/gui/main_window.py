@@ -197,6 +197,12 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.statusBar = QStatusBar()
         self.setStatusBar(self.statusBar)
 
+        # Permanent ESM2 status indicator (right side of status bar)
+        self._esm2_indicator = QLabel()
+        self._esm2_indicator.setContentsMargins(0, 0, 8, 0)
+        self.statusBar.addPermanentWidget(self._esm2_indicator)
+        self._update_esm2_indicator("ready")
+
         # State
         self.analysis_data       = None
         self.batch_data          = []
@@ -444,6 +450,38 @@ class ProteinAnalyzerGUI(QMainWindow):
             p.fillRect(result.rect(), target)
             p.end()
             btn.setIcon(QIcon(result))
+
+    def _update_esm2_indicator(self, state: str = "ready") -> None:
+        """Update the permanent ESM2 status label in the status bar.
+
+        state: 'ready'   — available, model not yet run this session
+               'active'  — model was used in the last analysis
+               'missing' — fair-esm / torch not installed
+        """
+        from beer.embeddings import ESM2_AVAILABLE
+        model = getattr(self._embedder, "model_name", None)
+        short = model.replace("esm2_t", "").split("_")[0] if model else ""
+        # e.g. "6_8M_UR50D" → "8M"
+        parts = model.split("_") if model else []
+        try:
+            size_tag = next(p for p in parts if p.endswith("M") or p.endswith("B"))
+        except StopIteration:
+            size_tag = short
+
+        if not ESM2_AVAILABLE or self._embedder is None:
+            text  = "ESM2 · not installed"
+            color = "#a0a0a0"
+        elif state == "active":
+            text  = f"ESM2 {size_tag} · active \u2714"
+            color = "#43aa8b"
+        else:
+            text  = f"ESM2 {size_tag} · ready"
+            color = "#4361ee"
+
+        self._esm2_indicator.setText(text)
+        self._esm2_indicator.setStyleSheet(
+            f"QLabel {{ color: {color}; font-size: 10px; font-weight: 600; }}"
+        )
 
     def _mark_chip_fetched(self, btn: "QPushButton") -> None:
         """Turn a chip button green to signal that data has been fetched."""
@@ -2672,7 +2710,16 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.analyze_btn.setEnabled(False)
         self.statusBar.showMessage("Analyzing…")
 
-        self._progress_dlg = QProgressDialog("Running analysis…", "Cancel", 0, 0, self)
+        _model_tag = ""
+        if self._embedder is not None:
+            _mn = getattr(self._embedder, "model_name", "")
+            _parts = _mn.split("_")
+            try:
+                _model_tag = f"  ·  ESM2 {next(p for p in _parts if p.endswith('M') or p.endswith('B'))}"
+            except StopIteration:
+                _model_tag = "  ·  ESM2"
+        self._progress_dlg = QProgressDialog(
+            f"Running analysis{_model_tag}…", "Cancel", 0, 0, self)
         self._progress_dlg.setWindowTitle("BEER Analysis")
         self._progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
         self._progress_dlg.setMinimumDuration(500)
@@ -3341,6 +3388,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             try:
                 from beer.embeddings import get_embedder
                 self._embedder = get_embedder(new_esm2_model)
+                self._update_esm2_indicator("ready")
             except Exception:
                 pass
 
@@ -3541,6 +3589,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if hasattr(self, "_progress_dlg") and self._progress_dlg:
             self._progress_dlg.close()
             self._progress_dlg = None
+        # Mark ESM2 as active if it contributed results
+        if data.get("aggr_profile_esm2") and self._embedder is not None:
+            self._update_esm2_indicator("active")
         seq  = data["seq"]
         self._run_plugins(seq, data)
         self.analysis_data = data
