@@ -1974,8 +1974,8 @@ to a chosen directory in the format configured in Settings.</p>
 <h2>Phase Separation / IDP</h2>
 <ul>
   <li><b>Uversky Phase Plot</b> — mean |net charge| vs mean normalised hydrophobicity; Uversky boundary line separates IDP from ordered proteins.</li>
-  <li><b>Coiled-Coil Profile</b> — per-residue heptad-periodicity score; fill above 0.50 = predicted coiled-coil region.</li>
-  <li><b>Saturation Mutagenesis</b> — 20×n heatmap of |ΔGRAVY| + |ΔNCPR| for all single-residue substitutions; white dot = wild type. Available for sequences ≤500 aa.</li>
+  <li><b>Coiled-Coil Profile</b> — heptad-weighted propensity profile; score is normalised relative to the sequence maximum. Not a validated coiled-coil predictor — interpret as a relative propensity indicator only.</li>
+  <li><b>Single-Residue Perturbation Map</b> — 20×n heatmap of |ΔGRAVY| + |ΔNCPR| for every possible single-residue substitution; white dot = wild type. Highlights positions where amino acid identity most strongly influences global hydrophobicity and charge. Available for sequences ≤500 aa.</li>
 </ul>
 """),
             ("Phase Separation", """
@@ -1994,14 +1994,17 @@ found in many IDP condensates (e.g. FUS, hnRNPA1). A 7-residue window qualifies 
 The dashed boundary (Uversky 2000) separates compact/ordered proteins (above line) from IDPs (below line):</p>
 <pre>&lt;H&gt; = 2.785 × &lt;|R|&gt; + 0.446</pre>
 <p class="note">Reference: Uversky, Gillespie &amp; Fink (2000) <i>Proteins</i> 41, 415–427.</p>
-<h2>Coiled-Coil Prediction</h2>
-<p>Heptad-periodicity scoring using a 28-residue (4-heptad) sliding window. Positions a and d (hydrophobic core)
-are weighted most heavily. The per-residue score is normalised to 0–1; regions above 0.50 are predicted
-coiled-coil segments. Requires ≥7 consecutive residues above threshold.</p>
-<h2>Saturation Mutagenesis Heatmap</h2>
-<p>Every residue is mutated to all 20 amino acids in silico. Heatmap colour encodes |ΔGRAVY| + |ΔNCPR|.
-Hot spots mark positions where substitutions most strongly perturb global properties.
-Wild-type residues shown as white dots. Available for sequences ≤ 500 aa.</p>
+<h2>Coiled-Coil Propensity Profile</h2>
+<p>Heptad-weighted propensity profile computed with a 28-residue (4-heptad) sliding window. Positions a and d
+(hydrophobic core) are down-weighted relative to a position-weighted Lupas-derived scale. The score is
+normalised relative to the sequence maximum (not an absolute calibrated scale), so a high score means strong
+coiled-coil character <em>relative to the rest of the sequence</em>. Regions above 0.50 are highlighted.
+This is a propensity indicator — for definitive coiled-coil prediction use COILS or DeepCoil.</p>
+<h2>Single-Residue Perturbation Map</h2>
+<p>Every residue is substituted in silico to all 20 amino acids. The heatmap colour encodes
+|ΔGRAVY| + |ΔNCPR| — the combined change in global hydrophobicity and net charge per residue.
+Hot positions are those where the wild-type identity most strongly determines the global physicochemical
+character of the sequence. Wild-type residues are shown as white dots. Available for sequences ≤ 500 aa.</p>
 """),
             ("Linear Motifs", """
 <h1>Linear Motif Scanner</h1>
@@ -2525,7 +2528,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self.analysis_data.get("cc_profile"):
             figs["Coiled-Coil Profile"] = create_coiled_coil_profile_figure(
                 self.analysis_data["cc_profile"], label_font=lf, tick_font=tf)
-        figs["Saturation Mutagenesis"] = create_saturation_mutagenesis_figure(
+        figs["Single-Residue Perturbation Map"] = create_saturation_mutagenesis_figure(
             seq, label_font=lf, tick_font=tf)
 
         # Structure-dependent graphs — available from any structure source
@@ -2623,7 +2626,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self.analysis_data.get("ptm_sites", []),
             self.analysis_data.get("tm_helices", []),
             self.analysis_data.get("larks", []),
-            self.analysis_data.get("signal_peptide", {}),
+            self.analysis_data.get("sp_result", {}),
             label_font=lf, tick_font=tf)
 
         # Proteolytic Cleavage Map

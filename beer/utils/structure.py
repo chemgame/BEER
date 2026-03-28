@@ -15,12 +15,21 @@ from beer.constants import (
 )
 
 
+_DPROP_MIN = min(DISORDER_PROPENSITY.values())   # W = -0.884
+_DPROP_MAX = max(DISORDER_PROPENSITY.values())   # P =  0.987
+_DPROP_SPAN = _DPROP_MAX - _DPROP_MIN
+
+
 def _classical_disorder_profile(seq: str, window: int = 9) -> list:
-    """Classical sliding-window disorder propensity, normalised to 0-1."""
+    """Classical sliding-window disorder propensity, normalised to 0-1.
+
+    Normalisation uses the global min/max of the DISORDER_PROPENSITY scale
+    (W = -0.884, P = 0.987) so that absolute scores are comparable across
+    sequences.  Per-sequence normalisation would make a poly-W sequence look
+    as disordered as a poly-P sequence, which is incorrect.
+    """
     raw = [DISORDER_PROPENSITY.get(aa, 0.0) for aa in seq]
-    mn, mx = min(raw), max(raw)
-    span = mx - mn if mx != mn else 1.0
-    norm = [(v - mn) / span for v in raw]
+    norm = [(v - _DPROP_MIN) / _DPROP_SPAN for v in raw]
     n = len(norm)
     if n < window:
         return norm

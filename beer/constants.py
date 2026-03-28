@@ -165,8 +165,8 @@ LINEAR_MOTIFS: list[tuple[str, str, str]] = [
     ("ER retention (KDEL)", r"KDEL|HDEL|RDEL", "ER retention signal"),
     ("RxxS/T (PKA)", r"R.{1,2}[ST]", "PKA consensus phosphorylation site (RxxS/T)"),
     ("SxIP (EB1)", r"[ST].IP", "Microtubule plus-end tracking via EB1"),
-    ("WW domain ligand", r"PP.Y|P.{1,2}P", "WW-domain binding (PPxY / PxxP)"),
-    ("Caspase-3 cleavage", r"DEVD|DMQD", "Caspase-3/7 cleavage site (DxxD)"),
+    ("WW domain ligand", r"PP.Y", "WW-domain binding (PPxY)"),
+    ("Caspase-3 cleavage", r"DEVD|DMQD", "Caspase-3/7 cleavage motifs DEVD and DMQD; cleavage occurs after the C-terminal Asp"),
     ("Glycosylation (N-linked)", r"N[^P][ST]", "N-linked glycosylation sequon (NxS/T, x\u2260P)"),
     ("SUMOylation", r"[VILMF]K.E", "SUMOylation consensus (\u03a8KxE)"),
     ("Phospho (CK2)", r"[ST].{2}[DE]", "CK2 phosphorylation consensus (S/TxxE/D)"),
@@ -268,7 +268,7 @@ GRAPH_TITLES: list[str] = [
     "Domain Architecture",
     "Uversky Phase Plot",
     "Coiled-Coil Profile",
-    "Saturation Mutagenesis",
+    "Single-Residue Perturbation Map",
     # --- New graphs ---
     "\u03b2-Aggregation Profile",
     "Solubility Profile",
@@ -315,7 +315,7 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
     ]),
     ("Phase Separation / IDP", [
         "Uversky Phase Plot",
-        "Saturation Mutagenesis",
+        "Single-Residue Perturbation Map",
     ]),
     ("AlphaFold / Structural", [
         "pLDDT Profile",

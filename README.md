@@ -151,7 +151,7 @@ Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, 
 | Profiles | Hydrophobicity, Local Charge, Local Complexity, Disorder, Linear Sequence Map, Coiled-Coil |
 | Charge & π | Isoelectric Focus, Charge Decoration (Das-Pappu), Cation–π Map |
 | Structure & Folding | Bead Model (Hydrophobicity), Bead Model (Charge), Sticker Map, Helical Wheel, TM Topology |
-| Phase Sep / IDP | Uversky Phase Plot, Saturation Mutagenesis |
+| Phase Sep / IDP | Uversky Phase Plot, Single-Residue Perturbation Map |
 | Aggregation | β-Aggregation Profile, Solubility Profile, Hydrophobic Moment |
 | Sequence Analysis | Annotation Track, Cleavage Map, PLAAC Profile |
 | New Features | PTM Map, RNA-Binding Profile, SCD Profile, pI/MW Map, Truncation Series, MSA Conservation, Complex Mass |

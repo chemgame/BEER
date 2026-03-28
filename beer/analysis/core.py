@@ -99,7 +99,6 @@ class AnalysisTools:
         mol_weight  = pa.molecular_weight()
         iso_point   = pa.isoelectric_point()
         gravy       = pa.gravy()
-        instability = pa.instability_index()
         aromaticity = pa.aromaticity()
         net_charge_7  = calc_net_charge(seq, 7.0, pka)
         net_charge_pH = calc_net_charge(seq, pH_value, pka)
@@ -233,7 +232,7 @@ class AnalysisTools:
           <tr><td>Negative residues (D, E)</td><td>{neg_n}</td></tr>
           <tr><td>FCR (fraction charged)</td><td>{fcr:.3f}</td></tr>
           <tr><td>NCPR (net charge/residue)</td><td>{ncpr:+.3f}</td></tr>
-          <tr><td>Charge asymmetry (pos/neg)</td><td>{"%.2f" % ch_asym if neg_n > 0 else "&#8734; (no neg.)"}</td></tr>
+          <tr><td>K+R / D+E ratio</td><td>{"%.2f" % ch_asym if neg_n > 0 else "&#8734; (no D or E)"}</td></tr>
           <tr><td>Kappa (&kappa;)</td><td>{kappa:.3f}</td></tr>
         </table>
         <p class="note">&kappa;: 0 = well-mixed, 1 = fully segregated (Das &amp; Pappu 2013)</p>
@@ -289,12 +288,11 @@ class AnalysisTools:
           <tr><th>Property</th><th>Value</th></tr>
           <tr><td>Disorder-promoting fraction (A,E,G,K,P,Q,R,S)</td><td>{disorder_f:.3f}</td></tr>
           <tr><td>Order-promoting fraction (C,F,H,I,L,M,V,W,Y)</td><td>{order_f:.3f}</td></tr>
-          <tr><td>Aliphatic index</td><td>{aliphatic_idx:.1f}</td></tr>
           <tr><td>Omega (&Omega;)</td><td>{omega:.3f}</td></tr>
           <tr><td>Mean per-residue disorder score</td><td>{mean_disorder:.3f}</td></tr>
           <tr><td>Disordered fraction (score &gt; 0.5)</td><td>{disordered_frac:.3f} ({disordered_frac*100:.1f}%)</td></tr>
         </table>
-        <p class="note">Disorder/order fractions: Uversky. Aliphatic index: Ikai 1980. &Omega;: 0 = even, 1 = clustered (Das et al. 2015). Per-residue disorder: ESM2 logistic probe (AUC 0.874 on DisProt 2024) with classical fallback.</p>
+        <p class="note">Disorder/order fractions: Uversky 2003. &Omega;: sticker patterning, 0 = evenly distributed, 1 = clustered (Das et al. 2015). Per-residue disorder: ESM2 logistic probe (AUC 0.874 on DisProt 2024); falls back to a per-residue propensity scale smoothed over the user-defined window when ESM2 is unavailable.</p>
         """
 
         repeats_html = _style + f"""

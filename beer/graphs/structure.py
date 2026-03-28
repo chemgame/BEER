@@ -386,13 +386,13 @@ def create_coiled_coil_profile_figure(
     ax.fill_between(xs, cc_profile, 0.5,
                     where=[v > 0.5 for v in cc_profile],
                     alpha=0.22, color=_ACCENT, zorder=2,
-                    label="Coiled-coil region (>0.50)")
+                    label="Above threshold (>0.50, relative)")
     ax.axhline(0.5, color="#374151", linestyle="--", linewidth=0.9,
                alpha=0.7, label="Threshold 0.50", zorder=4)
     _pub_style_ax(ax,
-                  title="Coiled-Coil Propensity Profile",
+                  title="Coiled-Coil Propensity Profile (heptad-weighted, sequence-relative)",
                   xlabel="Residue Position",
-                  ylabel="Coiled-Coil Score",
+                  ylabel="Relative Coiled-Coil Score",
                   grid=True, title_size=label_font + 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_ylim(0, 1.05)

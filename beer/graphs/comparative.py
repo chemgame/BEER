@@ -360,7 +360,7 @@ def create_saturation_mutagenesis_figure(
     ax.set_yticklabels(AAS_BY_HYDRO, fontsize=max(6, tick_font - 4))
     ax.set_xlabel("Residue Position", fontsize=label_font - 1, color="#4a5568")
     ax.set_ylabel("Substitution", fontsize=label_font - 1, color="#4a5568")
-    ax.set_title("Saturation Mutagenesis  (|ΔGRAVY| + |ΔNCPR|)",
+    ax.set_title("Single-Residue Perturbation Map  (|ΔGRAVY| + |ΔNCPR|)",
                  fontsize=label_font, fontweight="bold", color="#1a1a2e", pad=8)
     ax.tick_params(axis="x", labelsize=tick_font - 2)
     fig.tight_layout(pad=1.5)
