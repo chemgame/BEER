@@ -380,7 +380,14 @@ class ProteinAnalyzerGUI(QMainWindow):
         vb.addWidget(canvas)
         try:
             import mplcursors as _mplcursors
-            _cur = _mplcursors.cursor(canvas.figure, hover=True)
+            import warnings as _warnings
+            with _warnings.catch_warnings():
+                _warnings.filterwarnings(
+                    "ignore",
+                    message="Pick support for.*Collection",
+                    category=UserWarning,
+                )
+                _cur = _mplcursors.cursor(canvas.figure, hover=True)
 
             @_cur.connect("add")
             def _style_annot(sel):
