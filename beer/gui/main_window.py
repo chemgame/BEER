@@ -353,7 +353,8 @@ class ProteinAnalyzerGUI(QMainWindow):
         is_dark = hasattr(self, "theme_toggle") and self.theme_toggle.isChecked()
         if is_dark:
             toolbar.setStyleSheet(
-                "QToolBar { background: #1a2035; border-radius: 4px; padding: 2px; spacing: 1px; }"
+                "QToolBar { background: #1e2640; border: none; border-radius: 4px;"
+                "           padding: 2px; spacing: 1px; }"
                 "QToolButton { background: transparent; border: none; border-radius: 3px;"
                 "              padding: 3px; color: #e8eaef; }"
                 "QToolButton:hover   { background: rgba(255,255,255,0.15); }"
@@ -361,14 +362,10 @@ class ProteinAnalyzerGUI(QMainWindow):
                 "QToolButton:checked { background: rgba(67,97,238,0.55); }"
             )
         else:
-            toolbar.setStyleSheet(
-                "QToolBar { background: #eef1fc; border-radius: 4px; padding: 2px; spacing: 1px; }"
-                "QToolButton { background: transparent; border: none; border-radius: 3px;"
-                "              padding: 3px; color: #2d3748; }"
-                "QToolButton:hover   { background: rgba(67,97,238,0.15); }"
-                "QToolButton:pressed { background: rgba(67,97,238,0.3); }"
-                "QToolButton:checked { background: rgba(67,97,238,0.35); }"
-            )
+            # Clear custom CSS — let the global LIGHT_THEME_CSS rule
+            # (QToolBar QToolButton { background:#fff; color:#2d3748 }) apply
+            # so matplotlib icons render with correct dark-on-light colours.
+            toolbar.setStyleSheet("")
         vb.addWidget(toolbar)
         vb.addWidget(canvas)
         try:
@@ -536,7 +533,6 @@ class ProteinAnalyzerGUI(QMainWindow):
         tb2 = QHBoxLayout()
         tb2.setSpacing(6)
 
-        from PySide6.QtWidgets import QToolButton
         self._annotate_menu = QMenu(self)
 
         self._act_af       = self._annotate_menu.addAction("AlphaFold Structure")
@@ -565,12 +561,10 @@ class ProteinAnalyzerGUI(QMainWindow):
                     self._act_variants, self._act_intact):
             act.setEnabled(False)
 
-        self._annotate_btn = QToolButton()
-        self._annotate_btn.setText("Annotate \u25be")
+        self._annotate_btn = QPushButton("Annotate \u25be")
         self._annotate_btn.setMinimumHeight(28)
         self._annotate_btn.setMinimumWidth(110)
-        self._annotate_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._annotate_btn.setMenu(self._annotate_menu)
+        self._annotate_btn.clicked.connect(self._show_annotate_menu)
         self._annotate_btn.setEnabled(False)
         tb2.addWidget(self._annotate_btn)
 
@@ -3358,6 +3352,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 event.acceptProposedAction()
                 return
         super().dropEvent(event)
+
+    def _show_annotate_menu(self):
+        """Pop up the Annotate menu below the button (reliable on all platforms)."""
+        pos = self._annotate_btn.mapToGlobal(
+            self._annotate_btn.rect().bottomLeft())
+        self._annotate_menu.exec(pos)
 
     # --- Keyboard shortcuts ---
 
