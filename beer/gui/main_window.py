@@ -147,6 +147,45 @@ def _calc_batch_stats(seq: str, data: dict) -> tuple:
     neu   = 100 - (pos + neg)
     return hydro, 100 - hydro, pos, neg, neu
 
+# ---------------------------------------------------------------------------
+# Report section help hints (module-level)
+# ---------------------------------------------------------------------------
+_SECTION_HINTS: dict = {
+    "Composition":               "Amino-acid counts, frequencies, and physicochemical groupings.",
+    "Properties":                "Global physicochemical parameters: MW, pI, GRAVY, aromaticity, extinction coefficient.",
+    "Hydrophobicity":            "Kyte\u2013Doolittle hydropathy statistics and hydrophobic/hydrophilic fractions.",
+    "Charge":                    "Net charge, FCR, NCPR, charge asymmetry (\u03ba/\u03a9) at the set pH.",
+    "Aromatic & \u03c0":         "Aromatic fraction and cation\u2013\u03c0 / \u03c0\u2013\u03c0 pair counts.",
+    "Low Complexity":            "Shannon entropy, prion-like score, LC fraction, PLAAC score, PolyX runs.",
+    "Disorder":                  "ESM2 linear-probe disorder prediction (AUC 0.83 on DisProt 2024); classical propensity fallback.",
+    "Repeat Motifs":             "RGG/RG, FG, SR/RS, QN/NQ repeat motifs relevant to RNA-binding and phase separation.",
+    "Sticker & Spacer":          "Aromatic/charged stickers and uncharged spacers \u2014 key determinants of condensate properties.",
+    "TM Helices":                "Kyte\u2013Doolittle sliding-window TM helix prediction; inside-positive topology rule.",
+    "LARKS":                     "Low-complexity Aromatic-Rich Kinked Segments \u2014 structural motifs associated with amyloid-like fibres (Hughes et al. 2018).",
+    "Linear Motifs":             "Regex scan for 15+ short linear motifs: NLS, NES, PxxP, 14-3-3, KFERQ, KDEL, and more.",
+    "\u03b2-Aggregation & Solubility": "ZYGGREGATOR \u03b2-aggregation hotspots and CamSol intrinsic solubility per residue.",
+    "PTM Sites":                 "ESM2-predicted phosphorylation, ubiquitination, SUMOylation, glycosylation, and methylation sites.",
+    "Signal Peptide & GPI":      "ESM2 signal-peptide probe (AUC 1.00); n/h/c-region annotation and GPI signal detection.",
+    "Amphipathic Helices":       "Helical-wheel scan for amphipathic helices with hydrophobic moment \u2265 threshold.",
+    "Charge Decoration (SCD)":   "Sequence Charge Decoration profile (Sawle & Ghosh 2015) and \u03ba/\u03a9 patterning metrics.",
+    "RNA Binding":               "Per-residue RNA-binding propensity; RGG, RRM, KH, SR, DEAD-box, and zinc-finger motif hits.",
+    "Tandem Repeats":            "Direct, tandem, and compositional repeat detection.",
+    "Proteolytic Map":           "Predicted cleavage sites for 9 enzymes (Trypsin, Lys-C, Glu-C, Asp-N, Chymotrypsin, CNBr, Arg-C, Caspase-3, Proteinase K) with peptide masses.",
+}
+
+# Report section groups for collapsible tree (module-level)
+_REPORT_SECTION_GROUPS: list = [
+    ("Sequence Properties", ["Composition", "Properties", "Hydrophobicity", "Charge", "Aromatic & \u03c0"]),
+    ("IDP & Phase Separation", ["Low Complexity", "Disorder", "Repeat Motifs", "Sticker & Spacer",
+                                 "Charge Decoration (SCD)", "LARKS", "RNA Binding"]),
+    ("Post-Translational", ["PTM Sites", "Signal Peptide & GPI"]),
+    ("Structure & Topology", ["Amphipathic Helices", "TM Helices"]),
+    ("Functional Sites", ["Linear Motifs", "Tandem Repeats", "Proteolytic Map",
+                           "\u03b2-Aggregation & Solubility"]),
+]
+
+# ---------------------------------------------------------------------------
+
 class ProteinAnalyzerGUI(QMainWindow):
     def __init__(self, embedder: "SequenceEmbedder | None" = None):
         super().__init__()
@@ -196,6 +235,10 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._blast_worker       = None
 
         # --- New state for extended features ---
+        self._blast_timer        = None
+        self._blast_start_time   = None
+        self._undo_seq           = None
+        self._undo_name          = None
         self._elm_worker         = None
         self._disprot_worker     = None
         self._phasepdb_worker    = None
@@ -258,6 +301,46 @@ class ProteinAnalyzerGUI(QMainWindow):
             if w:
                 w.setParent(None)
 
+    _GRAPH_HINTS: dict = {
+        "Amino Acid Composition (Bar)":  "Residue counts as a bar chart, coloured by physiochemical group.",
+        "Amino Acid Composition (Pie)":  "Residue frequency as a pie chart; groupings follow Koolman & R\u00f6hm.",
+        "Hydrophobicity Profile":        "Kyte\u2013Doolittle hydropathy averaged over a sliding window (default 9 aa). Values > 1.8 indicate potential TM helices.",
+        "Local Charge Profile":          "Mean net charge per window; positive = blue, negative = red.",
+        "Local Complexity":              "Shannon entropy per window; low values indicate low-complexity / repetitive sequence.",
+        "Disorder Profile":              "Per-residue disorder score (0 = ordered, 1 = disordered). Threshold 0.5.",
+        "Coiled-Coil Profile":           "Heptad-weighted propensity score (sequence-relative, not a validated predictor).",
+        "Linear Sequence Map":           "All predicted features on a single ruler: TM helices, signal peptide, PTM sites, LARKS.",
+        "Isoelectric Focus":             "Net charge vs pH curve; pI is where the curve crosses zero.",
+        "Charge Decoration":             "Das\u2013Pappu diagram of FCR vs NCPR; coloured regions correspond to IDP sub-classes.",
+        "Cation\u2013\u03c0 Map":        "Pairwise cation\u2013\u03c0 interactions between K/R and F/W/Y residues.",
+        "Bead Model (Hydrophobicity)":   "Residues as spheres coloured by Kyte\u2013Doolittle score; links show sequence connectivity.",
+        "Bead Model (Charge)":           "Residues as spheres coloured by charge (K/R blue, D/E red, other grey).",
+        "Sticker Map":                   "Aromatic (sticker) and charged residues highlighted on a sequence axis.",
+        "Helical Wheel":                 "Helical-wheel projection of the first 18 residues (or selection); identifies amphipathic faces.",
+        "TM Topology":                   "KD sliding window with TM threshold line; topology annotated using inside-positive rule.",
+        "Uversky Phase Plot":            "Mean net charge vs mean hydrophobicity; points above the Uversky boundary are predicted disordered.",
+        "Single-Residue Perturbation Map": "Effect of every possible point mutation on GRAVY / pI; hot = destabilising, cool = neutral.",
+        "pLDDT Profile":                 "AlphaFold per-residue confidence score. > 90 very high, 70\u201390 confident, 50\u201370 low, < 50 very low.",
+        "Distance Map":                  "C\u03b1\u2013C\u03b1 distance matrix (\u00c5). Contacts < 8 \u00c5 are highlighted; diagonal = self.",
+        "Domain Architecture":           "Pfam domain assignments drawn as coloured boxes on a sequence ruler.",
+        "Ramachandran Plot":             "\u03c6/\u03c8 dihedral angle plot; coloured regions show allowed (Ramachandran 1963) and favoured zones.",
+        "Residue Contact Network":       "Graph of residue pairs within 8 \u00c5; hub residues (high degree) shown larger.",
+        "\u03b2-Aggregation Profile":     "ZYGGREGATOR score per residue; values > 1.0 indicate aggregation-prone regions.",
+        "Solubility Profile":            "CamSol intrinsic solubility; negative values indicate low solubility.",
+        "Hydrophobic Moment":            "Eisenberg hydrophobic moment per helical turn; peaks indicate amphipathic helices.",
+        "Annotation Track":              "Five aligned tracks: disorder, hydrophobicity, aggregation, feature annotations, and ruler.",
+        "Cleavage Map":                  "Predicted proteolytic cut sites for 9 enzymes as coloured tick marks; trypsin peptide masses listed.",
+        "PLAAC Profile":                 "Per-residue log-odds prion-like amino-acid composition score (Lancaster et al. 2014). Positive = prion-like.",
+        "PTM Map":                       "ESM2-predicted PTM sites (phosphorylation, ubiquitination, SUMOylation, glycosylation, methylation) on a ruler.",
+        "RNA-Binding Profile":           "Per-residue RNA-binding propensity with detected RGG/RRM/KH/SR motif positions marked.",
+        "SCD Profile":                   "Sequence Charge Decoration (Sawle & Ghosh 2015): pairwise charge product weighted by sequence separation.",
+        "pI / MW Map":                   "Scatter of all tryptic peptides in pI vs log(MW) space \u2014 conceptual 2D gel view.",
+        "Truncation Series":             "Selected biophysical properties (disorder, hydrophobicity, pI) across progressive N- or C-terminal truncations.",
+        "MSA Conservation":              "Per-column conservation score (1 \u2013 normalised entropy) across the loaded multiple sequence alignment.",
+        "MSA Covariance":                "Pairwise mutual information with APC correction (Dunn et al. 2008). High values indicate co-evolving residue pairs.",
+        "Complex Mass":                  "Bar chart of subunit and total complex molecular weights given the entered stoichiometry.",
+    }
+
     def _replace_graph(self, title: str, fig):
         """Swap graph canvas in the named tab."""
         tab, vb = self.graph_tabs[title]
@@ -267,16 +350,43 @@ class ProteinAnalyzerGUI(QMainWindow):
         canvas.customContextMenuRequested.connect(
             lambda pos, c=canvas: self._graph_context_menu(c, pos))
         toolbar = NavigationToolbar2QT(canvas, self)
-        toolbar.setStyleSheet(
-            "QToolBar { background: #2d3748; border-radius: 4px; padding: 2px; spacing: 1px; }"
-            "QToolButton { background: transparent; border: none; border-radius: 3px;"
-            "              padding: 3px; color: #e8eaef; }"
-            "QToolButton:hover   { background: rgba(255,255,255,0.15); }"
-            "QToolButton:pressed { background: rgba(255,255,255,0.25); }"
-            "QToolButton:checked { background: rgba(67,97,238,0.55); }"
-        )
+        is_dark = hasattr(self, "theme_toggle") and self.theme_toggle.isChecked()
+        if is_dark:
+            toolbar.setStyleSheet(
+                "QToolBar { background: #1a2035; border-radius: 4px; padding: 2px; spacing: 1px; }"
+                "QToolButton { background: transparent; border: none; border-radius: 3px;"
+                "              padding: 3px; color: #e8eaef; }"
+                "QToolButton:hover   { background: rgba(255,255,255,0.15); }"
+                "QToolButton:pressed { background: rgba(255,255,255,0.25); }"
+                "QToolButton:checked { background: rgba(67,97,238,0.55); }"
+            )
+        else:
+            toolbar.setStyleSheet(
+                "QToolBar { background: #eef1fc; border-radius: 4px; padding: 2px; spacing: 1px; }"
+                "QToolButton { background: transparent; border: none; border-radius: 3px;"
+                "              padding: 3px; color: #2d3748; }"
+                "QToolButton:hover   { background: rgba(67,97,238,0.15); }"
+                "QToolButton:pressed { background: rgba(67,97,238,0.3); }"
+                "QToolButton:checked { background: rgba(67,97,238,0.35); }"
+            )
         vb.addWidget(toolbar)
         vb.addWidget(canvas)
+        try:
+            import mplcursors as _mplcursors
+            _mplcursors.cursor(canvas.figure, hover=True)
+        except Exception:
+            pass
+        hint = self._GRAPH_HINTS.get(title, "")
+        if hint:
+            from PySide6.QtWidgets import QToolButton as _QGTB
+            info_btn = _QGTB()
+            info_btn.setText("\u24d8")
+            info_btn.setMaximumWidth(28)
+            info_btn.setStyleSheet("QToolButton { font-size:11pt; border:none; color:#718096; }")
+            info_btn.setToolTip(hint)
+            info_btn.clicked.connect(
+                lambda _, h=hint, t=title: QMessageBox.information(self, t, h))
+            vb.addWidget(info_btn, alignment=Qt.AlignmentFlag.AlignRight)
         btn = QPushButton("Save Graph")
         btn.clicked.connect(lambda _, t=title: self.save_graph(t))
         vb.addWidget(btn, alignment=Qt.AlignmentFlag.AlignRight)
@@ -384,8 +494,12 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.mutate_btn.setToolTip("Introduce a point mutation at any position (run analysis first)")
         self.mutate_btn.setEnabled(False)
         self.mutate_btn.clicked.connect(self.open_mutation_dialog)
+        self.load_example_btn = QPushButton("Load Example")
+        self.load_example_btn.setMinimumHeight(32)
+        self.load_example_btn.setToolTip("Load FUS (human) as an example IDP sequence")
+        self.load_example_btn.clicked.connect(self._load_example_sequence)
         for w in (self.import_fasta_btn, self.import_pdb_btn, self.analyze_btn,
-                  self.export_analysis_btn, self.mutate_btn):
+                  self.export_analysis_btn, self.mutate_btn, self.load_example_btn):
             w.setMinimumHeight(32)
             toolbar.addWidget(w)
         toolbar.addStretch()
@@ -418,71 +532,47 @@ class ProteinAnalyzerGUI(QMainWindow):
             tb1b.addWidget(w)
         outer.addLayout(tb1b)
 
-        # ---- toolbar row 3: database fetch buttons + history ----
+        # ---- toolbar row 3: Annotate dropdown + history ----
         tb2 = QHBoxLayout()
         tb2.setSpacing(6)
-        self.fetch_af_btn = QPushButton("Fetch AlphaFold")
-        self.fetch_af_btn.setMinimumHeight(28)
-        self.fetch_af_btn.setEnabled(False)
-        self.fetch_af_btn.clicked.connect(self.fetch_alphafold)
-        self._set_tooltip(self.fetch_af_btn,
-                          "Fetch AlphaFold predicted structure. Requires a UniProt accession — fetch one first.")
-        tb2.addWidget(self.fetch_af_btn)
-        self.fetch_pfam_btn = QPushButton("Fetch Pfam")
-        self.fetch_pfam_btn.setMinimumHeight(28)
-        self.fetch_pfam_btn.setEnabled(False)
-        self.fetch_pfam_btn.clicked.connect(self.fetch_pfam)
-        self._set_tooltip(self.fetch_pfam_btn,
-                          "Fetch Pfam domain annotations from InterPro. Requires a UniProt accession — fetch one first.")
-        tb2.addWidget(self.fetch_pfam_btn)
 
-        self.fetch_elm_btn = QPushButton("Fetch ELM")
-        self.fetch_elm_btn.setMinimumHeight(28)
-        self.fetch_elm_btn.setEnabled(False)
-        self.fetch_elm_btn.clicked.connect(self.fetch_elm)
-        self._set_tooltip(self.fetch_elm_btn,
-                          "Fetch experimentally validated linear motifs from ELM. Requires a UniProt accession — fetch one first.")
-        tb2.addWidget(self.fetch_elm_btn)
+        from PySide6.QtWidgets import QToolButton
+        self._annotate_menu = QMenu(self)
 
-        self.fetch_disprot_btn = QPushButton("DisProt")
-        self.fetch_disprot_btn.setMinimumHeight(28)
-        self.fetch_disprot_btn.setEnabled(False)
-        self.fetch_disprot_btn.clicked.connect(self.fetch_disprot)
-        self._set_tooltip(self.fetch_disprot_btn,
-                          "Fetch disorder annotations from DisProt. Requires a UniProt accession — fetch one first.")
-        tb2.addWidget(self.fetch_disprot_btn)
+        self._act_af       = self._annotate_menu.addAction("AlphaFold Structure")
+        self._act_pfam     = self._annotate_menu.addAction("Pfam Domains")
+        self._act_elm      = self._annotate_menu.addAction("ELM Linear Motifs")
+        self._annotate_menu.addSeparator()
+        self._act_disprot  = self._annotate_menu.addAction("DisProt Disorder Regions")
+        self._act_phasepdb = self._annotate_menu.addAction("PhaSepDB Phase Separation")
+        self._act_mobidb   = self._annotate_menu.addAction("MobiDB Disorder Consensus")
+        self._annotate_menu.addSeparator()
+        self._act_variants = self._annotate_menu.addAction("UniProt Variants")
+        self._act_intact   = self._annotate_menu.addAction("IntAct Interactions")
 
-        self.fetch_phasepdb_btn = QPushButton("PhaSepDB")
-        self.fetch_phasepdb_btn.setMinimumHeight(28)
-        self.fetch_phasepdb_btn.setEnabled(False)
-        self.fetch_phasepdb_btn.clicked.connect(self.fetch_phasepdb)
-        self._set_tooltip(self.fetch_phasepdb_btn,
-                          "Check if protein is in PhaSepDB (phase separation database). Requires a UniProt accession — fetch one first.")
-        tb2.addWidget(self.fetch_phasepdb_btn)
+        self._act_af.triggered.connect(self.fetch_alphafold)
+        self._act_pfam.triggered.connect(self.fetch_pfam)
+        self._act_elm.triggered.connect(self.fetch_elm)
+        self._act_disprot.triggered.connect(self.fetch_disprot)
+        self._act_phasepdb.triggered.connect(self.fetch_phasepdb)
+        self._act_mobidb.triggered.connect(self.fetch_mobidb)
+        self._act_variants.triggered.connect(self.fetch_variants)
+        self._act_intact.triggered.connect(self.fetch_intact)
 
-        self.fetch_mobidb_btn = QPushButton("MobiDB")
-        self.fetch_mobidb_btn.setMinimumHeight(28)
-        self.fetch_mobidb_btn.setEnabled(False)
-        self.fetch_mobidb_btn.clicked.connect(self.fetch_mobidb)
-        self._set_tooltip(self.fetch_mobidb_btn,
-                          "Fetch consensus disorder annotations from MobiDB. Requires a UniProt accession — fetch one first.")
-        tb2.addWidget(self.fetch_mobidb_btn)
+        # Disable all until accession fetched
+        for act in (self._act_af, self._act_pfam, self._act_elm,
+                    self._act_disprot, self._act_phasepdb, self._act_mobidb,
+                    self._act_variants, self._act_intact):
+            act.setEnabled(False)
 
-        self.fetch_variants_btn = QPushButton("Variants")
-        self.fetch_variants_btn.setMinimumHeight(28)
-        self.fetch_variants_btn.setEnabled(False)
-        self.fetch_variants_btn.clicked.connect(self.fetch_variants)
-        self._set_tooltip(self.fetch_variants_btn,
-                          "Fetch natural variants and mutagenesis data from UniProt. Requires a UniProt accession — fetch one first.")
-        tb2.addWidget(self.fetch_variants_btn)
-
-        self.fetch_intact_btn = QPushButton("IntAct")
-        self.fetch_intact_btn.setMinimumHeight(28)
-        self.fetch_intact_btn.setEnabled(False)
-        self.fetch_intact_btn.clicked.connect(self.fetch_intact)
-        self._set_tooltip(self.fetch_intact_btn,
-                          "Fetch curated binary interactions from IntAct (EBI). Requires a UniProt accession — fetch one first.")
-        tb2.addWidget(self.fetch_intact_btn)
+        self._annotate_btn = QToolButton()
+        self._annotate_btn.setText("Annotate \u25be")
+        self._annotate_btn.setMinimumHeight(28)
+        self._annotate_btn.setMinimumWidth(110)
+        self._annotate_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._annotate_btn.setMenu(self._annotate_menu)
+        self._annotate_btn.setEnabled(False)
+        tb2.addWidget(self._annotate_btn)
 
         tb2.addSpacing(20)
         tb2.addWidget(QLabel("History:"))
@@ -493,6 +583,13 @@ class ProteinAnalyzerGUI(QMainWindow):
         tb2.addWidget(self.history_combo)
         tb2.addStretch()
         outer.addLayout(tb2)
+
+        # ── Persistent sequence info bar ─────────────────────────────────────
+        self._seq_info_label = QLabel("")
+        self._seq_info_label.setStyleSheet(
+            "QLabel { color:#4361ee; font-size:9pt; font-weight:600; padding:2px 4px; }")
+        self._seq_info_label.hide()
+        outer.addWidget(self._seq_info_label)
 
         # ---- splitter: left input panel | right results panel ----
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -585,10 +682,12 @@ class ProteinAnalyzerGUI(QMainWindow):
         report_h.setContentsMargins(0, 0, 0, 0)
         report_h.setSpacing(0)
 
-        self.report_section_list = QListWidget()
+        self.report_section_list = QTreeWidget()
         self.report_section_list.setObjectName("report_nav")
-        self.report_section_list.setFixedWidth(152)
+        self.report_section_list.setFixedWidth(170)
+        self.report_section_list.setHeaderHidden(True)
         self.report_section_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.report_section_list.setIndentation(12)
         report_h.addWidget(self.report_section_list)
 
         rsep = QFrame()
@@ -614,37 +713,88 @@ class ProteinAnalyzerGUI(QMainWindow):
         right_layout.addWidget(report_panel, 1)
 
         self.report_section_tabs = {}
+        self._report_sec_to_idx: dict = {}
+        _stack_idx = 0
+        bold_font = QFont(); bold_font.setBold(True)
+
+        # Build a set of all sections in groups
+        _grouped_secs = {s for _, secs in _REPORT_SECTION_GROUPS for s in secs}
+
+        for group_name, group_secs in _REPORT_SECTION_GROUPS:
+            grp_item = QTreeWidgetItem([group_name])
+            grp_item.setFont(0, bold_font)
+            grp_item.setFlags(grp_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self.report_section_list.addTopLevelItem(grp_item)
+            for sec in group_secs:
+                if sec not in REPORT_SECTIONS:
+                    continue
+                leaf = QTreeWidgetItem([sec])
+                leaf.setData(0, Qt.ItemDataRole.UserRole, sec)
+                grp_item.addChild(leaf)
+                # Build the tab widget
+                tab = QWidget()
+                vb  = QVBoxLayout(tab)
+                vb.setContentsMargins(4, 4, 4, 4)
+                btn_row = QHBoxLayout()
+                btn_row.setSpacing(4)
+                hint = _SECTION_HINTS.get(sec, "")
+                if hint:
+                    from PySide6.QtWidgets import QToolButton as _QTB
+                    help_btn = _QTB()
+                    help_btn.setText("?")
+                    help_btn.setMaximumWidth(24)
+                    help_btn.setMaximumHeight(24)
+                    help_btn.setStyleSheet("QToolButton { font-weight:bold; border-radius:10px; }")
+                    help_btn.setToolTip(hint)
+                    help_btn.clicked.connect(
+                        lambda _, h=hint, s=sec: QMessageBox.information(self, s, h))
+                    btn_row.addWidget(help_btn)
+                if sec == "Composition":
+                    for lbl, mode in [("A\u2013Z", "alpha"), ("By Freq", "composition"),
+                                       ("Hydro \u2191", "hydro_inc"), ("Hydro \u2193", "hydro_dec")]:
+                        b = QPushButton(lbl)
+                        b.setMaximumWidth(90)
+                        b.setMinimumHeight(26)
+                        b.clicked.connect(lambda _, m=mode: self.sort_composition(m))
+                        btn_row.addWidget(b)
+                btn_row.addStretch()
+                copy_btn = QPushButton("Copy Table")
+                copy_btn.setMaximumWidth(100)
+                copy_btn.setMinimumHeight(26)
+                copy_btn.clicked.connect(lambda _, s=sec: self._copy_section(s))
+                btn_row.addWidget(copy_btn)
+                vb.addLayout(btn_row)
+                browser = QTextBrowser()
+                vb.addWidget(browser)
+                self.report_stack.addWidget(tab)
+                self.report_section_tabs[sec] = browser
+                self._report_sec_to_idx[sec] = _stack_idx
+                _stack_idx += 1
+            grp_item.setExpanded(True)
+
+        # Any sections not in groups
         for sec in REPORT_SECTIONS:
-            self.report_section_list.addItem(QListWidgetItem(sec))
+            if sec not in _grouped_secs:
+                leaf = QTreeWidgetItem([sec])
+                leaf.setData(0, Qt.ItemDataRole.UserRole, sec)
+                self.report_section_list.addTopLevelItem(leaf)
+                tab = QWidget(); vb = QVBoxLayout(tab); vb.setContentsMargins(4, 4, 4, 4)
+                btn_row = QHBoxLayout(); btn_row.setSpacing(4)
+                btn_row.addStretch()
+                copy_btn = QPushButton("Copy Table"); copy_btn.setMaximumWidth(100)
+                copy_btn.setMinimumHeight(26)
+                copy_btn.clicked.connect(lambda _, s=sec: self._copy_section(s))
+                btn_row.addWidget(copy_btn); vb.addLayout(btn_row)
+                browser = QTextBrowser(); vb.addWidget(browser)
+                self.report_stack.addWidget(tab)
+                self.report_section_tabs[sec] = browser
+                self._report_sec_to_idx[sec] = _stack_idx
+                _stack_idx += 1
 
-            tab = QWidget()
-            vb  = QVBoxLayout(tab)
-            vb.setContentsMargins(4, 4, 4, 4)
-            btn_row = QHBoxLayout()
-            btn_row.setSpacing(4)
-            if sec == "Composition":
-                for lbl, mode in [("A–Z", "alpha"), ("By Freq", "composition"),
-                                   ("Hydro ↑", "hydro_inc"), ("Hydro ↓", "hydro_dec")]:
-                    b = QPushButton(lbl)
-                    b.setMaximumWidth(90)
-                    b.setMinimumHeight(26)
-                    b.clicked.connect(lambda _, m=mode: self.sort_composition(m))
-                    btn_row.addWidget(b)
-            btn_row.addStretch()
-            copy_btn = QPushButton("Copy Table")
-            copy_btn.setMaximumWidth(100)
-            copy_btn.setMinimumHeight(26)
-            copy_btn.clicked.connect(lambda _, s=sec: self._copy_section(s))
-            btn_row.addWidget(copy_btn)
-            vb.addLayout(btn_row)
-            browser = QTextBrowser()
-            vb.addWidget(browser)
-            self.report_stack.addWidget(tab)
-            self.report_section_tabs[sec] = browser
-
-        self.report_section_list.currentRowChanged.connect(
-            self.report_stack.setCurrentIndex)
-        self.report_section_list.setCurrentRow(0)
+        self.report_section_list.itemClicked.connect(self._on_report_section_clicked)
+        self.report_section_list.setCurrentItem(
+            self.report_section_list.topLevelItem(0).child(0)
+            if self.report_section_list.topLevelItem(0) else None)
 
         splitter.addWidget(right)
         splitter.setSizes([400, 700])
@@ -664,7 +814,18 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.graph_tree.setFixedWidth(186)
         self.graph_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.graph_tree.setIndentation(14)
-        outer.addWidget(self.graph_tree)
+
+        left_outer = QWidget()
+        left_vb = QVBoxLayout(left_outer)
+        left_vb.setContentsMargins(0, 0, 0, 0)
+        left_vb.setSpacing(2)
+        self._graph_filter = QLineEdit()
+        self._graph_filter.setPlaceholderText("Filter graphs\u2026")
+        self._graph_filter.setMaximumHeight(26)
+        self._graph_filter.textChanged.connect(self._filter_graph_tree)
+        left_vb.addWidget(self._graph_filter)
+        left_vb.addWidget(self.graph_tree)
+        outer.addWidget(left_outer)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.VLine)
@@ -1501,11 +1662,15 @@ window.addEventListener("load",init);
             v.setContentsMargins(0, 0, 0, 0)
             v.addWidget(QLabel(lbl))
             te = QTextEdit()
-            te.setPlaceholderText(f"Paste {lbl} here…")
+            te.setPlaceholderText(f"Paste {lbl} here\u2026")
             te.setFont(QFont("Courier New", 10))
             te.setMaximumHeight(120)
             v.addWidget(te)
             setattr(self, attr, te)
+            use_btn = QPushButton(f"Set {lbl} as Main Sequence")
+            use_btn.setMinimumHeight(26)
+            use_btn.clicked.connect(lambda _, a=attr: self._use_compare_seq(a))
+            v.addWidget(use_btn)
             inputs.addWidget(w)
         layout.addWidget(inputs)
 
@@ -1764,6 +1929,10 @@ window.addEventListener("load",init);
   <tr><th>Shortcut</th><th>Action</th></tr>
   <tr><td>Ctrl+Enter</td><td>Run analysis</td></tr>
   <tr><td>Ctrl+G</td><td>Jump to Graphs</td></tr>
+  <tr><td>Ctrl+2</td><td>Switch to Structure tab</td></tr>
+  <tr><td>Ctrl+3</td><td>Switch to BLAST tab</td></tr>
+  <tr><td>Ctrl+7</td><td>Switch to MSA tab</td></tr>
+  <tr><td>Ctrl+Z</td><td>Undo last mutation</td></tr>
   <tr><td>Ctrl+E</td><td>Export PDF report</td></tr>
   <tr><td>Ctrl+S</td><td>Save session</td></tr>
   <tr><td>Ctrl+O</td><td>Load session</td></tr>
@@ -3197,6 +3366,13 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         QShortcut(QKeySequence("Ctrl+E"),      self, self.export_analysis_dialog)
         QShortcut(QKeySequence("Ctrl+G"),      self,
                   lambda: self.main_tabs.setCurrentIndex(1))
+        QShortcut(QKeySequence("Ctrl+2"), self,
+                  lambda: self.main_tabs.setCurrentIndex(2))   # Structure
+        QShortcut(QKeySequence("Ctrl+3"), self,
+                  lambda: self.main_tabs.setCurrentIndex(3))   # BLAST
+        QShortcut(QKeySequence("Ctrl+7"), self,
+                  lambda: self.main_tabs.setCurrentIndex(7))   # MSA
+        QShortcut(QKeySequence("Ctrl+Z"), self, self._undo_mutation)
         QShortcut(QKeySequence("Ctrl+S"),      self, self.session_save)
         QShortcut(QKeySequence("Ctrl+O"),      self, self.session_load)
         QShortcut(QKeySequence("Ctrl+F"),      self,
@@ -3209,6 +3385,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             ("Ctrl+Return", "Analyze sequence"),
             ("Ctrl+E",      "Export PDF report"),
             ("Ctrl+G",      "Switch to Graphs tab"),
+            ("Ctrl+2",      "Switch to Structure tab"),
+            ("Ctrl+3",      "Switch to BLAST tab"),
+            ("Ctrl+7",      "Switch to MSA tab"),
+            ("Ctrl+Z",      "Undo last mutation"),
             ("Ctrl+S",      "Save session"),
             ("Ctrl+O",      "Load session"),
             ("Ctrl+F",      "Focus motif search"),
@@ -3262,6 +3442,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.statusBar.showMessage(
             f"Analysis complete  |  {len(seq)} aa  |  {self.sequence_name}", 4000
         )
+        mw   = self.analysis_data.get("mol_weight", 0)
+        pi   = self.analysis_data.get("iso_point", 0)
+        info = f"{self.sequence_name or 'Sequence'}  \u00b7  {len(seq)} aa  \u00b7  MW {mw:.1f} Da  \u00b7  pI {pi:.2f}"
+        self._seq_info_label.setText(info)
+        self._seq_info_label.show()
+        self._prepend_section_summaries()
 
     def _on_worker_error(self, msg: str):
         if hasattr(self, "_progress_dlg") and self._progress_dlg:
@@ -3368,14 +3554,15 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.sequence_name = rid
         # Store accession; AlphaFold/Pfam/ELM/DisProt/PhaSepDB need a UniProt ID
         self.current_accession = acc if not is_pdb else ""
-        self.fetch_af_btn.setEnabled(True)
-        self.fetch_pfam_btn.setEnabled(True)
-        self.fetch_elm_btn.setEnabled(not is_pdb)
-        self.fetch_disprot_btn.setEnabled(not is_pdb)
-        self.fetch_phasepdb_btn.setEnabled(not is_pdb)
-        self.fetch_mobidb_btn.setEnabled(not is_pdb)
-        self.fetch_variants_btn.setEnabled(not is_pdb)
-        self.fetch_intact_btn.setEnabled(not is_pdb)
+        self._annotate_btn.setEnabled(True)
+        self._act_af.setEnabled(True)
+        self._act_pfam.setEnabled(True)
+        self._act_elm.setEnabled(not is_pdb)
+        self._act_disprot.setEnabled(not is_pdb)
+        self._act_phasepdb.setEnabled(not is_pdb)
+        self._act_mobidb.setEnabled(not is_pdb)
+        self._act_variants.setEnabled(not is_pdb)
+        self._act_intact.setEnabled(not is_pdb)
         self.accession_input.clear()
         src = "PDB" if is_pdb else "UniProt"
         msg = f"Fetched {rid} from {src}  ({len(seq)} aa)"
@@ -3479,7 +3666,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self.current_accession = acc
         if self._alphafold_worker and self._alphafold_worker.isRunning():
             return
-        self.fetch_af_btn.setEnabled(False)
+        self._act_af.setEnabled(False)
         self._alphafold_worker = AlphaFoldWorker(acc)
         self._alphafold_worker.progress.connect(
             lambda msg: self.statusBar.showMessage(msg))
@@ -3493,7 +3680,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         # chains and then switches back to this sequence.
         if self.sequence_name:
             self.batch_struct[self.sequence_name] = data
-        self.fetch_af_btn.setEnabled(True)
+        self._act_af.setEnabled(True)
         self.export_structure_btn.setEnabled(True)
         n_res = len(data.get("plddt", []))
         mean_plddt = (sum(data["plddt"]) / n_res) if n_res else 0
@@ -3509,7 +3696,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             f"AlphaFold structure loaded  ({data['accession']})", 4000)
 
     def _on_alphafold_error(self, msg: str):
-        self.fetch_af_btn.setEnabled(True)
+        self._act_af.setEnabled(True)
         self.statusBar.showMessage("AlphaFold fetch failed", 3000)
         QMessageBox.warning(self, "AlphaFold Error", msg)
 
@@ -3528,7 +3715,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self.current_accession = acc
         if self._pfam_worker and self._pfam_worker.isRunning():
             return
-        self.fetch_pfam_btn.setEnabled(False)
+        self._act_pfam.setEnabled(False)
         self.statusBar.showMessage(f"Fetching Pfam domains for {acc}…")
         self._pfam_worker = PfamWorker(acc)
         self._pfam_worker.finished.connect(self._on_pfam_finished)
@@ -3537,7 +3724,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_pfam_finished(self, domains: list):
         self.pfam_domains = domains
-        self.fetch_pfam_btn.setEnabled(True)
+        self._act_pfam.setEnabled(True)
         if not domains:
             self.statusBar.showMessage("No Pfam domains found for this protein.", 4000)
             return
@@ -3547,7 +3734,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             f"Loaded {len(domains)} Pfam domain(s).", 4000)
 
     def _on_pfam_error(self, msg: str):
-        self.fetch_pfam_btn.setEnabled(True)
+        self._act_pfam.setEnabled(True)
         self.statusBar.showMessage("Pfam fetch failed", 3000)
         QMessageBox.warning(self, "Pfam Error", msg)
 
@@ -3570,9 +3757,19 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             lambda msg: self.blast_status_lbl.setText(msg))
         self._blast_worker.finished.connect(self._on_blast_finished)
         self._blast_worker.error.connect(self._on_blast_error)
+        import time as _time
+        self._blast_start_time = _time.time()
+        from PySide6.QtCore import QTimer
+        self._blast_timer = QTimer(self)
+        self._blast_timer.timeout.connect(self._update_blast_elapsed)
+        self._blast_timer.start(1000)
         self._blast_worker.start()
 
     def _on_blast_finished(self, hits: list):
+        if self._blast_timer:
+            self._blast_timer.stop()
+            self._blast_timer = None
+        self._blast_start_time = None
         self.blast_run_btn.setEnabled(True)
         self.blast_status_lbl.setStyleSheet("color:#2d6a2d;")
         self.blast_status_lbl.setText(f"{len(hits)} hit(s) returned.")
@@ -3595,6 +3792,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.statusBar.showMessage(f"BLAST complete — {len(hits)} hits", 4000)
 
     def _on_blast_error(self, msg: str):
+        if self._blast_timer:
+            self._blast_timer.stop()
+            self._blast_timer = None
+        self._blast_start_time = None
         self.blast_run_btn.setEnabled(True)
         self.blast_status_lbl.setStyleSheet("color:#c0392b;")
         self.blast_status_lbl.setText(f"Error: {msg}")
@@ -3623,6 +3824,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         pos, new_aa = dlg.get_mutation()
         mutated = seq[:pos] + new_aa + seq[pos + 1:]
         old_aa  = seq[pos]
+        self._undo_seq  = seq
+        self._undo_name = self.sequence_name
         self.seq_text.setPlainText(mutated)
         self.statusBar.showMessage(
             f"Mutated position {pos+1}: {old_aa} → {new_aa}", 3000
@@ -3707,6 +3910,14 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         # ── Protein info bar ──────────────────────────────────────────────
         self._protein_info_bar.hide()
 
+        # ── Sequence info label ───────────────────────────────────────────
+        self._seq_info_label.setText("")
+        self._seq_info_label.hide()
+
+        # ── Undo state ────────────────────────────────────────────────────
+        self._undo_seq  = None
+        self._undo_name = None
+
         # ── Sequence & identity ───────────────────────────────────────────
         self.seq_text.clear()
         self.seq_viewer.clear()
@@ -3741,6 +3952,11 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.export_analysis_btn.setEnabled(False)
         self.mutate_btn.setEnabled(False)
         self.export_structure_btn.setEnabled(False)
+        self._annotate_btn.setEnabled(False)
+        for act in (self._act_af, self._act_pfam, self._act_elm,
+                    self._act_disprot, self._act_phasepdb, self._act_mobidb,
+                    self._act_variants, self._act_intact):
+            act.setEnabled(False)
 
         self.statusBar.showMessage("Session cleared.", 2500)
 
@@ -3962,7 +4178,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.msa_aligned_cb.setChecked(False)
         ctrl.addWidget(self.msa_aligned_cb)
         ctrl.addSpacing(16)
-        self.msa_run_btn = QPushButton("Align & Show Conservation")
+        self.msa_run_btn = QPushButton("Run MSA Analysis")
         self.msa_run_btn.setMinimumHeight(30)
         self.msa_run_btn.clicked.connect(self.run_msa)
         run_msa_btn = self.msa_run_btn
@@ -4130,6 +4346,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         for name, aln_seq in zip(names, aligned):
             preview_lines.append(f"<b>{name[:20]}</b>  <tt>{aln_seq[:80]}{'…' if len(aln_seq)>80 else ''}</tt>")
         self.msa_viewer.setHtml("<br>".join(preview_lines))
+        self.msa_viewer.append(
+            "<hr><p style='color:#4361ee;font-weight:bold;'>Conservation graph \u2192 Graphs tab: "
+            "Evolutionary &amp; Comparative \u2192 MSA Conservation</p>")
         # Conservation graph
         if _HAS_NEW_GRAPHS:
             fig = create_msa_conservation_figure(
@@ -4141,10 +4360,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if n_cols > 500:
             self.msa_viewer.append(
                 "<p style='color:#e06c00'><b>Covariance:</b> alignment has "
-                f"{n_cols} columns — exceeds 500-column limit; skipped.</p>")
+                f"{n_cols} columns \u2014 exceeds 500-column limit; skipped.</p>")
             self._msa_mi_apc = None
         elif len(aligned) < 4:
             self._msa_mi_apc = None
+            self.msa_viewer.append(
+                "<p style='color:#e06c00;'>Covariance: need \u22654 sequences for MI/APC computation.</p>")
         else:
             from beer.analysis.msa_covariance import calc_msa_mutual_information
             _, mi_apc = calc_msa_mutual_information(aligned)
@@ -4153,6 +4374,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 mi_apc,
                 label_font=self.label_font_size, tick_font=self.tick_font_size)
             self._replace_graph("MSA Covariance", cov_fig)
+            self.msa_viewer.append(
+                "<p style='color:#4361ee;font-weight:bold;'>Covariance heatmap \u2192 Graphs tab: "
+                "Evolutionary &amp; Comparative \u2192 MSA Covariance</p>")
         self.statusBar.showMessage(
             f"MSA: {len(aligned)} sequences, {n_cols} alignment columns", 3000)
 
@@ -4228,7 +4452,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         if self._elm_worker and self._elm_worker.isRunning():
             return
-        self.fetch_elm_btn.setEnabled(False)
+        self._act_elm.setEnabled(False)
         self.statusBar.showMessage(f"Fetching ELM instances for {acc}…")
         seq = self.analysis_data["seq"] if self.analysis_data else ""
         self._elm_worker = ELMWorker(acc, seq)
@@ -4238,7 +4462,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_elm_finished(self, instances: list):
         self.elm_data = instances
-        self.fetch_elm_btn.setEnabled(True)
+        self._act_elm.setEnabled(True)
         n = len(instances)
         if n == 0:
             QMessageBox.information(self, "ELM",
@@ -4264,7 +4488,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.statusBar.showMessage(f"ELM: {n} instance(s) found.", 3000)
 
     def _on_elm_error(self, msg: str):
-        self.fetch_elm_btn.setEnabled(True)
+        self._act_elm.setEnabled(True)
         QMessageBox.warning(self, "ELM Error", msg)
 
     def fetch_disprot(self):
@@ -4278,7 +4502,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         if self._disprot_worker and self._disprot_worker.isRunning():
             return
-        self.fetch_disprot_btn.setEnabled(False)
+        self._act_disprot.setEnabled(False)
         self.statusBar.showMessage(f"Fetching DisProt annotations for {acc}…")
         self._disprot_worker = DisPRotWorker(acc)
         self._disprot_worker.finished.connect(self._on_disprot_finished)
@@ -4287,7 +4511,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_disprot_finished(self, data: dict):
         self.disprot_data = data
-        self.fetch_disprot_btn.setEnabled(True)
+        self._act_disprot.setEnabled(True)
         regions = data.get("regions", [])
         n = len(regions)
         if n == 0:
@@ -4315,7 +4539,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.statusBar.showMessage(f"DisProt: {n} disorder region(s).", 3000)
 
     def _on_disprot_error(self, msg: str):
-        self.fetch_disprot_btn.setEnabled(True)
+        self._act_disprot.setEnabled(True)
         self.statusBar.showMessage("DisProt fetch failed.", 2000)
         QMessageBox.warning(self, "DisProt Error", msg)
 
@@ -4330,7 +4554,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         if self._phasepdb_worker and self._phasepdb_worker.isRunning():
             return
-        self.fetch_phasepdb_btn.setEnabled(False)
+        self._act_phasepdb.setEnabled(False)
         self.statusBar.showMessage(f"Checking PhaSepDB for {acc}…")
         self._phasepdb_worker = PhaSepDBWorker(acc)
         self._phasepdb_worker.finished.connect(self._on_phasepdb_finished)
@@ -4339,7 +4563,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_phasepdb_finished(self, data: dict):
         self.phasepdb_data = data
-        self.fetch_phasepdb_btn.setEnabled(True)
+        self._act_phasepdb.setEnabled(True)
         if not data.get("found"):
             QMessageBox.information(self, "PhaSepDB",
                 "This protein was not found in PhaSepDB (phase separation database).\n"
@@ -4361,7 +4585,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             "PhaSepDB: found" if data.get("found") else "PhaSepDB: not found", 3000)
 
     def _on_phasepdb_error(self, msg: str):
-        self.fetch_phasepdb_btn.setEnabled(True)
+        self._act_phasepdb.setEnabled(True)
         QMessageBox.warning(self, "PhaSepDB Error", msg)
 
     # ── MobiDB ────────────────────────────────────────────────────────────────
@@ -4373,7 +4597,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         if self._mobidb_worker and self._mobidb_worker.isRunning():
             return
-        self.fetch_mobidb_btn.setEnabled(False)
+        self._act_mobidb.setEnabled(False)
         self.statusBar.showMessage(f"Fetching MobiDB annotations for {acc}…")
         self._mobidb_worker = MobiDBWorker(acc)
         self._mobidb_worker.finished.connect(self._on_mobidb_finished)
@@ -4382,7 +4606,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_mobidb_finished(self, data: dict):
         self.mobidb_data = data
-        self.fetch_mobidb_btn.setEnabled(True)
+        self._act_mobidb.setEnabled(True)
         if not data.get("found"):
             QMessageBox.information(self, "MobiDB",
                 "This protein was not found in MobiDB, or has no consensus disorder annotations.")
@@ -4416,7 +4640,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             f"MobiDB: {frac:.1%} disordered, {len(regions)} region(s).", 4000)
 
     def _on_mobidb_error(self, msg: str):
-        self.fetch_mobidb_btn.setEnabled(True)
+        self._act_mobidb.setEnabled(True)
         self.statusBar.showMessage("MobiDB fetch failed.", 2000)
         QMessageBox.warning(self, "MobiDB Error", msg)
 
@@ -4429,7 +4653,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         if self._variants_worker and self._variants_worker.isRunning():
             return
-        self.fetch_variants_btn.setEnabled(False)
+        self._act_variants.setEnabled(False)
         self.statusBar.showMessage(f"Fetching UniProt variants for {acc}…")
         self._variants_worker = UniProtVariantsWorker(acc)
         self._variants_worker.finished.connect(self._on_variants_finished)
@@ -4438,7 +4662,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_variants_finished(self, variants: list):
         self.variants_data = variants
-        self.fetch_variants_btn.setEnabled(True)
+        self._act_variants.setEnabled(True)
         if not variants:
             QMessageBox.information(self, "UniProt Variants",
                 "No natural variants or mutagenesis data found for this protein.")
@@ -4471,7 +4695,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.statusBar.showMessage(f"Variants: {len(variants)} annotation(s) loaded.", 4000)
 
     def _on_variants_error(self, msg: str):
-        self.fetch_variants_btn.setEnabled(True)
+        self._act_variants.setEnabled(True)
         self.statusBar.showMessage("Variants fetch failed.", 2000)
         QMessageBox.warning(self, "Variants Error", msg)
 
@@ -4484,7 +4708,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         if self._intact_worker and self._intact_worker.isRunning():
             return
-        self.fetch_intact_btn.setEnabled(False)
+        self._act_intact.setEnabled(False)
         self.statusBar.showMessage(f"Fetching IntAct interactions for {acc}…")
         self._intact_worker = IntActWorker(acc)
         self._intact_worker.finished.connect(self._on_intact_finished)
@@ -4493,7 +4717,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_intact_finished(self, data: dict):
         self.intact_data = data
-        self.fetch_intact_btn.setEnabled(True)
+        self._act_intact.setEnabled(True)
         interactions = data.get("interactions", [])
         if not interactions:
             QMessageBox.information(self, "IntAct",
@@ -4550,7 +4774,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             f"IntAct: {len(interactions)} interaction(s) loaded.", 4000)
 
     def _on_intact_error(self, msg: str):
-        self.fetch_intact_btn.setEnabled(True)
+        self._act_intact.setEnabled(True)
         self.statusBar.showMessage("IntAct fetch failed.", 2000)
         QMessageBox.warning(self, "IntAct Error", msg)
 
@@ -4639,18 +4863,142 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 data["report_sections"][sec_name] = html
                 if sec_name not in REPORT_SECTIONS:
                     REPORT_SECTIONS.append(sec_name)
-                    # Add to UI section list
-                    self.report_section_list.addItem(QListWidgetItem(sec_name))
+                    # Add to UI section list (as top-level item in QTreeWidget)
+                    leaf = QTreeWidgetItem([sec_name])
+                    leaf.setData(0, Qt.ItemDataRole.UserRole, sec_name)
+                    self.report_section_list.addTopLevelItem(leaf)
                     tab = QWidget()
                     vb  = QVBoxLayout(tab)
                     vb.setContentsMargins(4, 4, 4, 4)
                     browser = QTextBrowser()
                     vb.addWidget(browser)
-                    self.report_stack.addWidget(tab)
+                    idx = self.report_stack.addWidget(tab)
                     self.report_section_tabs[sec_name] = browser
+                    self._report_sec_to_idx[sec_name] = idx
             except Exception as e:
                 print(f"[BEER] Plugin runtime error ({plugin.PLUGIN_NAME}): {e}",
                       file=sys.stderr)
+
+    # ── New UX methods ────────────────────────────────────────────────────────
+
+    def _load_example_sequence(self):
+        """Load FUS (human RNA-binding protein / IDP) as a demo sequence."""
+        fus = (
+            "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQSTDTSGYGQSSYSSYGQSQNTGYGTQSTPQGYGSTGGYGSSSGSSQSSYGQQSSYPGQGGSQQSQNYMQNPMMGGGEWRGNSK"
+            "PGYGQAPRGNNQNQGNMQREPNQAFGSGNNSYSGSNSGAAIGWGSASNAGSGSGFNGGFGSSMDSRGEHRQDRRERPY"
+        )
+        self.seq_text.setPlainText(fus)
+        self.sequence_name = "FUS_HUMAN"
+        self.statusBar.showMessage("Loaded FUS (human) example sequence \u2014 click Analyze to run.", 4000)
+
+    def _undo_mutation(self):
+        if self._undo_seq is None:
+            self.statusBar.showMessage("Nothing to undo.", 2000)
+            return
+        self.seq_text.setPlainText(self._undo_seq)
+        self.sequence_name = self._undo_name
+        self._undo_seq  = None
+        self._undo_name = None
+        self.statusBar.showMessage("Mutation undone \u2014 re-running analysis\u2026", 2000)
+        self.on_analyze()
+
+    def _update_blast_elapsed(self):
+        import time as _time
+        if self._blast_start_time is None:
+            return
+        elapsed = int(_time.time() - self._blast_start_time)
+        self.blast_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
+        self.blast_status_lbl.setText(f"Searching NCBI\u2026  {elapsed} s elapsed")
+
+    def _on_report_section_clicked(self, item, _col=0):
+        sec = item.data(0, Qt.ItemDataRole.UserRole)
+        if sec and sec in self._report_sec_to_idx:
+            self.report_stack.setCurrentIndex(self._report_sec_to_idx[sec])
+
+    def _filter_graph_tree(self, text: str):
+        text = text.strip().lower()
+        for i in range(self.graph_tree.topLevelItemCount()):
+            cat = self.graph_tree.topLevelItem(i)
+            any_visible = False
+            for j in range(cat.childCount()):
+                leaf = cat.child(j)
+                title = leaf.data(0, Qt.ItemDataRole.UserRole) or leaf.text(0)
+                visible = not text or text in title.lower()
+                leaf.setHidden(not visible)
+                if visible:
+                    any_visible = True
+            cat.setHidden(not any_visible and bool(text))
+            if any_visible and text:
+                cat.setExpanded(True)
+
+    def _prepend_section_summaries(self):
+        """Prepend a one-line interpretation line to key report sections."""
+        if not self.analysis_data:
+            return
+        d = self.analysis_data
+        summaries = {}
+        # Properties
+        mw = d.get("mol_weight", 0); pi = d.get("iso_point", 0); gravy = d.get("gravy", 0)
+        charge_label = "acidic" if pi < 7 else ("basic" if pi > 7.5 else "near-neutral")
+        summaries["Properties"] = (
+            f"MW {mw:.0f} Da \u00b7 pI {pi:.2f} ({charge_label}) \u00b7 "
+            f"GRAVY {gravy:+.3f} ({'hydrophobic' if gravy > 0 else 'hydrophilic'})")
+        # Disorder
+        dis = d.get("disorder_scores", d.get("disorder_profile", []))
+        if dis:
+            frac = sum(1 for v in dis if v > 0.5) / len(dis) * 100
+            label = "largely disordered" if frac > 60 else ("partially disordered" if frac > 30 else "mostly ordered")
+            summaries["Disorder"] = f"{frac:.0f}% of residues predicted disordered \u2014 {label}."
+        # Charge
+        fcr = d.get("fcr", 0); ncpr = d.get("ncpr", 0)
+        summaries["Charge"] = (
+            f"FCR {fcr:.3f} \u00b7 NCPR {ncpr:+.3f} "
+            f"({'net positive' if ncpr > 0.05 else 'net negative' if ncpr < -0.05 else 'near-neutral charge'})")
+        # β-Aggregation
+        seq = d.get("seq", "")
+        try:
+            from beer.analysis.aggregation import calc_aggregation_profile as _cap
+            agg = _cap(seq) if seq else []
+        except Exception:
+            agg = []
+        if agg:
+            hot = sum(1 for v in agg if v > 1.0)
+            summaries["\u03b2-Aggregation & Solubility"] = (
+                f"{hot} residue(s) above aggregation threshold (ZYGGREGATOR > 1.0).")
+        # Signal peptide
+        sp = d.get("sp_result", {})
+        if sp:
+            has_sp = sp.get("has_signal_peptide", False)
+            prob   = sp.get("signal_peptide_prob", 0)
+            summaries["Signal Peptide & GPI"] = (
+                ("Signal peptide detected" if has_sp else "No signal peptide predicted")
+                + f" (ESM2 score {prob:.2f}).")
+        for sec, summary in summaries.items():
+            browser = self.report_section_tabs.get(sec)
+            if browser:
+                current_html = browser.toHtml()
+                banner = (f"<p style='background:#f0f4ff;border-left:3px solid #4361ee;"
+                          f"padding:4px 8px;margin:0 0 6px 0;font-size:9pt;color:#2d3748;'>"
+                          f"<b>Summary:</b> {summary}</p>")
+                if "Summary:" not in current_html:
+                    browser.setHtml(banner + current_html)
+
+    def _use_compare_seq(self, attr: str):
+        te = getattr(self, attr, None)
+        if te is None:
+            return
+        raw = te.toPlainText().strip()
+        entries = self._parse_pasted_text(raw)
+        seq = entries[0][1] if entries else raw.replace("\n", "").upper()
+        if not seq or not is_valid_protein(seq):
+            QMessageBox.warning(self, "Compare", "No valid sequence in that panel.")
+            return
+        self.seq_text.setPlainText(seq)
+        name = entries[0][0] if entries else ""
+        if name:
+            self.sequence_name = name
+        self.main_tabs.setCurrentIndex(0)
+        self.on_analyze()
 
     # --- Dependency check ---
 

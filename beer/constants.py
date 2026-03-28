@@ -293,6 +293,7 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
     ("Composition", [
         "Amino Acid Composition (Bar)",
         "Amino Acid Composition (Pie)",
+        "pI / MW Map",
     ]),
     ("Profiles", [
         "Hydrophobicity Profile",
@@ -317,6 +318,7 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
     ("Phase Separation / IDP", [
         "Uversky Phase Plot",
         "Single-Residue Perturbation Map",
+        "SCD Profile",
     ]),
     ("AlphaFold / Structural", [
         "pLDDT Profile",
@@ -330,11 +332,11 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
         "Solubility Profile",
         "Hydrophobic Moment",
     ]),
-    ("New Features", [
+    ("Post-Translational & Binding", [
         "PTM Map",
         "RNA-Binding Profile",
-        "SCD Profile",
-        "pI / MW Map",
+    ]),
+    ("Evolutionary & Comparative", [
         "Truncation Series",
         "MSA Conservation",
         "MSA Covariance",
