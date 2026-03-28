@@ -103,7 +103,7 @@ _extract_phi_psi = extract_phi_psi
 from beer.network.workers import (
     AnalysisWorker, AlphaFoldWorker, PfamWorker, BlastWorker,
     ELMWorker, DisPRotWorker, PhaSepDBWorker,
-    MobiDBWorker, UniProtVariantsWorker,
+    MobiDBWorker, UniProtVariantsWorker, IntActWorker,
 )
 from beer.graphs import (
     create_amino_acid_composition_figure, create_amino_acid_composition_pie_figure,
@@ -125,6 +125,7 @@ from beer.graphs import (
     create_saturation_mutagenesis_figure, create_uversky_phase_plot,
     create_annotation_track_figure, create_cleavage_map_figure,
     create_plaac_profile_figure,
+    create_msa_covariance_figure,
 )
 from beer.reports.css import REPORT_CSS
 from beer.reports.sections import (
@@ -200,6 +201,9 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._phasepdb_worker    = None
         self._mobidb_worker      = None
         self._variants_worker    = None
+        self._intact_worker      = None
+        self.intact_data         = {}   # IntAct interaction results
+        self._msa_mi_apc         = None # APC-corrected MI matrix from last MSA run
         self.elm_data            = []   # list of ELM instances
         self.disprot_data        = {}   # DisProt disorder regions
         self.phasepdb_data       = {}   # PhaSepDB lookup result
@@ -471,6 +475,14 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._set_tooltip(self.fetch_variants_btn,
                           "Fetch natural variants and mutagenesis data from UniProt. Requires a UniProt accession — fetch one first.")
         tb2.addWidget(self.fetch_variants_btn)
+
+        self.fetch_intact_btn = QPushButton("IntAct")
+        self.fetch_intact_btn.setMinimumHeight(28)
+        self.fetch_intact_btn.setEnabled(False)
+        self.fetch_intact_btn.clicked.connect(self.fetch_intact)
+        self._set_tooltip(self.fetch_intact_btn,
+                          "Fetch curated binary interactions from IntAct (EBI). Requires a UniProt accession — fetch one first.")
+        tb2.addWidget(self.fetch_intact_btn)
 
         tb2.addSpacing(20)
         tb2.addWidget(QLabel("History:"))
@@ -2611,11 +2623,14 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 figs["Residue Contact Network"] = create_contact_network_figure(
                     seq, dm, label_font=lf, tick_font=tf)
 
-        # MSA Conservation (requires MSA data)
+        # MSA Conservation + Covariance (require MSA data)
         if self._msa_sequences:
             figs["MSA Conservation"] = create_msa_conservation_figure(
                 self._msa_sequences, self._msa_names,
                 label_font=lf, tick_font=tf)
+        if self._msa_mi_apc is not None:
+            figs["MSA Covariance"] = create_msa_covariance_figure(
+                self._msa_mi_apc, label_font=lf, tick_font=tf)
 
         # Annotation Track — unified multi-track view
         figs["Annotation Track"] = create_annotation_track_figure(
@@ -3360,6 +3375,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.fetch_phasepdb_btn.setEnabled(not is_pdb)
         self.fetch_mobidb_btn.setEnabled(not is_pdb)
         self.fetch_variants_btn.setEnabled(not is_pdb)
+        self.fetch_intact_btn.setEnabled(not is_pdb)
         self.accession_input.clear()
         src = "PDB" if is_pdb else "UniProt"
         msg = f"Fetched {rid} from {src}  ({len(seq)} aa)"
@@ -4114,18 +4130,36 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         for name, aln_seq in zip(names, aligned):
             preview_lines.append(f"<b>{name[:20]}</b>  <tt>{aln_seq[:80]}{'…' if len(aln_seq)>80 else ''}</tt>")
         self.msa_viewer.setHtml("<br>".join(preview_lines))
-        # Generate conservation graph
+        # Conservation graph
         if _HAS_NEW_GRAPHS:
             fig = create_msa_conservation_figure(
                 aligned, names,
                 label_font=self.label_font_size, tick_font=self.tick_font_size)
             self._replace_graph("MSA Conservation", fig)
+        # Covariance graph (MI with APC; capped at 500 columns)
+        n_cols = len(aligned[0]) if aligned else 0
+        if n_cols > 500:
+            self.msa_viewer.append(
+                "<p style='color:#e06c00'><b>Covariance:</b> alignment has "
+                f"{n_cols} columns — exceeds 500-column limit; skipped.</p>")
+            self._msa_mi_apc = None
+        elif len(aligned) < 4:
+            self._msa_mi_apc = None
+        else:
+            from beer.analysis.msa_covariance import calc_msa_mutual_information
+            _, mi_apc = calc_msa_mutual_information(aligned)
+            self._msa_mi_apc = mi_apc
+            cov_fig = create_msa_covariance_figure(
+                mi_apc,
+                label_font=self.label_font_size, tick_font=self.tick_font_size)
+            self._replace_graph("MSA Covariance", cov_fig)
         self.statusBar.showMessage(
-            f"MSA: {len(aligned)} sequences, {len(aligned[0])} alignment columns", 3000)
+            f"MSA: {len(aligned)} sequences, {n_cols} alignment columns", 3000)
 
     def _clear_msa(self):
         self._msa_sequences = []
         self._msa_names     = []
+        self._msa_mi_apc    = None
         self.msa_input.clear()
         self.msa_viewer.clear()
         self.statusBar.showMessage("MSA cleared.", 2000)
@@ -4440,6 +4474,85 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.fetch_variants_btn.setEnabled(True)
         self.statusBar.showMessage("Variants fetch failed.", 2000)
         QMessageBox.warning(self, "Variants Error", msg)
+
+    # ── IntAct ────────────────────────────────────────────────────────────────
+
+    def fetch_intact(self):
+        acc = self.current_accession
+        if not acc:
+            QMessageBox.warning(self, "IntAct", "Fetch a UniProt accession first.")
+            return
+        if self._intact_worker and self._intact_worker.isRunning():
+            return
+        self.fetch_intact_btn.setEnabled(False)
+        self.statusBar.showMessage(f"Fetching IntAct interactions for {acc}…")
+        self._intact_worker = IntActWorker(acc)
+        self._intact_worker.finished.connect(self._on_intact_finished)
+        self._intact_worker.error.connect(self._on_intact_error)
+        self._intact_worker.start()
+
+    def _on_intact_finished(self, data: dict):
+        self.intact_data = data
+        self.fetch_intact_btn.setEnabled(True)
+        interactions = data.get("interactions", [])
+        if not interactions:
+            QMessageBox.information(self, "IntAct",
+                "No curated interactions found for this protein in IntAct.\n"
+                "(Only experimentally validated binary interactions are included.)")
+            self.statusBar.showMessage("IntAct: no interactions found.", 3000)
+            return
+
+        lines = [
+            f"<h2>IntAct: {data.get('accession', '')}</h2>",
+            f"<p><b>{len(interactions)}</b> binary interaction(s) retrieved "
+            f"(up to 100 shown).</p>",
+            "<table border='1' cellspacing='0' cellpadding='4'>",
+            "<tr><th>Partner ID</th><th>Partner Name</th>"
+            "<th>Detection Method</th><th>Interaction Type</th>"
+            "<th>MI-score</th><th>PMID</th></tr>",
+        ]
+        for ix in interactions:
+            score = ix.get("score")
+            score_txt = f"{score:.2f}" if score is not None else "—"
+            pmid = ix.get("pmid", "-")
+            pmid_link = (f"<a href='https://pubmed.ncbi.nlm.nih.gov/{pmid}'>{pmid}</a>"
+                         if pmid not in ("-", "") else "—")
+            lines.append(
+                f"<tr>"
+                f"<td>{ix.get('partner_id', '—')}</td>"
+                f"<td>{ix.get('partner_name', '—')}</td>"
+                f"<td>{ix.get('detection_method', '—')}</td>"
+                f"<td>{ix.get('interaction_type', '—')}</td>"
+                f"<td>{score_txt}</td>"
+                f"<td>{pmid_link}</td>"
+                f"</tr>"
+            )
+        lines.append("</table>")
+        lines.append(
+            "<p class='note'>Source: IntAct (EBI) via PSICQUIC. "
+            "MI-score = IntAct confidence score (0–1). "
+            "Only experimentally validated interactions are included.</p>"
+        )
+        html = "".join(lines)
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"IntAct Interactions — {data.get('accession', '')}")
+        dlg.resize(860, 500)
+        bw = QTextBrowser(dlg)
+        bw.setOpenExternalLinks(True)
+        bw.setHtml(html)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dlg)
+        bb.rejected.connect(dlg.accept)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(bw)
+        lay.addWidget(bb)
+        dlg.exec()
+        self.statusBar.showMessage(
+            f"IntAct: {len(interactions)} interaction(s) loaded.", 4000)
+
+    def _on_intact_error(self, msg: str):
+        self.fetch_intact_btn.setEnabled(True)
+        self.statusBar.showMessage("IntAct fetch failed.", 2000)
+        QMessageBox.warning(self, "IntAct Error", msg)
 
     # ── Figure Composer ───────────────────────────────────────────────────────
 

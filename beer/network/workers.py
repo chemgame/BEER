@@ -381,6 +381,45 @@ class BlastWorker(QThread):
             self.error.emit(f"BLAST failed: {exc}")
 
 
+class IntActWorker(QThread):
+    """Fetch molecular interactions from IntAct via PSICQUIC.
+
+    Signals
+    -------
+    finished(dict):
+        Emitted on success (including not-found cases).
+    error(str):
+        Emitted on network/parse errors.
+    """
+
+    finished = Signal(dict)
+    error = Signal(str)
+
+    def __init__(self, accession: str):
+        super().__init__()
+        self.accession = accession.strip().upper()
+
+    def run(self) -> None:
+        if not self.accession:
+            self.error.emit("IntAct query failed: no accession provided.")
+            return
+        try:
+            from beer.network._http import fetch_intact
+            result = fetch_intact(self.accession)
+        except urllib.error.HTTPError as exc:
+            self.error.emit(
+                f"IntAct HTTP error {exc.code} for '{self.accession}': {exc.reason}"
+            )
+        except urllib.error.URLError as exc:
+            self.error.emit(
+                f"IntAct network error for '{self.accession}': {exc.reason}"
+            )
+        except Exception as exc:
+            self.error.emit(f"IntAct query failed for '{self.accession}': {exc}")
+        else:
+            self.finished.emit(result)
+
+
 class AnalysisWorker(QThread):
     """Non-blocking analysis in a QThread. Emits finished(dict) or error(str).
 

@@ -588,3 +588,170 @@ def fetch_rcsb_pdb(pdb_id: str) -> str:
     )
     with urllib.request.urlopen(req, timeout=60) as r:
         return r.read().decode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# IntAct molecular interactions (PSICQUIC / MITAB 2.5)
+# ---------------------------------------------------------------------------
+
+_INTACT_PSICQUIC = (
+    "https://www.ebi.ac.uk/Tools/webservices/psicquic/intact"
+    "/webservices/current/search/query"
+)
+
+
+def _parse_mitab_id(field: str) -> str:
+    """Extract primary accession from a MITAB identifier field.
+
+    e.g. ``'uniprotkb:P04637'``  →  ``'P04637'``
+    """
+    if not field or field == "-":
+        return "-"
+    first = field.split("|")[0]
+    return first.split(":", 1)[1] if ":" in first else first
+
+
+def _parse_mitab_alias(field: str) -> str:
+    """Return the preferred gene-name alias from a MITAB alias field.
+
+    Prefers entries annotated as ``(gene name)``; falls back to the first
+    token after the namespace prefix.
+    """
+    if not field or field == "-":
+        return "-"
+    for part in field.split("|"):
+        if "gene name" in part.lower() and ":" in part:
+            name = part.split(":", 1)[1]
+            if "(" in name:
+                name = name[: name.index("(")]
+            return name.strip()
+    first = field.split("|")[0]
+    if ":" in first:
+        name = first.split(":", 1)[1]
+        if "(" in name:
+            name = name[: name.index("(")]
+        return name.strip()
+    return first
+
+
+def _parse_mitab_cv(field: str) -> str:
+    """Extract the human-readable label from a PSI-MI CV term.
+
+    e.g. ``'psi-mi:"MI:0018"(two hybrid)'``  →  ``'two hybrid'``
+    """
+    if not field or field == "-":
+        return "-"
+    first = field.split("|")[0]
+    if "(" in first and ")" in first:
+        return first[first.index("(") + 1 : first.rindex(")")]
+    return first
+
+
+def _parse_mitab_score(field: str) -> float | None:
+    """Parse the IntAct MI-score from a confidence column.
+
+    e.g. ``'intact-miscore:0.35'``  →  ``0.35``
+    """
+    if not field or field == "-":
+        return None
+    for part in field.split("|"):
+        if ":" in part:
+            try:
+                return float(part.split(":", 1)[1])
+            except ValueError:
+                pass
+    return None
+
+
+def fetch_intact(uniprot_accession: str, max_results: int = 100) -> dict:
+    """Fetch binary interactions from IntAct via the PSICQUIC REST service.
+
+    Queries IntAct using the ``identifier:{accession}`` PSICQUIC syntax and
+    parses the MITAB 2.5 tab-delimited response.
+
+    Parameters
+    ----------
+    uniprot_accession:
+        UniProt accession (e.g. ``'P04637'``).
+    max_results:
+        Maximum number of interactions to retrieve (default 100).
+
+    Returns
+    -------
+    dict with keys:
+
+    ``found`` (bool)
+        ``True`` if at least one interaction was returned.
+    ``accession`` (str)
+        The queried accession.
+    ``interactions`` (list[dict])
+        Each dict: ``partner_id``, ``partner_name``, ``detection_method``,
+        ``interaction_type``, ``pmid``, ``score`` (float or None).
+    ``n_total`` (int)
+        Number of interactions parsed.
+
+    Raises
+    ------
+    urllib.error.HTTPError (non-404) / urllib.error.URLError on network failure.
+    ValueError: if accession is empty.
+    """
+    accession = uniprot_accession.strip().upper()
+    if not accession:
+        raise ValueError("IntAct query: no accession provided.")
+
+    url = (
+        f"{_INTACT_PSICQUIC}/identifier:{accession}"
+        f"?firstResult=0&maxResults={max_results}"
+    )
+    req = urllib.request.Request(
+        url,
+        headers={"Accept": "text/plain", "User-Agent": _USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
+            raw = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {"found": False, "accession": accession,
+                    "interactions": [], "n_total": 0}
+        raise
+
+    interactions: list[dict] = []
+    for line in raw.strip().splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 12:
+            continue
+
+        id_a = _parse_mitab_id(parts[0])
+        id_b = _parse_mitab_id(parts[1])
+        alias_a = _parse_mitab_alias(parts[4]) if len(parts) > 4 else "-"
+        alias_b = _parse_mitab_alias(parts[5]) if len(parts) > 5 else "-"
+
+        # Identify the interaction partner (the molecule that is NOT the query)
+        if accession in id_a.upper():
+            partner_id, partner_name = id_b, alias_b
+        else:
+            partner_id, partner_name = id_a, alias_a
+
+        detection = _parse_mitab_cv(parts[6]) if len(parts) > 6 else "-"
+        interaction_type = _parse_mitab_cv(parts[11]) if len(parts) > 11 else "-"
+        pmid = _parse_mitab_id(parts[8]) if len(parts) > 8 else "-"
+        score = _parse_mitab_score(parts[14]) if len(parts) > 14 else None
+
+        interactions.append({
+            "partner_id":        partner_id,
+            "partner_name":      partner_name,
+            "detection_method":  detection,
+            "interaction_type":  interaction_type,
+            "pmid":              pmid,
+            "score":             score,
+        })
+
+    return {
+        "found":        len(interactions) > 0,
+        "accession":    accession,
+        "interactions": interactions,
+        "n_total":      len(interactions),
+    }

@@ -427,3 +427,54 @@ def create_uversky_phase_plot(
               edgecolor="#d0d4e0", loc="upper right")
     fig.tight_layout(pad=1.5)
     return fig
+
+
+def create_msa_covariance_figure(
+    mi_apc: "list[list[float]]",
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Residue covariance heatmap from MSA mutual information (APC-corrected).
+
+    Parameters
+    ----------
+    mi_apc:
+        *n_col × n_col* matrix of APC-corrected mutual information values
+        (bits), as returned by :func:`beer.analysis.msa_covariance.calc_msa_mutual_information`.
+    label_font, tick_font:
+        Font sizes.
+    """
+    mat = np.array(mi_apc, dtype=float)
+    n = mat.shape[0]
+
+    if n == 0:
+        fig = Figure(figsize=(6, 5), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "No alignment data", ha="center", va="center",
+                transform=ax.transAxes, fontsize=label_font - 2, color="#718096")
+        ax.set_axis_off()
+        return fig
+
+    # Figure size scales with n but caps to keep it renderable
+    dim = min(9.0, max(5.0, n * 0.025 + 3.0))
+    fig = Figure(figsize=(dim + 1.2, dim), dpi=120)
+    fig.set_facecolor("#ffffff")
+    ax = fig.add_subplot(111)
+
+    pos_vals = mat[mat > 0]
+    vmax = float(np.percentile(pos_vals, 95)) if pos_vals.size > 0 else 1.0
+    im = ax.imshow(mat, cmap="viridis", aspect="auto", origin="upper",
+                   vmin=0.0, vmax=vmax, interpolation="nearest")
+    cbar = fig.colorbar(im, ax=ax, shrink=0.85, aspect=22, pad=0.02)
+    cbar.set_label("MI-APC (bits)", fontsize=tick_font - 1, color="#4a5568")
+    cbar.ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
+
+    ax.set_xlabel("Alignment Column", fontsize=label_font - 1, color="#4a5568")
+    ax.set_ylabel("Alignment Column", fontsize=label_font - 1, color="#4a5568")
+    ax.set_title(
+        "Residue Covariance  (Mutual Information, APC-corrected; Dunn et al. 2008)",
+        fontsize=label_font - 1, fontweight="bold", color="#1a1a2e", pad=8,
+    )
+    ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
+    fig.tight_layout(pad=1.5)
+    return fig

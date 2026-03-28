@@ -43,6 +43,7 @@ from beer.graphs.structural import (
 )
 from beer.graphs.comparative import (
     create_msa_conservation_figure,
+    create_msa_covariance_figure,
     create_complex_mw_figure,
     create_truncation_series_figure,
     create_pI_MW_gel_figure,
@@ -82,6 +83,7 @@ __all__ = [
     "create_plddt_figure",
     "create_distance_map_figure",
     "create_msa_conservation_figure",
+    "create_msa_covariance_figure",
     "create_complex_mw_figure",
     "create_truncation_series_figure",
     "create_pI_MW_gel_figure",

@@ -281,6 +281,7 @@ GRAPH_TITLES: list[str] = [
     "Ramachandran Plot",
     "Residue Contact Network",
     "MSA Conservation",
+    "MSA Covariance",
     "Complex Mass",
     "Annotation Track",
     "Cleavage Map",
@@ -336,6 +337,7 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
         "pI / MW Map",
         "Truncation Series",
         "MSA Conservation",
+        "MSA Covariance",
         "Complex Mass",
     ]),
     ("Sequence Analysis", [

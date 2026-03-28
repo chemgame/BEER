@@ -111,6 +111,7 @@ When you fetch a protein from UniProt or RCSB, a compact **protein info bar** ap
 | **DisProt / PhaSepDB** | Disorder and phase-separation database annotations |
 | **MobiDB** | Consensus disorder annotations from MobiDB (fraction disordered, predictor count, disordered regions) |
 | **Variants** | Natural variants and mutagenesis data from UniProt |
+| **IntAct** | Curated binary interactions from the IntAct molecular interaction database (EBI); shows partner, detection method, MI-score, and PubMed link |
 
 Residues in the sequence viewer are colour-coded by type. Use the **Search** / **Highlight** box to find motifs or regex patterns. Below the viewer: **Copy Sequence** (whole or range) and **Clear All** (resets everything).
 
@@ -154,7 +155,7 @@ Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, 
 | Phase Sep / IDP | Uversky Phase Plot, Single-Residue Perturbation Map |
 | Aggregation | β-Aggregation Profile, Solubility Profile, Hydrophobic Moment |
 | Sequence Analysis | Annotation Track, Cleavage Map, PLAAC Profile |
-| New Features | PTM Map, RNA-Binding Profile, SCD Profile, pI/MW Map, Truncation Series, MSA Conservation, Complex Mass |
+| New Features | PTM Map, RNA-Binding Profile, SCD Profile, pI/MW Map, Truncation Series, MSA Conservation, MSA Covariance, Complex Mass |
 | AlphaFold / Structural* | pLDDT Profile, Distance Map, Domain Architecture, Ramachandran Plot, Residue Contact Network |
 
 *Structural graphs require a loaded structure (from AlphaFold fetch or PDB import).
@@ -196,7 +197,7 @@ Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu), embedde
 | **Multichain** | Auto-populated from multi-FASTA or multi-chain PDB; shows MW, charge, composition per chain; double-click a row to load it |
 | **Compare** | Side-by-side property table and profile overlays for two sequences |
 | **Truncation Series** | Computes properties across progressive N/C truncations and generates the Truncation Series graph |
-| **MSA** | Paste a multi-FASTA alignment → per-column conservation graph |
+| **MSA** | Paste a multi-FASTA alignment → per-column conservation graph + residue covariance heatmap (MI with APC; requires ≥4 sequences, ≤500 columns) |
 | **Complex Mass** | Paste chains + stoichiometry (e.g. `A2B1`) → total MW, extinction coefficients, bar chart |
 | **Help** | Built-in reference; **Copy Citation (BibTeX)** and **Generate Methods Paragraph** buttons |
 
