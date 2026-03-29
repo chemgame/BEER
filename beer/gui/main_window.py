@@ -769,6 +769,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             if src.isNull():
                 continue
             result = QPixmap(src.size())
+            result.setDevicePixelRatio(src.devicePixelRatio())
             result.fill(Qt.GlobalColor.transparent)
             p = QPainter(result)
             p.drawPixmap(0, 0, src)
