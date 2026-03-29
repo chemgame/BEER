@@ -351,6 +351,14 @@ class BlastWorker(QThread):
         self.seq = seq
         self.database = database
         self.hitlist_size = hitlist_size
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        """Request cancellation.  The blocking qblast() call cannot be interrupted
+        mid-flight; the caller should follow up with terminate() if the thread
+        does not finish within a grace period."""
+        self._cancelled = True
+        self.requestInterruption()
 
     def run(self) -> None:
         try:
@@ -360,8 +368,13 @@ class BlastWorker(QThread):
                 "blastp", self.database, self.seq,
                 hitlist_size=self.hitlist_size,
             )
+            # If cancel() was called while qblast() was blocking, discard results.
+            if self._cancelled or self.isInterruptionRequested():
+                return
             self.progress.emit("Parsing BLAST results\u2026")
             blast_record = NCBIXML.read(result_handle)
+            if self._cancelled or self.isInterruptionRequested():
+                return
             hits = []
             for aln in blast_record.alignments[:self.hitlist_size]:
                 hsp = aln.hsps[0]
@@ -378,7 +391,8 @@ class BlastWorker(QThread):
         except ImportError:
             self.error.emit("Bio.Blast not available \u2014 install biopython.")
         except Exception as exc:
-            self.error.emit(f"BLAST failed: {exc}")
+            if not self._cancelled:
+                self.error.emit(f"BLAST failed: {exc}")
 
 
 class IntActWorker(QThread):

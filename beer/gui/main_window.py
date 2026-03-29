@@ -1889,6 +1889,12 @@ window.addEventListener("load",init);
         self.blast_run_btn.setMinimumHeight(30)
         self.blast_run_btn.clicked.connect(self.run_blast)
         ctrl_row.addWidget(self.blast_run_btn)
+        self.blast_stop_btn = QPushButton("Stop BLAST")
+        self.blast_stop_btn.setMinimumHeight(30)
+        self.blast_stop_btn.setStyleSheet("QPushButton { color: #c0392b; border: 1px solid #c0392b; }")
+        self.blast_stop_btn.clicked.connect(self._stop_blast)
+        self.blast_stop_btn.setVisible(False)
+        ctrl_row.addWidget(self.blast_stop_btn)
         ctrl_row.addStretch()
         layout.addLayout(ctrl_row)
 
@@ -4115,6 +4121,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         db  = self.blast_db_combo.currentText()
         n   = self.blast_hits_spin.value()
         self.blast_run_btn.setEnabled(False)
+        self.blast_stop_btn.setVisible(True)
         self.blast_table.setRowCount(0)
         self._blast_worker = BlastWorker(seq, database=db, hitlist_size=n)
         self._blast_worker.progress.connect(
@@ -4129,11 +4136,28 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._blast_timer.start(1000)
         self._blast_worker.start()
 
+    def _stop_blast(self):
+        """Cancel the running BLAST search."""
+        if self._blast_worker and self._blast_worker.isRunning():
+            self._blast_worker.cancel()
+            if not self._blast_worker.wait(2000):
+                self._blast_worker.terminate()
+                self._blast_worker.wait()
+        if self._blast_timer:
+            self._blast_timer.stop()
+            self._blast_timer = None
+        self._blast_start_time = None
+        self.blast_stop_btn.setVisible(False)
+        self.blast_run_btn.setEnabled(True)
+        self.blast_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
+        self.blast_status_lbl.setText("BLAST stopped.")
+
     def _on_blast_finished(self, hits: list):
         if self._blast_timer:
             self._blast_timer.stop()
             self._blast_timer = None
         self._blast_start_time = None
+        self.blast_stop_btn.setVisible(False)
         self.blast_run_btn.setEnabled(True)
         self.blast_status_lbl.setStyleSheet("color:#2d6a2d;")
         self.blast_status_lbl.setText(f"{len(hits)} hit(s) returned.")
@@ -4160,6 +4184,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self._blast_timer.stop()
             self._blast_timer = None
         self._blast_start_time = None
+        self.blast_stop_btn.setVisible(False)
         self.blast_run_btn.setEnabled(True)
         self.blast_status_lbl.setStyleSheet("color:#c0392b;")
         self.blast_status_lbl.setText(f"Error: {msg}")
