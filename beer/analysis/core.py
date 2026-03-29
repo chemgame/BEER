@@ -15,6 +15,7 @@ from beer.constants import (
     DISORDER_PROMOTING,
     ORDER_PROMOTING,
     LINEAR_MOTIFS,
+    HYDROPHOBICITY_SCALES,
 )
 from beer.reports.css import make_style_tag
 from beer.utils.biophysics import (
@@ -78,6 +79,7 @@ from beer.analysis.proteolysis import (
     calc_proteolytic_sites,
     format_proteolysis_report,
 )
+from beer.analysis.tango import predict_tango_aggregation, predict_tango_hotspots
 from beer.utils.biophysics import calc_polyx_stretches, calc_plaac_score
 from beer.embeddings.base import SequenceEmbedder
 
@@ -91,6 +93,7 @@ class AnalysisTools:
         use_reducing: bool = False,
         pka: dict = None,
         embedder: SequenceEmbedder | None = None,
+        hydro_scale: str = "Kyte-Doolittle",
     ) -> dict[str, Any]:
         pa          = BPProteinAnalysis(seq)
         aa_counts   = pa.count_amino_acids()
@@ -411,6 +414,10 @@ class AnalysisTools:
         # ESM2-blended aggregation profile (falls back to classical when head is None)
         aggr_profile_esm2 = calc_aggregation_profile_esm2(seq, embedder=embedder, head=_aggr_head)
 
+        # --- TANGO aggregation ---
+        tango_profile = predict_tango_aggregation(seq)
+        tango_hotspots = predict_tango_hotspots(seq)
+
         # --- PTM ---
         _ptm_head = load_ptm_head()
         ptm_html  = format_ptm_report(seq, _accent)
@@ -492,7 +499,8 @@ class AnalysisTools:
             "tm_helices":      tm_helices,
             "aa_counts":       aa_counts,
             "aa_freq":         aa_freq,
-            "hydro_profile":   sliding_window_hydrophobicity(seq, window_size),
+            "hydro_profile":   sliding_window_hydrophobicity(seq, window_size, HYDROPHOBICITY_SCALES.get(hydro_scale, HYDROPHOBICITY_SCALES["Kyte-Doolittle"])["values"]),
+            "hydro_scale":     hydro_scale,
             "ncpr_profile":    sliding_window_ncpr(seq, window_size),
             "entropy_profile": sliding_window_entropy(seq, window_size),
             "disorder_scores": disorder_scores,
@@ -531,4 +539,6 @@ class AnalysisTools:
             "polyx_stretches": polyx_stretches,
             "prot_sites":      prot_sites,
             "plaac":           _plaac,
+            "tango_profile":   tango_profile,
+            "tango_hotspots":  tango_hotspots,
         }

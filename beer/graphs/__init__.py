@@ -11,6 +11,7 @@ from beer.graphs.profiles import (
     create_rbp_profile_figure,
     create_disorder_profile_figure,
     create_plaac_profile_figure,
+    create_tango_figure,
 )
 from beer.graphs.charge import (
     create_isoelectric_focus_figure,
@@ -61,6 +62,7 @@ __all__ = [
     "create_rbp_profile_figure",
     "create_disorder_profile_figure",
     "create_plaac_profile_figure",
+    "create_tango_figure",
     "create_isoelectric_focus_figure",
     "create_local_charge_figure",
     "create_charge_decoration_figure",

@@ -22,12 +22,19 @@ def calc_net_charge(seq: str, pH: float = 7.0, pka: dict = None) -> float:
     return net
 
 
-def sliding_window_hydrophobicity(seq: str, window_size: int = 9) -> list:
-    """Kyte-Doolittle sliding window average."""
+def sliding_window_hydrophobicity(seq: str, window_size: int = 9, scale: dict = None) -> list:
+    """Sliding-window hydrophobicity average.
+
+    Parameters
+    ----------
+    scale : dict, optional
+        Per-residue hydrophobicity values. Defaults to Kyte-Doolittle.
+    """
+    _scale = scale if scale is not None else KYTE_DOOLITTLE
     if window_size > len(seq):
-        return [sum(KYTE_DOOLITTLE[aa] for aa in seq) / len(seq)]
+        return [sum(_scale.get(aa, 0.0) for aa in seq) / len(seq)]
     return [
-        sum(KYTE_DOOLITTLE[aa] for aa in seq[i:i + window_size]) / window_size
+        sum(_scale.get(aa, 0.0) for aa in seq[i:i + window_size]) / window_size
         for i in range(len(seq) - window_size + 1)
     ]
 

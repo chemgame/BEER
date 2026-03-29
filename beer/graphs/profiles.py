@@ -12,6 +12,7 @@ from beer.graphs._style import (
     _pub_style_ax, _apply_font_sizes, _residue_x,
     _ACCENT, _NEG_COL,
 )
+from beer.constants import HYDROPHOBICITY_SCALES
 
 AGGREGATION_THRESHOLD = 1.0
 SOLUBILITY_NEUTRAL = 0.0
@@ -36,10 +37,11 @@ def _adaptive_width(n: int, base: float = 9.0, scale: float = 0.015,
 def create_hydrophobicity_figure(
     hydro_profile: list,
     window_size: int,
+    scale_name: str = "Kyte-Doolittle",
     label_font: int = 14,
     tick_font: int = 12,
 ) -> Figure:
-    """Sliding-window Kyte-Doolittle hydrophobicity plot."""
+    """Sliding-window hydrophobicity plot."""
     n = len(hydro_profile)
     fig = Figure(figsize=(_adaptive_width(n), 4), dpi=120)
     fig.set_facecolor("#ffffff")
@@ -55,9 +57,10 @@ def create_hydrophobicity_figure(
             marker="o", markersize=3.0, markerfacecolor=_ACCENT,
             markeredgewidth=0, zorder=4)
     ax.axhline(0, color="#888", linewidth=0.7, linestyle="--", zorder=3)
+    _ylabel = HYDROPHOBICITY_SCALES.get(scale_name, {}).get("ylabel", "Score")
     _pub_style_ax(ax,
-                  title=f"Hydrophobicity  (w={window_size})",
-                  xlabel="Residue", ylabel="KD Score",
+                  title=f"Hydrophobicity  (w={window_size},  {scale_name})",
+                  xlabel="Residue", ylabel=_ylabel,
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     fig.tight_layout(pad=1.5)
@@ -297,6 +300,52 @@ def create_plaac_profile_figure(
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(1, n)
     ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")
+    fig.tight_layout(pad=1.5)
+    mplcursors.cursor(ax)
+    return fig
+
+
+def create_tango_figure(
+    seq: str,
+    tango_profile: list,
+    hotspots: list,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """TANGO-style β-aggregation profile (0–100 %)."""
+    n = len(seq)
+    if not tango_profile:
+        tango_profile = [0.0] * n
+    x = np.arange(1, len(tango_profile) + 1, dtype=float)
+    y = np.asarray(tango_profile, dtype=float)
+    x, y = _maybe_downsample(x, y)
+
+    fig = Figure(figsize=(_adaptive_width(n), 4), dpi=120)
+    fig.set_facecolor("#ffffff")
+    ax = fig.add_subplot(111)
+
+    ax.plot(x, y, color="#7209b7", linewidth=1.4, label="TANGO score")
+    ax.fill_between(x, 5.0, y, where=(y > 5.0), interpolate=True,
+                    color="#f72585", alpha=0.45, label="Hotspot (>5%)")
+    ax.axhline(5.0, color="#374151", linestyle="--", linewidth=0.9,
+               label="Threshold (5%)")
+
+    y_min = float(y.min())
+    y_max = max(float(y.max()) * 1.1 + 2, 10)
+    for idx, (start, end) in enumerate(hotspots):
+        rect = Rectangle((start - 0.5, y_min), end - start + 1, y_max - y_min,
+                          linewidth=0, facecolor="#f72585", alpha=0.15, zorder=0,
+                          label="Hotspot region" if idx == 0 else "_nolegend_")
+        ax.add_patch(rect)
+
+    _pub_style_ax(ax, title="TANGO \u03b2-Aggregation",
+                  xlabel="Residue", ylabel="Score (%)",
+                  grid=True, title_size=label_font - 1,
+                  label_size=label_font - 1, tick_size=tick_font - 1)
+    ax.set_xlim(x[0], x[-1])
+    ax.set_ylim(y_min, y_max)
+    ax.legend(fontsize=tick_font - 2, loc="upper right",
+              framealpha=0.85, edgecolor="#d0d4e0")
     fig.tight_layout(pad=1.5)
     mplcursors.cursor(ax)
     return fig

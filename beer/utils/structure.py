@@ -68,6 +68,7 @@ def calc_disorder_profile(
         Optional dict with keys ``"coef"`` (numpy array, shape ``(1, D)``)
         and ``"intercept"`` (float or array, default 0.0).
     """
+    # Priority 1: ESM2 probe (most accurate)
     if embedder is not None and embedder.is_available() and head is not None:
         emb = embedder.embed(seq)
         if emb is not None and len(emb) == len(seq):
@@ -76,9 +77,16 @@ def calc_disorder_profile(
             intercept = head.get("intercept", 0.0)
             if coef is not None and coef.shape[-1] == emb.shape[-1]:
                 logits = emb @ coef.T + intercept
-                # sigmoid
                 scores = 1.0 / (1.0 + np.exp(-logits.ravel()))
                 return scores.tolist()
+    # Priority 2: metapredict (DL-based, installed as core dependency)
+    try:
+        import metapredict as meta
+        scores = meta.predict_disorder(seq)
+        return [float(s) for s in scores]
+    except Exception:
+        pass
+    # Priority 3: classical sliding-window fallback
     return _classical_disorder_profile(seq, window)
 
 

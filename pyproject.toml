@@ -30,12 +30,14 @@ dependencies = [
     "PySide6>=6.6",
     "mplcursors>=0.5",
     "numpy>=1.24,<2",
+    "metapredict>=2.6",
 ]
 
 [project.optional-dependencies]
 # torch>=2.0 CPU builds require numpy<2 (already enforced above).
 # scipy is needed by fair-esm's inverse-folding module on some systems.
 esm2 = ["fair-esm>=2.0.0", "torch>=2.0", "scipy>=1.9"]
+tmhmm = ["biolib>=0.1.9"]
 dev  = ["pytest>=7.0", "pytest-cov>=4.0"]
 
 [project.urls]

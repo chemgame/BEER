@@ -1,5 +1,6 @@
 """BEER analysis modules — re-exports of all public analysis functions."""
 
+from beer.analysis.tango import predict_tango_aggregation, predict_tango_hotspots
 from beer.analysis.aggregation import (
     calc_aggregation_profile,
     predict_aggregation_hotspots,
@@ -46,6 +47,9 @@ from beer.analysis.tandem_repeats import (
 )
 
 __all__ = [
+    # tango
+    "predict_tango_aggregation",
+    "predict_tango_hotspots",
     # aggregation
     "calc_aggregation_profile",
     "predict_aggregation_hotspots",

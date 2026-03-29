@@ -89,6 +89,7 @@ from beer.constants import (
     KYTE_DOOLITTLE, DEFAULT_PKA, DISORDER_PROPENSITY, COILED_COIL_PROPENSITY,
     CHOU_FASMAN_HELIX, CHOU_FASMAN_SHEET, LINEAR_MOTIFS,
     STICKER_AROMATIC, STICKER_ELECTROSTATIC,
+    HYDROPHOBICITY_SCALES,
 )
 from beer.utils.sequence import clean_sequence, is_valid_protein, format_sequence_block
 from beer.utils.biophysics import calc_net_charge
@@ -126,7 +127,9 @@ from beer.graphs import (
     create_annotation_track_figure, create_cleavage_map_figure,
     create_plaac_profile_figure,
     create_msa_covariance_figure,
+    create_tango_figure,
 )
+from beer.graphs.variant_map import create_alphafold_missense_figure
 from beer.reports.css import REPORT_CSS
 from beer.reports.sections import (
     format_aggregation_report, format_ptm_report, format_signal_report,
@@ -225,6 +228,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.enable_tooltips      = _cfg.get("enable_tooltips", True)
         self.colorblind_safe      = _cfg.get("colorblind_safe", False)
         self._history             = []   # session-only: never restored from disk
+        self.hydro_scale          = "Kyte-Doolittle"
         self.sequence_name       = ""
         self._tooltips: dict     = {}
         self._analysis_worker    = None
@@ -408,6 +412,24 @@ class ProteinAnalyzerGUI(QMainWindow):
             # background.  Re-tint every icon to dark after toolbar creation.
             self._tint_toolbar_icons_dark(toolbar)
         vb.addWidget(toolbar)
+        if title == "TM Topology":
+            _dtm_btn = QPushButton("Re-analyze  (DeepTMHMM, requires internet)")
+            _dtm_btn.setFixedHeight(28)
+            _dtm_btn.clicked.connect(self._run_deeptmlhmm)
+            vb.addWidget(_dtm_btn)
+        if title == "AlphaMissense":
+            _uid_edit = QLineEdit()
+            _uid_edit.setPlaceholderText("UniProt ID (e.g. P04637)")
+            _uid_edit.setFixedHeight(28)
+            _uid_edit.setMaximumWidth(200)
+            _fetch_am_btn = QPushButton("Fetch AlphaMissense")
+            _fetch_am_btn.setFixedHeight(28)
+            _uid_row = QHBoxLayout()
+            _uid_row.addWidget(_uid_edit)
+            _uid_row.addWidget(_fetch_am_btn)
+            _uid_row.addStretch()
+            vb.addLayout(_uid_row)
+            _fetch_am_btn.clicked.connect(lambda: self._run_alphafold_missense(_uid_edit.text().strip()))
         vb.addWidget(canvas)
         try:
             import mplcursors as _mplcursors
@@ -2113,6 +2135,16 @@ window.addEventListener("load",init);
         self._set_tooltip(self.window_size_input, "Length of sliding window for hydrophobicity profiles.")
         form.addRow("Sliding Window Size:", self.window_size_input)
 
+        self.hydro_scale_combo = QComboBox()
+        self.hydro_scale_combo.addItems(list(HYDROPHOBICITY_SCALES.keys()))
+        self.hydro_scale_combo.setCurrentText("Kyte-Doolittle")
+        self._set_tooltip(self.hydro_scale_combo,
+            "Hydrophobicity scale for sliding-window profiles and GRAVY calculation.\n"
+            "Kyte-Doolittle is the standard general-purpose scale.\n"
+            "Wimley-White/Hessa/GES are best for membrane proteins.\n"
+            "Urry is most relevant for IDP/phase-separation research.")
+        form.addRow("Hydrophobicity Scale:", self.hydro_scale_combo)
+
         self.pka_input = QLineEdit("")
         self.pka_input.setPlaceholderText("e.g. 9.69,2.34,3.90,4.07,8.18,10.46,6.04,10.54,12.48")
         self._set_tooltip(self.pka_input, "Leave blank for defaults. Provide nine comma-separated numbers.")
@@ -2928,7 +2960,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._progress_dlg.show()
 
         self._analysis_worker = AnalysisWorker(
-            seq, pH, self.default_window_size, self.use_reducing, self.custom_pka
+            seq, pH, self.default_window_size, self.use_reducing, self.custom_pka,
+            hydro_scale=self.hydro_scale
         )
         self._analysis_worker.finished.connect(self._on_worker_finished)
         self._analysis_worker.error.connect(self._on_worker_error)
@@ -3042,6 +3075,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         cm  = self.colormap
         pk  = self.custom_pka
         sn  = self.sequence_name
+        hs  = self.hydro_scale
 
         def _wrap(fn):
             """Apply heading/grid overrides then return figure."""
@@ -3063,7 +3097,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         gens["Amino Acid Composition (Pie)"] = lambda: _wrap(lambda: create_amino_acid_composition_pie_figure(
             ad["aa_counts"], label_font=lf))
         gens["Hydrophobicity Profile"] = lambda: _wrap(lambda: create_hydrophobicity_figure(
-            ad["hydro_profile"], ad["window_size"], label_font=lf, tick_font=tf))
+            ad["hydro_profile"], ad["window_size"], hs, label_font=lf, tick_font=tf))
         gens["Bead Model (Hydrophobicity)"] = lambda: _wrap(lambda: create_bead_model_hydrophobicity_figure(
             seq, sbl, label_font=lf, tick_font=tf, cmap=cm))
         gens["Bead Model (Charge)"] = lambda: _wrap(lambda: create_bead_model_charge_figure(
@@ -3119,6 +3153,27 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 label_font=lf, tick_font=tf))
             gens["Solubility Profile"] = lambda: _wrap(lambda: create_solubility_profile_figure(
                 seq, calc_camsolmt_score(seq), label_font=lf, tick_font=tf))
+        gens["TANGO Aggregation"] = lambda: _wrap(lambda: create_tango_figure(
+            seq, ad.get("tango_profile", []), ad.get("tango_hotspots", []),
+            label_font=lf, tick_font=tf))
+        _am_data = getattr(self, "_alphafold_missense_data", None)
+        if _am_data:
+            gens["AlphaMissense"] = lambda: _wrap(lambda: create_alphafold_missense_figure(
+                _am_data, seq=seq, label_font=lf, tick_font=tf))
+        else:
+            def _am_placeholder_fig():
+                from matplotlib.figure import Figure as _Fig
+                _f = _Fig(figsize=(9, 4), dpi=120)
+                _ax = _f.add_subplot(111)
+                _ax.text(0.5, 0.6, "AlphaMissense data not loaded.",
+                         ha="center", va="center", transform=_ax.transAxes,
+                         fontsize=13, color="#374151")
+                _ax.text(0.5, 0.45, "Enter UniProt ID in the Fetch bar and click\n\"Fetch AlphaMissense\" button below.",
+                         ha="center", va="center", transform=_ax.transAxes,
+                         fontsize=10, color="#718096")
+                _ax.set_axis_off()
+                return _f
+            gens["AlphaMissense"] = lambda: _wrap(_am_placeholder_fig)
         if _HAS_AMPHIPATHIC:
             gens["Hydrophobic Moment"] = lambda: _wrap(lambda: create_hydrophobic_moment_figure(
                 seq, ad.get("moment_alpha", []), ad.get("moment_beta", []),
@@ -3611,6 +3666,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.show_grid            = self.grid_checkbox.isChecked()
         self.default_graph_format = self.graph_format_combo.currentText()
         self.use_reducing         = self.reducing_checkbox.isChecked()
+        self.hydro_scale          = self.hydro_scale_combo.currentText()
 
         # Sequence name override
         name_override = self.seq_name_input.text().strip()
@@ -3681,6 +3737,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def reset_defaults(self):
         self.window_size_input.setText("9")
+        self.hydro_scale_combo.setCurrentText("Kyte-Doolittle")
         self.ph_input.setText("7.0")
         self.pka_input.setText("")
         self.reducing_checkbox.setChecked(False)
@@ -3697,6 +3754,43 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.theme_toggle.setChecked(False)
         self.tooltips_checkbox.setChecked(True)
         self.apply_settings()
+
+    # --- DeepTMHMM / AlphaMissense ---
+
+    def _run_deeptmlhmm(self):
+        if not self.analysis_data:
+            return
+        from beer.network.workers import DeepTMHMMWorker
+        seq = self.analysis_data.get("seq", "")
+        if not seq:
+            return
+        self._deeptmlhmm_worker = DeepTMHMMWorker(seq, self)
+        self._deeptmlhmm_worker.finished.connect(self._on_deeptmlhmm_done)
+        self._deeptmlhmm_worker.error.connect(
+            lambda msg: QMessageBox.warning(self, "DeepTMHMM Error", msg))
+        self._deeptmlhmm_worker.start()
+
+    def _on_deeptmlhmm_done(self, helices):
+        if self.analysis_data:
+            self.analysis_data["tm_helices"] = helices
+            self._generated_graphs.pop("TM Topology", None)
+            self._render_visible_graph()
+
+    def _run_alphafold_missense(self, uniprot_id: str):
+        if not uniprot_id:
+            QMessageBox.warning(self, "AlphaMissense", "Please enter a UniProt ID.")
+            return
+        from beer.network.workers import AlphaMissenseWorker
+        self._am_worker = AlphaMissenseWorker(uniprot_id, self)
+        self._am_worker.finished.connect(self._on_alphafold_missense_done)
+        self._am_worker.error.connect(
+            lambda msg: QMessageBox.warning(self, "AlphaMissense Error", msg))
+        self._am_worker.start()
+
+    def _on_alphafold_missense_done(self, data: dict):
+        self._alphafold_missense_data = data
+        self._generated_graphs.pop("AlphaMissense", None)
+        self._render_visible_graph()
 
     # --- Chain selection ---
 

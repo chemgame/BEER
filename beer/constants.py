@@ -54,6 +54,84 @@ EISENBERG_SCALE: dict[str, float] = {
 }
 """Eisenberg normalised consensus hydrophobicity scale (Eisenberg et al. 1984 PNAS)."""
 
+WIMLEY_WHITE: dict[str, float] = {
+    'A':  0.17, 'R': -0.81, 'N': -0.42, 'D': -1.23, 'C':  0.24,
+    'Q': -0.58, 'E': -2.02, 'G': -0.01, 'H': -0.17, 'I':  1.25,
+    'L':  1.22, 'K': -2.80, 'M':  0.67, 'F':  1.13, 'P': -0.45,
+    'S': -0.13, 'T':  0.14, 'W':  1.85, 'Y':  0.94, 'V':  0.07,
+}
+"""Wimley-White whole-residue interfacial hydrophobicity (negated ΔGwif, kcal/mol).
+Wimley & White 1996, Nature Structural Biology 3:842. Positive = hydrophobic."""
+
+HESSA_SCALE: dict[str, float] = {
+    'A':  0.11, 'R': -2.58, 'N': -0.84, 'D': -3.49, 'C':  0.13,
+    'Q': -0.87, 'E': -3.45, 'G':  0.04, 'H': -0.97, 'I':  0.60,
+    'L':  1.25, 'K': -2.60, 'M':  0.10, 'F':  0.32, 'P': -0.84,
+    'S': -0.46, 'T': -0.25, 'W': -0.30, 'Y': -0.73, 'V':  0.31,
+}
+"""Hessa et al. biological hydrophobicity (negated ΔGapp, kcal/mol).
+Hessa et al. 2005, Nature 433:377. Positive = hydrophobic (favorable TM insertion)."""
+
+MOON_FLEMING_SCALE: dict[str, float] = {
+    'A':  0.92, 'R': -2.45, 'N': -1.60, 'D': -3.17, 'C':  0.85,
+    'Q': -1.31, 'E': -3.18, 'G':  0.35, 'H': -0.49, 'I':  1.22,
+    'L':  1.64, 'K': -2.49, 'M':  1.03, 'F':  1.27, 'P': -2.85,
+    'S': -0.19, 'T': -0.06, 'W':  0.87, 'Y': -0.73, 'V':  1.06,
+}
+"""Moon-Fleming biological hydrophobicity (negated ΔGapp, kcal/mol).
+Moon & Fleming 2011, PNAS 108:10174. Positive = hydrophobic (translocon scale)."""
+
+GES_SCALE: dict[str, float] = {
+    'A':  1.20, 'R': -3.07, 'N': -0.53, 'D': -3.82, 'C':  1.56,
+    'Q': -0.53, 'E': -3.63, 'G':  0.84, 'H':  0.25, 'I':  2.23,
+    'L':  2.32, 'K': -4.24, 'M':  1.69, 'F':  2.51, 'P': -0.90,
+    'S':  0.41, 'T':  0.68, 'W':  3.00, 'Y':  2.27, 'V':  1.67,
+}
+"""Goldman-Engelman-Steitz (GES) hydrophobicity (negated ΔG transfer to bilayer, kcal/mol).
+Engelman et al. 1986, Annual Review of Biophysics 15:321. Positive = hydrophobic."""
+
+HOPP_WOODS: dict[str, float] = {
+    'A':  0.5, 'R': -3.0, 'N': -0.2, 'D': -3.0, 'C':  1.0,
+    'Q': -0.2, 'E': -3.0, 'G':  0.0, 'H':  0.5, 'I':  1.8,
+    'L':  1.8, 'K': -3.0, 'M':  1.3, 'F':  2.5, 'P':  0.0,
+    'S': -0.3, 'T':  0.4, 'W':  3.4, 'Y':  2.3, 'V':  1.5,
+}
+"""Hopp-Woods scale (negated hydrophilicity). Hopp & Woods 1981, PNAS 78:3824.
+Positive = hydrophobic. Original is a hydrophilicity scale for surface/antigenicity prediction."""
+
+FAUCHERE_PLISKA: dict[str, float] = {
+    'A':  0.31, 'R': -1.01, 'N': -0.60, 'D': -0.77, 'C':  1.54,
+    'Q': -0.22, 'E': -0.64, 'G':  0.00, 'H':  0.13, 'I':  1.80,
+    'L':  1.70, 'K': -0.99, 'M':  1.23, 'F':  1.79, 'P':  0.72,
+    'S': -0.04, 'T':  0.26, 'W':  2.25, 'Y':  0.96, 'V':  1.22,
+}
+"""Fauche-Pliska octanol/water partition coefficients (logP).
+Fauche & Pliska 1983, Eur. J. Med. Chem. 18:369. Positive = hydrophobic (lipophilic)."""
+
+URRY_SCALE: dict[str, float] = {
+    'A':  0.12, 'R': -1.84, 'N': -0.89, 'D': -1.27, 'C':  0.93,
+    'Q': -0.97, 'E': -2.04, 'G':  0.00, 'H':  0.50, 'I':  1.40,
+    'L':  1.80, 'K': -1.38, 'M':  1.30, 'F':  2.00, 'P':  0.46,
+    'S': -0.46, 'T': -0.12, 'W':  2.08, 'Y':  1.80, 'V':  1.08,
+}
+"""Urry scale — inverse temperature transition of elastin-like polypeptides (negated ΔTt, kcal/mol).
+Urry et al. 1992, Biopolymers 32:1243. Positive = hydrophobic (drives LLPS/coacervation).
+Particularly relevant for IDP/phase-separation research."""
+
+HYDROPHOBICITY_SCALES: dict[str, dict] = {
+    "Kyte-Doolittle":   {"values": KYTE_DOOLITTLE,     "ylabel": "KD Score",      "ref": "Kyte & Doolittle 1982"},
+    "Eisenberg":        {"values": EISENBERG_SCALE,     "ylabel": "Eisenberg",     "ref": "Eisenberg et al. 1984"},
+    "Wimley-White":     {"values": WIMLEY_WHITE,        "ylabel": "ΔG (WW)",       "ref": "Wimley & White 1996"},
+    "Hessa":            {"values": HESSA_SCALE,         "ylabel": "ΔG (Hessa)",    "ref": "Hessa et al. 2005"},
+    "Moon-Fleming":     {"values": MOON_FLEMING_SCALE,  "ylabel": "ΔG (MF)",       "ref": "Moon & Fleming 2011"},
+    "GES":              {"values": GES_SCALE,           "ylabel": "ΔG (GES)",      "ref": "Engelman et al. 1986"},
+    "Hopp-Woods":       {"values": HOPP_WOODS,          "ylabel": "HW Score",      "ref": "Hopp & Woods 1981"},
+    "Fauche-Pliska":    {"values": FAUCHERE_PLISKA,     "ylabel": "logP (FP)",     "ref": "Fauche & Pliska 1983"},
+    "Urry":             {"values": URRY_SCALE,          "ylabel": "Urry Score",    "ref": "Urry et al. 1992"},
+}
+"""Registry of all hydrophobicity scales available in BEER.
+All scales stored with positive = hydrophobic for display consistency."""
+
 # ---------------------------------------------------------------------------
 # Amino acid sets
 # ---------------------------------------------------------------------------
@@ -273,6 +351,8 @@ GRAPH_TITLES: list[str] = [
     "\u03b2-Aggregation Profile",
     "Solubility Profile",
     "Hydrophobic Moment",
+    "TANGO Aggregation",
+    "AlphaMissense",
     "PTM Map",
     "RNA-Binding Profile",
     "SCD Profile",
@@ -331,6 +411,8 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
         "\u03b2-Aggregation Profile",
         "Solubility Profile",
         "Hydrophobic Moment",
+        "TANGO Aggregation",
+        "AlphaMissense",
     ]),
     ("Post-Translational & Binding", [
         "PTM Map",

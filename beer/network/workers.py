@@ -446,13 +446,14 @@ class AnalysisWorker(QThread):
     finished = Signal(dict)
     error = Signal(str)
 
-    def __init__(self, seq, pH, window_size, use_reducing, pka):
+    def __init__(self, seq, pH, window_size, use_reducing, pka, hydro_scale="Kyte-Doolittle"):
         super().__init__()
         self.seq = seq
         self.pH = pH
         self.window_size = window_size
         self.use_reducing = use_reducing
         self.pka = pka
+        self.hydro_scale = hydro_scale
 
     def run(self):
         try:
@@ -461,7 +462,62 @@ class AnalysisWorker(QThread):
             data = AnalysisTools.analyze_sequence(
                 self.seq, self.pH, self.window_size,
                 self.use_reducing, self.pka,
+                hydro_scale=self.hydro_scale,
             )
             self.finished.emit(data)
         except Exception as exc:
             self.error.emit(str(exc))
+
+
+class DeepTMHMMWorker(QThread):
+    """Runs DeepTMHMM prediction via biolib (requires internet)."""
+    finished = Signal(list)   # list of TM helix dicts
+    error    = Signal(str)
+
+    def __init__(self, seq: str, parent=None):
+        super().__init__(parent)
+        self._seq = seq
+
+    def run(self):
+        try:
+            import biolib
+            deeptmhmm = biolib.load("DTU/DeepTMHMM")
+            fasta = f">query\n{self._seq}\n"
+            result = deeptmhmm.cli(args=["--fasta", fasta])
+            # Parse the gff3 output to extract TM segments
+            helices = []
+            for line in result.get("predicted_topologies.gff3", "").splitlines():
+                if line.startswith("#") or not line.strip():
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 9 and "TMhelix" in parts[2]:
+                    start = int(parts[3]) - 1   # convert to 0-based
+                    end   = int(parts[4]) - 1
+                    helices.append({
+                        "start": start, "end": end,
+                        "score": 1.0, "orientation": "unknown",
+                        "source": "DeepTMHMM",
+                    })
+            self.finished.emit(helices)
+        except ImportError:
+            self.error.emit("biolib not installed. Run: pip install biolib")
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class AlphaMissenseWorker(QThread):
+    """Fetches AlphaMissense scores via EBI API (requires internet + UniProt ID)."""
+    finished = Signal(dict)
+    error    = Signal(str)
+
+    def __init__(self, uniprot_id: str, parent=None):
+        super().__init__(parent)
+        self._uid = uniprot_id
+
+    def run(self):
+        try:
+            from beer.analysis.alphafold_data import fetch_alphafold_missense_scores
+            data = fetch_alphafold_missense_scores(self._uid)
+            self.finished.emit(data)
+        except Exception as e:
+            self.error.emit(str(e))
