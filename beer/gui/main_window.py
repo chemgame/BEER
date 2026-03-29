@@ -688,11 +688,6 @@ class ProteinAnalyzerGUI(QMainWindow):
             # background.  Re-tint every icon to dark after toolbar creation.
             self._tint_toolbar_icons_dark(toolbar)
         vb.addWidget(toolbar)
-        if title == "TM Topology":
-            _dtm_btn = QPushButton("Re-analyze  (DeepTMHMM, requires internet)")
-            _dtm_btn.setFixedHeight(28)
-            _dtm_btn.clicked.connect(self._run_deeptmlhmm)
-            vb.addWidget(_dtm_btn)
         vb.addWidget(canvas)
         # Vertical crosshair on single-axes profile graphs (residue-position x-axis)
         _PROFILE_GRAPHS = {
@@ -1055,13 +1050,21 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.fetch_alphafold_missense_btn.clicked.connect(
             lambda: self._run_alphafold_missense(self.current_accession))
         tb2.addWidget(self.fetch_alphafold_missense_btn)
+        self.fetch_deeptmhmm_btn = QPushButton("DeepTMHMM")
+        self.fetch_deeptmhmm_btn.setObjectName("chip_btn")
+        self.fetch_deeptmhmm_btn.setProperty("chip_state", "normal")
+        self.fetch_deeptmhmm_btn.setEnabled(False)
+        self.fetch_deeptmhmm_btn.setToolTip(
+            "Run DeepTMHMM transmembrane topology prediction (requires internet + pybiolib)")
+        self.fetch_deeptmhmm_btn.clicked.connect(self._run_deeptmlhmm)
+        tb2.addWidget(self.fetch_deeptmhmm_btn)
 
         # Convenience list for bulk enable/disable
         self._db_fetch_btns = [
             self.fetch_af_btn, self.fetch_pfam_btn, self.fetch_elm_btn,
             self.fetch_disprot_btn, self.fetch_mobidb_btn, self.fetch_phasepdb_btn,
             self.fetch_variants_btn, self.fetch_intact_btn,
-            self.fetch_alphafold_missense_btn,
+            self.fetch_alphafold_missense_btn, self.fetch_deeptmhmm_btn,
         ]
 
         tb2.addStretch()
@@ -4253,7 +4256,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.update_graph_tabs()
         self.analyze_btn.setEnabled(True)
         # Enable all analysis-dependent buttons
-        for btn in (self.export_analysis_btn, self.mutate_btn, self.trunc_run_btn):
+        for btn in (self.export_analysis_btn, self.mutate_btn, self.trunc_run_btn,
+                    self.fetch_deeptmhmm_btn):
             btn.setEnabled(True)
         self.trunc_run_btn.setToolTip("Run truncation series analysis")
         # Update window title with current sequence name

@@ -500,7 +500,7 @@ class DeepTMHMMWorker(QThread):
                     })
             self.finished.emit(helices)
         except ImportError:
-            self.error.emit("biolib not installed. Run: pip install biolib")
+            self.error.emit("pybiolib not installed. Run: pip install pybiolib")
         except Exception as e:
             self.error.emit(str(e))
 
