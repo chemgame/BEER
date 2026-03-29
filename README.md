@@ -46,6 +46,12 @@ pip install "torch>=2.0" --index-url https://download.pytorch.org/whl/cpu
 pip install fair-esm scipy
 ```
 
+Install DeepTMHMM transmembrane topology predictor (optional, requires internet at run time):
+
+```bash
+pip install pybiolib
+```
+
 **Linux only** — install Qt platform libraries and set the library path:
 
 ```bash

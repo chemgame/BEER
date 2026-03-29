@@ -481,12 +481,21 @@ class DeepTMHMMWorker(QThread):
     def run(self):
         try:
             import biolib
+            import tempfile, os
             deeptmhmm = biolib.load("DTU/DeepTMHMM")
-            fasta = f">query\n{self._seq}\n"
-            result = deeptmhmm.cli(args=["--fasta", fasta])
-            # Parse the gff3 output to extract TM segments
+            with tempfile.TemporaryDirectory() as tmpdir:
+                fasta_path = os.path.join(tmpdir, "query.fasta")
+                with open(fasta_path, "w") as fh:
+                    fh.write(f">query\n{self._seq}\n")
+                result = deeptmhmm.cli(args=["--fasta", fasta_path])
+                out_dir = os.path.join(tmpdir, "out")
+                os.makedirs(out_dir, exist_ok=True)
+                result.save_files(out_dir)
+                gff3_path = os.path.join(out_dir, "predicted_topologies.gff3")
+                gff3_content = open(gff3_path).read() if os.path.exists(gff3_path) else ""
+            # Parse the GFF3 output to extract TM segments
             helices = []
-            for line in result.get("predicted_topologies.gff3", "").splitlines():
+            for line in gff3_content.splitlines():
                 if line.startswith("#") or not line.strip():
                     continue
                 parts = line.split("\t")

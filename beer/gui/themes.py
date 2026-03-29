@@ -168,7 +168,7 @@ LIGHT_THEME_CSS = """
  /* --- ESM2 status indicator --- */
  QLabel#esm2_lbl { font-size: 10px; font-weight: 600; }
  QLabel#esm2_lbl[esm2_state="ready"]   { color: #4361ee; }
- QLabel#esm2_lbl[esm2_state="active"]  { color: #f72585; }
+ QLabel#esm2_lbl[esm2_state="active"]  { color: #1a7a4a; }
  QLabel#esm2_lbl[esm2_state="missing"] { color: #718096; }
  /* --- Protein info bar --- */
  QTextBrowser#info_bar {
@@ -377,7 +377,7 @@ DARK_THEME_CSS = """
  /* --- ESM2 status indicator --- */
  QLabel#esm2_lbl { font-size: 10px; font-weight: 600; }
  QLabel#esm2_lbl[esm2_state="ready"]   { color: #4cc9f0; }
- QLabel#esm2_lbl[esm2_state="active"]  { color: #f72585; }
+ QLabel#esm2_lbl[esm2_state="active"]  { color: #43aa8b; }
  QLabel#esm2_lbl[esm2_state="missing"] { color: #5a6787; }
  /* --- Protein info bar --- */
  QTextBrowser#info_bar {
