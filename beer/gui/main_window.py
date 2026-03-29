@@ -364,6 +364,11 @@ class ProteinAnalyzerGUI(QMainWindow):
         # High-DPI: match canvas DPI to physical screen resolution
         dpr = self.devicePixelRatioF() if hasattr(self, "devicePixelRatioF") else 1.0
         fig.set_dpi(min(150, max(96, int(96 * dpr))))
+        # Re-apply tight layout after DPI change so labels/titles are never clipped
+        try:
+            fig.set_tight_layout({"pad": 2.0, "h_pad": 1.5, "w_pad": 1.5})
+        except Exception:
+            pass
         canvas = FigureCanvas(fig)
         canvas.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         canvas.customContextMenuRequested.connect(
@@ -1024,32 +1029,8 @@ class ProteinAnalyzerGUI(QMainWindow):
         right_v.setSpacing(4)
         outer.addWidget(right, 1)
 
-        # Top bar: Save All + zoom-to-region input
+        # Top bar: Save All button
         top_bar = QHBoxLayout()
-        zoom_lbl = QLabel("Zoom residues:")
-        zoom_lbl.setStyleSheet("QLabel { color: #718096; font-size: 10px; }")
-        self._zoom_from = QLineEdit()
-        self._zoom_from.setPlaceholderText("from")
-        self._zoom_from.setMaximumWidth(55)
-        self._zoom_from.setMaximumHeight(24)
-        self._zoom_to = QLineEdit()
-        self._zoom_to.setPlaceholderText("to")
-        self._zoom_to.setMaximumWidth(55)
-        self._zoom_to.setMaximumHeight(24)
-        zoom_go = QPushButton("Go")
-        zoom_go.setMaximumWidth(36)
-        zoom_go.setMaximumHeight(24)
-        zoom_go.clicked.connect(self._apply_graph_zoom)
-        zoom_reset = QPushButton("Reset")
-        zoom_reset.setMaximumWidth(48)
-        zoom_reset.setMaximumHeight(24)
-        zoom_reset.clicked.connect(self._reset_graph_zoom)
-        top_bar.addWidget(zoom_lbl)
-        top_bar.addWidget(self._zoom_from)
-        top_bar.addWidget(QLabel("–"))
-        top_bar.addWidget(self._zoom_to)
-        top_bar.addWidget(zoom_go)
-        top_bar.addWidget(zoom_reset)
         top_bar.addStretch()
         save_all = QPushButton("Save All Graphs")
         save_all.setMaximumWidth(160)
@@ -2764,12 +2745,18 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             for cid_letter, struct in chain_structs.items():
                 rec_id = f"{pdb_base}_{cid_letter}"
                 self.batch_struct[rec_id] = struct
-            # Load the first chain into the 3D viewer and analysis view.
+            # Load the full PDB into the 3D viewer (all chains visible + chain controls).
             first_id = entries[0][0]
             if first_id in self.batch_struct:
                 self.alphafold_data = self.batch_struct[first_id]
-                self._load_structure_viewer(self.alphafold_data["pdb_str"])
-                self.export_structure_btn.setEnabled(True)
+            self._load_structure_viewer(pdb_str)
+            self.export_structure_btn.setEnabled(True)
+            n_res = sum(len(seq) for _, seq in entries)
+            self.af_status_lbl.setText(
+                f"Loaded {os.path.basename(file_name)}  —  "
+                f"{len(chain_structs)} chain(s), {n_res} residues total"
+            )
+            self.af_status_lbl.setStyleSheet("color:#2d6a2d;")
         self.sequence_name = entries[0][0] if entries else pdb_base
         # Auto-populate the sequence viewer and run graphs immediately.
         # _load_batch already analysed every chain; use the first chain's data.
@@ -3256,45 +3243,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if title and title in self._graph_title_to_stack_idx:
             self.graph_stack.setCurrentIndex(self._graph_title_to_stack_idx[title])
             self._render_graph(title)  # lazy: no-op if already rendered
-
-    def _apply_graph_zoom(self) -> None:
-        """Zoom all profile axes in the current graph to the entered residue range."""
-        try:
-            lo = int(self._zoom_from.text())
-            hi = int(self._zoom_to.text())
-        except ValueError:
-            return
-        item = self.graph_tree.currentItem()
-        if item is None:
-            return
-        title = item.data(0, Qt.ItemDataRole.UserRole)
-        if not title or title not in self.graph_tabs:
-            return
-        _, vb = self.graph_tabs[title]
-        for i in range(vb.count()):
-            w = vb.itemAt(i).widget()
-            if isinstance(w, FigureCanvas):
-                for ax in w.figure.axes:
-                    ax.set_xlim(lo, hi)
-                w.draw()
-
-    def _reset_graph_zoom(self) -> None:
-        """Reset x-axis limits on the current graph to auto."""
-        item = self.graph_tree.currentItem()
-        if item is None:
-            return
-        title = item.data(0, Qt.ItemDataRole.UserRole)
-        if not title or title not in self.graph_tabs:
-            return
-        _, vb = self.graph_tabs[title]
-        for i in range(vb.count()):
-            w = vb.itemAt(i).widget()
-            if isinstance(w, FigureCanvas):
-                for ax in w.figure.axes:
-                    ax.autoscale(axis="x")
-                w.draw()
-        self._zoom_from.clear()
-        self._zoom_to.clear()
 
     def _graph_nav_next(self) -> None:
         """Select the next leaf in the graph tree."""
@@ -4010,8 +3958,14 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                         self.batch_struct[rec_id] = chain_structs[chain_letters[i]]
                 if tagged[0][0] in self.batch_struct:
                     self.alphafold_data = self.batch_struct[tagged[0][0]]
-                    self._load_structure_viewer(self.alphafold_data["pdb_str"])
-                    self.export_structure_btn.setEnabled(True)
+                # Load the full PDB into the 3D viewer (all chains + chain controls).
+                self._load_structure_viewer(pdb_str)
+                self.export_structure_btn.setEnabled(True)
+                self.af_status_lbl.setText(
+                    f"Loaded PDB {acc.upper()}  —  "
+                    f"{len(chain_structs)} chain(s), {len(tagged)} sequence(s)"
+                )
+                self.af_status_lbl.setStyleSheet("color:#2d6a2d;")
             except Exception:
                 pass  # Structure fetch is best-effort; sequences are already loaded
         else:
