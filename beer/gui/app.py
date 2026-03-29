@@ -66,6 +66,8 @@ def main() -> None:
 
     warnings.filterwarnings("ignore", message="Setting the 'color' property will override")
     warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
+    warnings.filterwarnings("ignore", message=".*tight_layout.*", category=UserWarning)
+    warnings.filterwarnings("ignore", message=".*constrained_layout.*", category=UserWarning)
 
     import matplotlib
     matplotlib.use("QtAgg")
