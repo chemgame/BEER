@@ -21,7 +21,7 @@ def create_variant_effect_figure(
     llr_matrix: (L x 20) LLR array from variant_scoring.compute_single_mutant_llr.
     """
     L = len(seq)
-    fig = Figure(figsize=(max(10, L * 0.18), 7))
+    fig = Figure(figsize=(max(10, L * 0.18), 7), layout="constrained")
     gs  = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.4)
 
     # --- Heatmap ---
@@ -69,7 +69,6 @@ def create_variant_effect_figure(
     _apply_font_sizes(ax_mean, label_font, tick_font)
 
     fig.patch.set_facecolor("#f8f9ff")
-    fig.tight_layout(pad=2.0)
     return fig
 
 

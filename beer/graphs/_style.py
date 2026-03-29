@@ -52,7 +52,7 @@ def _pub_style_ax(
         ax.spines["left"].set_color("#c0c4d0")
         ax.spines["bottom"].set_color("#c0c4d0")
     if grid:
-        ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.6, color="#c8cdd8")
+        ax.grid(True, linestyle="--", linewidth=0.3, alpha=0.5, color="#c8cdd8")
         ax.set_axisbelow(True)
     ax.set_facecolor("#fafbff")
 

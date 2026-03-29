@@ -364,11 +364,16 @@ class ProteinAnalyzerGUI(QMainWindow):
         # High-DPI: match canvas DPI to physical screen resolution
         dpr = self.devicePixelRatioF() if hasattr(self, "devicePixelRatioF") else 1.0
         fig.set_dpi(min(150, max(96, int(96 * dpr))))
-        # Re-apply tight layout after DPI change so labels/titles are never clipped
-        try:
-            fig.set_tight_layout({"pad": 2.0, "h_pad": 1.5, "w_pad": 1.5})
-        except Exception:
-            pass
+        # Re-apply tight layout after DPI change so labels/titles are never clipped.
+        # Skip figures that use constrained_layout (they handle spacing themselves).
+        import warnings as _w
+        if not getattr(fig, "get_constrained_layout", lambda: False)():
+            with _w.catch_warnings():
+                _w.filterwarnings("ignore", message=".*tight_layout.*", category=UserWarning)
+                try:
+                    fig.set_tight_layout({"pad": 2.0, "h_pad": 1.5, "w_pad": 1.5})
+                except Exception:
+                    pass
         canvas = FigureCanvas(fig)
         canvas.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         canvas.customContextMenuRequested.connect(
@@ -3042,7 +3047,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             if fig.axes:
                 if not sh:
                     fig.axes[0].set_title("")
-                fig.axes[0].grid(sg)
+                if sg:
+                    fig.axes[0].grid(True, linestyle="--", linewidth=0.3,
+                                     alpha=0.5, color="#c8cdd8")
+                    fig.axes[0].set_axisbelow(True)
+                else:
+                    fig.axes[0].grid(False)
             return fig
 
         gens = {}

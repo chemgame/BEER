@@ -62,7 +62,7 @@ def create_linear_sequence_map_figure(
         for sp in ["top", "right"]:
             ax.spines[sp].set_visible(False)
         ax.set_facecolor("#fafbff")
-        ax.grid(True, linestyle="--", linewidth=0.4, alpha=0.5, color="#c8cdd8")
+        ax.grid(True, linestyle="--", linewidth=0.3, alpha=0.5, color="#c8cdd8")
         ax.set_axisbelow(True)
 
     _track(axs[0], xs_win, hydro_profile, "#4361ee", 0, "Hydrophobicity")
@@ -386,7 +386,7 @@ def create_annotation_track_figure(
         ax.spines["bottom"].set_linewidth(0.7)
         ax.spines["bottom"].set_color("#c0c4d0")
         ax.set_facecolor("#fafbff")
-        ax.grid(True, axis="x", linestyle="--", linewidth=0.35,
+        ax.grid(True, axis="x", linestyle="--", linewidth=0.3,
                 alpha=0.45, color="#c8cdd8")
         ax.set_axisbelow(True)
         if hide_xticks:
@@ -653,7 +653,7 @@ def create_cleavage_map_figure(
     ax.spines["bottom"].set_color("#c0c4d0")
 
     # Subtle vertical grid
-    ax.grid(True, axis="x", linestyle="--", linewidth=0.35,
+    ax.grid(True, axis="x", linestyle="--", linewidth=0.3,
             alpha=0.45, color="#c8cdd8")
     ax.set_axisbelow(True)
 
