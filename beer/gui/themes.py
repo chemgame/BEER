@@ -146,6 +146,11 @@ LIGHT_THEME_CSS = """
  }
  QPushButton#chip_btn[chip_state="fetched"]:hover { background: #cef2e3; border-color: #2e8b57; }
  QPushButton#chip_btn[chip_state="fetched"]:disabled { background: #d4f3e8; color: #3a8a5a; }
+ QPushButton#chip_btn[chip_state="loading"] {
+     background: #fff8e6; color: #b45309;
+     border: 1px solid #f59e0b; font-weight: 700;
+ }
+ QPushButton#chip_btn[chip_state="loading"]:hover { background: #fef3c7; border-color: #d97706; }
  /* --- Section group labels (fetch bar headers) --- */
  QLabel#group_lbl { color: #8892b0; font-size: 9px; font-weight: 600; }
  /* --- Settings section headers --- */
@@ -355,6 +360,11 @@ DARK_THEME_CSS = """
  }
  QPushButton#chip_btn[chip_state="fetched"]:hover { background: #0f3d2c; border-color: #43aa8b; }
  QPushButton#chip_btn[chip_state="fetched"]:disabled { background: #0d2a1e; color: #2e7a5a; }
+ QPushButton#chip_btn[chip_state="loading"] {
+     background: #2a1f00; color: #fbbf24;
+     border: 1px solid #d97706; font-weight: 700;
+ }
+ QPushButton#chip_btn[chip_state="loading"]:hover { background: #3a2a00; border-color: #fbbf24; }
  /* --- Section group labels (fetch bar headers) --- */
  QLabel#group_lbl { color: #4a5a7a; font-size: 9px; font-weight: 600; }
  /* --- Settings section headers --- */

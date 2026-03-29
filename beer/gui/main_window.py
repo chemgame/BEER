@@ -813,6 +813,18 @@ class ProteinAnalyzerGUI(QMainWindow):
         btn.style().unpolish(btn)
         btn.style().polish(btn)
 
+    def _mark_chip_loading(self, btn: "QPushButton") -> None:
+        """Set chip button to amber to indicate an in-progress fetch/computation."""
+        btn.setProperty("chip_state", "loading")
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+
+    def _mark_chip_normal(self, btn: "QPushButton") -> None:
+        """Reset chip button to default (unfetched) state."""
+        btn.setProperty("chip_state", "normal")
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+
     def _graph_context_menu(self, canvas, pos):
         menu = QMenu(self)
         copy_act = menu.addAction("Copy Figure to Clipboard")
@@ -4064,19 +4076,27 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         seq = self.analysis_data.get("seq", "")
         if not seq:
             return
+        self.fetch_deeptmhmm_btn.setEnabled(False)
+        self._mark_chip_loading(self.fetch_deeptmhmm_btn)
         self._deeptmlhmm_worker = DeepTMHMMWorker(seq, self)
         self._deeptmlhmm_worker.finished.connect(self._on_deeptmlhmm_done)
         self._deeptmlhmm_worker.warning.connect(
             lambda msg: self.statusBar.showMessage(msg, 6000))
-        self._deeptmlhmm_worker.error.connect(
-            lambda msg: QMessageBox.warning(self, "TM Predictor Error", msg))
+        self._deeptmlhmm_worker.error.connect(self._on_deeptmlhmm_error)
         self._deeptmlhmm_worker.start()
 
     def _on_deeptmlhmm_done(self, helices):
+        self.fetch_deeptmhmm_btn.setEnabled(True)
+        self._mark_chip_fetched(self.fetch_deeptmhmm_btn)
         if self.analysis_data:
             self.analysis_data["tm_helices"] = helices
             self._generated_graphs.pop("TM Topology", None)
             self._render_visible_graph()
+
+    def _on_deeptmlhmm_error(self, msg: str):
+        self.fetch_deeptmhmm_btn.setEnabled(True)
+        self._mark_chip_normal(self.fetch_deeptmhmm_btn)
+        QMessageBox.warning(self, "TM Predictor Error", msg)
 
     def _run_alphafold_missense(self, uniprot_id: str):
         if not uniprot_id:
@@ -4085,17 +4105,24 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                                 "Fetch a protein via the Fetch bar first.")
             return
         from beer.network.workers import AlphaMissenseWorker
+        self.fetch_alphafold_missense_btn.setEnabled(False)
+        self._mark_chip_loading(self.fetch_alphafold_missense_btn)
         self._am_worker = AlphaMissenseWorker(uniprot_id, self)
         self._am_worker.finished.connect(self._on_alphafold_missense_done)
-        self._am_worker.error.connect(
-            lambda msg: QMessageBox.warning(self, "AlphaMissense Error", msg))
+        self._am_worker.error.connect(self._on_alphafold_missense_error)
         self._am_worker.start()
 
     def _on_alphafold_missense_done(self, data: dict):
         self._alphafold_missense_data = data
+        self.fetch_alphafold_missense_btn.setEnabled(True)
         self._mark_chip_fetched(self.fetch_alphafold_missense_btn)
         # Rebuild generators so the AlphaMissense graph uses real data, not placeholder
         self.update_graph_tabs()
+
+    def _on_alphafold_missense_error(self, msg: str):
+        self.fetch_alphafold_missense_btn.setEnabled(True)
+        self._mark_chip_normal(self.fetch_alphafold_missense_btn)
+        QMessageBox.warning(self, "AlphaMissense Error", msg)
 
     # --- Chain selection ---
 
@@ -4502,6 +4529,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self._alphafold_worker and self._alphafold_worker.isRunning():
             return
         self.fetch_af_btn.setEnabled(False)
+        self._mark_chip_loading(self.fetch_af_btn)
         self._alphafold_worker = AlphaFoldWorker(acc)
         self._alphafold_worker.progress.connect(
             lambda msg: self.statusBar.showMessage(msg))
@@ -4535,6 +4563,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_alphafold_error(self, msg: str):
         self.fetch_af_btn.setEnabled(True)
+        self._mark_chip_normal(self.fetch_af_btn)
         self.statusBar.showMessage("AlphaFold fetch failed", 3000)
         QMessageBox.warning(self, "AlphaFold Error", msg)
 
@@ -4554,6 +4583,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self._pfam_worker and self._pfam_worker.isRunning():
             return
         self.fetch_pfam_btn.setEnabled(False)
+        self._mark_chip_loading(self.fetch_pfam_btn)
         self.statusBar.showMessage(f"Fetching Pfam domains for {acc}…")
         self._pfam_worker = PfamWorker(acc)
         self._pfam_worker.finished.connect(self._on_pfam_finished)
@@ -4564,6 +4594,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.pfam_domains = domains
         self.fetch_pfam_btn.setEnabled(True)
         if not domains:
+            self._mark_chip_normal(self.fetch_pfam_btn)
             self.statusBar.showMessage("No Pfam domains found for this protein.", 4000)
             return
         self._mark_chip_fetched(self.fetch_pfam_btn)
@@ -4574,6 +4605,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_pfam_error(self, msg: str):
         self.fetch_pfam_btn.setEnabled(True)
+        self._mark_chip_normal(self.fetch_pfam_btn)
         self.statusBar.showMessage("Pfam fetch failed", 3000)
         QMessageBox.warning(self, "Pfam Error", msg)
 
@@ -5330,6 +5362,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self._elm_worker and self._elm_worker.isRunning():
             return
         self.fetch_elm_btn.setEnabled(False)
+        self._mark_chip_loading(self.fetch_elm_btn)
         self.statusBar.showMessage(f"Fetching ELM instances for {acc}…")
         seq = self.analysis_data["seq"] if self.analysis_data else ""
         self._elm_worker = ELMWorker(acc, seq)
@@ -5342,6 +5375,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.fetch_elm_btn.setEnabled(True)
         if instances:
             self._mark_chip_fetched(self.fetch_elm_btn)
+        else:
+            self._mark_chip_normal(self.fetch_elm_btn)
         n = len(instances)
         if n == 0:
             QMessageBox.information(self, "ELM",
@@ -5368,6 +5403,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_elm_error(self, msg: str):
         self.fetch_elm_btn.setEnabled(True)
+        self._mark_chip_normal(self.fetch_elm_btn)
         QMessageBox.warning(self, "ELM Error", msg)
 
     def fetch_disprot(self):
@@ -5382,6 +5418,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self._disprot_worker and self._disprot_worker.isRunning():
             return
         self.fetch_disprot_btn.setEnabled(False)
+        self._mark_chip_loading(self.fetch_disprot_btn)
         self.statusBar.showMessage(f"Fetching DisProt annotations for {acc}…")
         self._disprot_worker = DisPRotWorker(acc)
         self._disprot_worker.finished.connect(self._on_disprot_finished)
@@ -5394,6 +5431,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         regions = data.get("regions", [])
         if regions:
             self._mark_chip_fetched(self.fetch_disprot_btn)
+        else:
+            self._mark_chip_normal(self.fetch_disprot_btn)
         n = len(regions)
         if n == 0:
             QMessageBox.information(self, "DisProt",
@@ -5421,6 +5460,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_disprot_error(self, msg: str):
         self.fetch_disprot_btn.setEnabled(True)
+        self._mark_chip_normal(self.fetch_disprot_btn)
         self.statusBar.showMessage("DisProt fetch failed.", 2000)
         QMessageBox.warning(self, "DisProt Error", msg)
 
@@ -5436,6 +5476,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self._phasepdb_worker and self._phasepdb_worker.isRunning():
             return
         self.fetch_phasepdb_btn.setEnabled(False)
+        self._mark_chip_loading(self.fetch_phasepdb_btn)
         self.statusBar.showMessage(f"Checking PhaSepDB for {acc}…")
         self._phasepdb_worker = PhaSepDBWorker(acc)
         self._phasepdb_worker.finished.connect(self._on_phasepdb_finished)
@@ -5447,6 +5488,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.fetch_phasepdb_btn.setEnabled(True)
         if data.get("found"):
             self._mark_chip_fetched(self.fetch_phasepdb_btn)
+        else:
+            self._mark_chip_normal(self.fetch_phasepdb_btn)
         if not data.get("found"):
             QMessageBox.information(self, "PhaSepDB",
                 "This protein was not found in PhaSepDB (phase separation database).\n"
@@ -5469,6 +5512,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_phasepdb_error(self, msg: str):
         self.fetch_phasepdb_btn.setEnabled(True)
+        self._mark_chip_normal(self.fetch_phasepdb_btn)
         QMessageBox.warning(self, "PhaSepDB Error", msg)
 
     # ── MobiDB ────────────────────────────────────────────────────────────────
@@ -5481,6 +5525,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self._mobidb_worker and self._mobidb_worker.isRunning():
             return
         self.fetch_mobidb_btn.setEnabled(False)
+        self._mark_chip_loading(self.fetch_mobidb_btn)
         self.statusBar.showMessage(f"Fetching MobiDB annotations for {acc}…")
         self._mobidb_worker = MobiDBWorker(acc)
         self._mobidb_worker.finished.connect(self._on_mobidb_finished)
@@ -5492,6 +5537,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.fetch_mobidb_btn.setEnabled(True)
         if data.get("found"):
             self._mark_chip_fetched(self.fetch_mobidb_btn)
+        else:
+            self._mark_chip_normal(self.fetch_mobidb_btn)
         if not data.get("found"):
             QMessageBox.information(self, "MobiDB",
                 "This protein was not found in MobiDB, or has no consensus disorder annotations.")
@@ -5526,6 +5573,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_mobidb_error(self, msg: str):
         self.fetch_mobidb_btn.setEnabled(True)
+        self._mark_chip_normal(self.fetch_mobidb_btn)
         self.statusBar.showMessage("MobiDB fetch failed.", 2000)
         QMessageBox.warning(self, "MobiDB Error", msg)
 
@@ -5539,6 +5587,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self._variants_worker and self._variants_worker.isRunning():
             return
         self.fetch_variants_btn.setEnabled(False)
+        self._mark_chip_loading(self.fetch_variants_btn)
         self.statusBar.showMessage(f"Fetching UniProt variants for {acc}…")
         self._variants_worker = UniProtVariantsWorker(acc)
         self._variants_worker.finished.connect(self._on_variants_finished)
@@ -5550,6 +5599,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.fetch_variants_btn.setEnabled(True)
         if variants:
             self._mark_chip_fetched(self.fetch_variants_btn)
+        else:
+            self._mark_chip_normal(self.fetch_variants_btn)
         if not variants:
             QMessageBox.information(self, "UniProt Variants",
                 "No natural variants or mutagenesis data found for this protein.")
@@ -5583,6 +5634,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_variants_error(self, msg: str):
         self.fetch_variants_btn.setEnabled(True)
+        self._mark_chip_normal(self.fetch_variants_btn)
         self.statusBar.showMessage("Variants fetch failed.", 2000)
         QMessageBox.warning(self, "Variants Error", msg)
 
@@ -5596,6 +5648,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self._intact_worker and self._intact_worker.isRunning():
             return
         self.fetch_intact_btn.setEnabled(False)
+        self._mark_chip_loading(self.fetch_intact_btn)
         self.statusBar.showMessage(f"Fetching IntAct interactions for {acc}…")
         self._intact_worker = IntActWorker(acc)
         self._intact_worker.finished.connect(self._on_intact_finished)
@@ -5608,6 +5661,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         interactions = data.get("interactions", [])
         if interactions:
             self._mark_chip_fetched(self.fetch_intact_btn)
+        else:
+            self._mark_chip_normal(self.fetch_intact_btn)
         if not interactions:
             QMessageBox.information(self, "IntAct",
                 "No curated interactions found for this protein in IntAct.\n"
@@ -5664,6 +5719,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_intact_error(self, msg: str):
         self.fetch_intact_btn.setEnabled(True)
+        self._mark_chip_normal(self.fetch_intact_btn)
         self.statusBar.showMessage("IntAct fetch failed.", 2000)
         QMessageBox.warning(self, "IntAct Error", msg)
 
