@@ -4066,8 +4066,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         self._deeptmlhmm_worker = DeepTMHMMWorker(seq, self)
         self._deeptmlhmm_worker.finished.connect(self._on_deeptmlhmm_done)
+        self._deeptmlhmm_worker.warning.connect(
+            lambda msg: self.statusBar.showMessage(msg, 6000))
         self._deeptmlhmm_worker.error.connect(
-            lambda msg: QMessageBox.warning(self, "DeepTMHMM Error", msg))
+            lambda msg: QMessageBox.warning(self, "TM Predictor Error", msg))
         self._deeptmlhmm_worker.start()
 
     def _on_deeptmlhmm_done(self, helices):

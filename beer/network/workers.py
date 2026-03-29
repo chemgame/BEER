@@ -470,48 +470,70 @@ class AnalysisWorker(QThread):
 
 
 class DeepTMHMMWorker(QThread):
-    """Runs DeepTMHMM prediction via biolib (requires internet)."""
+    """TM helix predictor: tries DeepTMHMM via pybiolib, falls back to local KD-window."""
     finished = Signal(list)   # list of TM helix dicts
+    warning  = Signal(str)    # non-fatal message (e.g. fallback used)
     error    = Signal(str)
 
     def __init__(self, seq: str, parent=None):
         super().__init__(parent)
         self._seq = seq
 
+    # ------------------------------------------------------------------
+    def _run_deeptmhmm(self) -> list:
+        """Attempt remote DeepTMHMM via pybiolib. Raises on any failure."""
+        import biolib, tempfile, os
+        deeptmhmm = biolib.load("DTU/DeepTMHMM")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fasta_path = os.path.join(tmpdir, "query.fasta")
+            with open(fasta_path, "w") as fh:
+                fh.write(f">query\n{self._seq}\n")
+            result = deeptmhmm.cli(args=["--fasta", fasta_path])
+            out_dir = os.path.join(tmpdir, "out")
+            os.makedirs(out_dir, exist_ok=True)
+            result.save_files(out_dir)
+            gff3_path = os.path.join(out_dir, "predicted_topologies.gff3")
+            gff3_content = open(gff3_path).read() if os.path.exists(gff3_path) else ""
+        helices = []
+        for line in gff3_content.splitlines():
+            if line.startswith("#") or not line.strip():
+                continue
+            parts = line.split("\t")
+            if len(parts) >= 9 and "TMhelix" in parts[2]:
+                start = int(parts[3]) - 1
+                end   = int(parts[4]) - 1
+                helices.append({"start": start, "end": end,
+                                 "score": 1.0, "orientation": "unknown",
+                                 "source": "DeepTMHMM"})
+        return helices
+
+    def _run_local(self) -> list:
+        """Local Kyte-Doolittle sliding-window fallback (no internet required)."""
+        from beer.utils.structure import predict_tm_helices
+        helices = predict_tm_helices(self._seq)
+        for h in helices:
+            h["source"] = "KD-window (local)"
+        return helices
+
     def run(self):
+        # 1. Try remote DeepTMHMM
         try:
-            import biolib
-            import tempfile, os
-            deeptmhmm = biolib.load("DTU/DeepTMHMM")
-            with tempfile.TemporaryDirectory() as tmpdir:
-                fasta_path = os.path.join(tmpdir, "query.fasta")
-                with open(fasta_path, "w") as fh:
-                    fh.write(f">query\n{self._seq}\n")
-                result = deeptmhmm.cli(args=["--fasta", fasta_path])
-                out_dir = os.path.join(tmpdir, "out")
-                os.makedirs(out_dir, exist_ok=True)
-                result.save_files(out_dir)
-                gff3_path = os.path.join(out_dir, "predicted_topologies.gff3")
-                gff3_content = open(gff3_path).read() if os.path.exists(gff3_path) else ""
-            # Parse the GFF3 output to extract TM segments
-            helices = []
-            for line in gff3_content.splitlines():
-                if line.startswith("#") or not line.strip():
-                    continue
-                parts = line.split("\t")
-                if len(parts) >= 9 and "TMhelix" in parts[2]:
-                    start = int(parts[3]) - 1   # convert to 0-based
-                    end   = int(parts[4]) - 1
-                    helices.append({
-                        "start": start, "end": end,
-                        "score": 1.0, "orientation": "unknown",
-                        "source": "DeepTMHMM",
-                    })
-            self.finished.emit(helices)
+            self.finished.emit(self._run_deeptmhmm())
+            return
         except ImportError:
-            self.error.emit("pybiolib not installed. Run: pip install pybiolib")
+            reason = "pybiolib not installed (pip install pybiolib)"
         except Exception as e:
-            self.error.emit(str(e))
+            reason = str(e)
+
+        # 2. Fall back to local predictor; surface reason as a warning
+        self.warning.emit(
+            f"DeepTMHMM unavailable ({reason}).\n"
+            "Using local Kyte-Doolittle sliding-window predictor instead."
+        )
+        try:
+            self.finished.emit(self._run_local())
+        except Exception as e:
+            self.error.emit(f"Local TM predictor failed: {e}")
 
 
 class AlphaMissenseWorker(QThread):
