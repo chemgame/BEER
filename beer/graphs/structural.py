@@ -10,7 +10,6 @@ from matplotlib.patches import Patch, Rectangle
 import matplotlib.patches as mpatches
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
-import mplcursors
 
 from beer.graphs._style import _pub_style_ax
 
@@ -238,7 +237,6 @@ def create_plddt_figure(
     ], fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0",
        loc="lower right")
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig
 
 

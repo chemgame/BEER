@@ -10,7 +10,6 @@ from matplotlib.patches import Patch, Rectangle
 import matplotlib.pyplot as plt
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
-import mplcursors
 
 from beer.constants import KYTE_DOOLITTLE
 from beer.graphs._style import (
@@ -65,7 +64,6 @@ def create_bead_model_hydrophobicity_figure(
     ax.set_xticks([i for i in range(10, n + 1, 10)])
     ax.tick_params(labelsize=tick_font - 2)
     fig.tight_layout(pad=1.2)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -115,7 +113,6 @@ def create_bead_model_charge_figure(
     ax.set_xticks([i for i in range(10, n + 1, 10)])
     ax.tick_params(labelsize=tick_font - 2)
     fig.tight_layout(pad=1.2)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -284,7 +281,6 @@ def create_sticker_map_figure(
     ax.set_xticks([i for i in range(10, n + 1, 10)])
     ax.tick_params(labelsize=tick_font - 2)
     fig.tight_layout(pad=1.2)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -333,7 +329,6 @@ def create_hydrophobic_moment_figure(
     ax.legend(fontsize=tick_font - 2, loc="upper right",
               framealpha=0.85, edgecolor="#d0d4e0")
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -366,5 +361,4 @@ def create_coiled_coil_profile_figure(
     ax.legend(fontsize=tick_font - 3, framealpha=0.85,
               edgecolor="#d0d4e0", loc="upper right")
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig

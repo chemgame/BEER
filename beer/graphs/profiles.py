@@ -6,7 +6,6 @@ import matplotlib
 matplotlib.use("Agg")
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
-import mplcursors
 
 from beer.graphs._style import (
     _pub_style_ax, _apply_font_sizes, _residue_x,
@@ -64,7 +63,6 @@ def create_hydrophobicity_figure(
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -108,7 +106,6 @@ def create_aggregation_profile_figure(
     ax.legend(fontsize=tick_font - 2, loc="upper right",
               framealpha=0.85, edgecolor="#d0d4e0")
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -143,7 +140,6 @@ def create_solubility_profile_figure(
     ax.legend(fontsize=tick_font - 2, loc="upper right",
               framealpha=0.85, edgecolor="#d0d4e0")
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -179,7 +175,6 @@ def create_scd_profile_figure(
     ax.legend(fontsize=tick_font - 2, loc="upper right",
               framealpha=0.85, edgecolor="#d0d4e0")
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -224,7 +219,6 @@ def create_rbp_profile_figure(
     ax.legend(fontsize=tick_font - 2, loc="upper right",
               framealpha=0.85, edgecolor="#d0d4e0")
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -258,7 +252,6 @@ def create_disorder_profile_figure(
     ax.set_ylim(-0.02, 1.05)
     ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -301,7 +294,6 @@ def create_plaac_profile_figure(
     ax.set_xlim(1, n)
     ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -347,5 +339,4 @@ def create_tango_figure(
     ax.legend(fontsize=tick_font - 2, loc="upper right",
               framealpha=0.85, edgecolor="#d0d4e0")
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig

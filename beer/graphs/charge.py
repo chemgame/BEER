@@ -5,7 +5,6 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib.figure import Figure
-import mplcursors
 
 from beer.constants import DEFAULT_PKA
 from beer.graphs._style import (
@@ -65,7 +64,6 @@ def create_isoelectric_focus_figure(
     ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0",
               loc="upper right")
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -94,7 +92,6 @@ def create_local_charge_figure(
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig
 
 
@@ -138,5 +135,4 @@ def create_charge_decoration_figure(
     ax.legend(fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0",
               loc="upper left")
     fig.tight_layout(pad=1.5)
-    mplcursors.cursor(ax)
     return fig

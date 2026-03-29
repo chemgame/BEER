@@ -7,7 +7,6 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib.figure import Figure
-import mplcursors
 
 from beer.constants import KYTE_DOOLITTLE, DEFAULT_PKA
 from beer.graphs._style import _pub_style_ax, _ACCENT, _NEG_COL, _POS_COL
@@ -253,62 +252,49 @@ def create_pI_MW_gel_figure(
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
 
-    single = len(proteins_data) == 1
-
     for mw_kda in MW_STANDARDS_KDA:
         log_mw = math.log10(mw_kda * 1000)
-        ax.axhline(log_mw, color="lightgrey", linestyle="--", linewidth=0.8, zorder=0)
-        ax.text(13.8, log_mw, f"{mw_kda} kDa", va="center", ha="right",
-                fontsize=max(tick_font - 3, 7), color="grey")
+        ax.axhline(log_mw, color="#e2e8f0", linestyle="--", linewidth=0.8, zorder=0)
 
-    ax.axvline(7.0, color="grey", linestyle="--", linewidth=0.8, zorder=0)
-    ax.axvline(4.0, color="lightblue", linestyle=":", linewidth=0.8, zorder=0)
-    ax.axvline(10.0, color="lightcoral", linestyle=":", linewidth=0.8, zorder=0)
+    ax.axvline(7.0, color="#94a3b8", linestyle="--", linewidth=0.8, zorder=0,
+               label="pH 7.0")
+    ax.axvline(4.0, color="#93c5fd", linestyle=":", linewidth=0.8, zorder=0,
+               label="pI 4.0")
+    ax.axvline(10.0, color="#fca5a5", linestyle=":", linewidth=0.8, zorder=0,
+               label="pI 10.0")
 
-    scatter_artists = []
+    legend_handles = []
     for pdata in proteins_data:
         pI_val = float(pdata["pI"])
         mw_val = float(pdata["mol_weight"])
         log_mw = math.log10(mw_val)
-        color = pdata.get("color", "steelblue")
-        marker = "*" if single else "o"
-        ms = 18 if single else 10
-        sc = ax.scatter(pI_val, log_mw, color=color, marker=marker,
-                        s=ms ** 2, zorder=5, edgecolors="black", linewidths=0.5)
+        color = pdata.get("color", "#4361ee")
+        sc = ax.scatter(pI_val, log_mw, color=color, marker="o",
+                        s=120, zorder=5, edgecolors="white", linewidths=0.8,
+                        label=pdata["name"])
         ax.annotate(
             pdata["name"],
             xy=(pI_val, log_mw),
-            xytext=(4, 4),
+            xytext=(5, 4),
             textcoords="offset points",
             fontsize=max(tick_font - 2, 8),
+            color="#2d3748",
         )
-        scatter_artists.append(sc)
-
-    if scatter_artists:
-        try:
-            cursor = mplcursors.cursor(scatter_artists, hover=True)
-
-            @cursor.connect("add")
-            def on_add(sel):
-                idx = sel.index
-                if idx < len(proteins_data):
-                    p = proteins_data[idx]
-                    sel.annotation.set_text(
-                        f"{p['name']}\npI={p['pI']:.2f}\nMW={p['mol_weight']:.0f} Da"
-                    )
-        except Exception:
-            pass
+        legend_handles.append(sc)
 
     std_log_ticks = [math.log10(mw * 1000) for mw in MW_STANDARDS_KDA]
     ax.set_yticks(std_log_ticks)
-    ax.set_yticklabels([f"{mw} kDa" for mw in MW_STANDARDS_KDA],
+    ax.set_yticklabels([str(mw) for mw in MW_STANDARDS_KDA],
                        fontsize=tick_font - 1)
+    ax.yaxis.set_tick_params(right=False, labelright=False)
 
     _pub_style_ax(ax, title="pI–MW Map",
-                  xlabel="pI", ylabel="MW",
-                  grid=True, title_size=label_font - 1,
+                  xlabel="pI", ylabel="MW (kDa)",
+                  grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(0, 14)
+    ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0",
+              loc="upper right")
     fig.tight_layout(pad=1.5)
     return fig
 

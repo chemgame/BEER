@@ -337,8 +337,6 @@ def create_local_complexity_figure(
                   tick_size=tick_font - 1)
     ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")
     fig.tight_layout(pad=1.5)
-    import mplcursors
-    mplcursors.cursor(ax)
     return fig
 
 
