@@ -717,22 +717,23 @@ class ProteinAnalyzerGUI(QMainWindow):
             info_btn = _QGTB()
             info_btn.setText("\u24d8")
             info_btn.setMaximumWidth(28)
-            info_btn.setStyleSheet("QToolButton { font-size:11pt; border:none; color:#718096; }")
+            info_btn.setObjectName("info_btn")
             info_btn.setToolTip("Click for description, equations, and references.")
 
             def _show_info(_, h=hint, t=title):
+                from beer.gui.themes import DARK_THEME_CSS as _DCSS, LIGHT_THEME_CSS as _LCSS
+                _dark = hasattr(self, "theme_toggle") and self.theme_toggle.isChecked()
                 dlg = _QDlg(self)
                 dlg.setWindowTitle(t)
-                dlg.setMinimumWidth(520)
-                dlg.setMinimumHeight(340)
+                dlg.setMinimumWidth(540)
+                dlg.setMinimumHeight(360)
+                dlg.setStyleSheet(_DCSS if _dark else _LCSS)
                 vbl = _QVB(dlg)
                 browser = _QTB()
+                browser.setObjectName("info_dialog")
                 browser.setOpenExternalLinks(False)
                 browser.setReadOnly(True)
                 browser.setPlainText(h)
-                browser.setStyleSheet(
-                    "QTextBrowser { font-family: 'Menlo', 'Consolas', monospace; "
-                    "font-size: 10pt; background: #f8f9ff; border: none; padding: 8px; }")
                 vbl.addWidget(browser)
                 bb = _QBB(_QBB.StandardButton.Close)
                 bb.rejected.connect(dlg.reject)
@@ -795,29 +796,26 @@ class ProteinAnalyzerGUI(QMainWindow):
             size_tag = short
 
         if not ESM2_AVAILABLE or self._embedder is None:
-            text  = "ESM2 · not installed"
-            color = "#a0a0a0"
+            text       = "ESM2 · not installed"
+            esm2_state = "missing"
         elif state == "active":
-            text  = f"ESM2 {size_tag} · active \u2714"
-            color = "#43aa8b"
+            text       = f"ESM2 {size_tag} · active \u2714"
+            esm2_state = "active"
         else:
-            text  = f"ESM2 {size_tag} · ready"
-            color = "#4361ee"
+            text       = f"ESM2 {size_tag} · ready"
+            esm2_state = "ready"
 
         self._esm2_indicator.setText(text)
-        self._esm2_indicator.setStyleSheet(
-            f"QLabel {{ color: {color}; font-size: 10px; font-weight: 600; }}"
-        )
+        self._esm2_indicator.setObjectName("esm2_lbl")
+        self._esm2_indicator.setProperty("esm2_state", esm2_state)
+        self._esm2_indicator.style().unpolish(self._esm2_indicator)
+        self._esm2_indicator.style().polish(self._esm2_indicator)
 
     def _mark_chip_fetched(self, btn: "QPushButton") -> None:
-        """Turn a chip button green to signal that data has been fetched."""
-        btn.setStyleSheet(
-            "QPushButton { background:#e6f9f0; color:#1a7a4a;"
-            "  border:1px solid #43aa8b; border-radius:10px;"
-            "  padding:2px 9px; font-size:10px; min-height:24px; font-weight:600; }"
-            "QPushButton:hover { background:#cef2e3; border-color:#2e8b57; }"
-            "QPushButton:pressed { background:#b4e8d0; }"
-        )
+        """Turn a chip button green (property-based, theme-aware) to signal a successful fetch."""
+        btn.setProperty("chip_state", "fetched")
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
 
     def _graph_context_menu(self, canvas, pos):
         menu = QMenu(self)
@@ -960,38 +958,29 @@ class ProteinAnalyzerGUI(QMainWindow):
         tb2 = QHBoxLayout()
         tb2.setSpacing(4)
 
-        # Chip style: coloured when enabled, muted when disabled — state visible at a glance
-        _chip = (
-            "QPushButton { background:transparent; color:#4361ee;"
-            "  border:1px solid #b0bae8; border-radius:10px;"
-            "  padding:2px 9px; font-size:10px; min-height:24px; }"
-            "QPushButton:hover:!disabled { background:#e8eeff; border-color:#4361ee; }"
-            "QPushButton:pressed:!disabled { background:#d0d8f8; }"
-            "QPushButton:disabled { color:#b8bdd4; border-color:#dcdee8; }"
-        )
-        self._chip_style = _chip
-        _lbl_css = "QLabel { color:#8892b0; font-size:9px; font-weight:600; }"
 
         def _sep():
             f = QFrame()
             f.setFrameShape(QFrame.Shape.VLine)
             f.setFrameShadow(QFrame.Shadow.Plain)
-            f.setStyleSheet("color:#d0d4e0;")
+            f.setObjectName("v_sep")
             f.setMaximumHeight(20)
             return f
 
         # — Structure —
         grp_lbl = QLabel("Structure")
-        grp_lbl.setStyleSheet(_lbl_css)
+        grp_lbl.setObjectName("group_lbl")
         tb2.addWidget(grp_lbl)
         self.fetch_af_btn = QPushButton("AlphaFold")
-        self.fetch_af_btn.setStyleSheet(_chip)
+        self.fetch_af_btn.setObjectName("chip_btn")
+        self.fetch_af_btn.setProperty("chip_state", "normal")
         self.fetch_af_btn.setEnabled(False)
         self.fetch_af_btn.setToolTip("Fetch AlphaFold predicted structure (requires UniProt accession)")
         self.fetch_af_btn.clicked.connect(self.fetch_alphafold)
         tb2.addWidget(self.fetch_af_btn)
         self.fetch_pfam_btn = QPushButton("Pfam")
-        self.fetch_pfam_btn.setStyleSheet(_chip)
+        self.fetch_pfam_btn.setObjectName("chip_btn")
+        self.fetch_pfam_btn.setProperty("chip_state", "normal")
         self.fetch_pfam_btn.setEnabled(False)
         self.fetch_pfam_btn.setToolTip("Fetch Pfam domain annotations from InterPro")
         self.fetch_pfam_btn.clicked.connect(self.fetch_pfam)
@@ -1003,28 +992,32 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         # — Disorder / IDP —
         grp_lbl2 = QLabel("Disorder / IDP")
-        grp_lbl2.setStyleSheet(_lbl_css)
+        grp_lbl2.setObjectName("group_lbl")
         tb2.addWidget(grp_lbl2)
         self.fetch_elm_btn = QPushButton("ELM")
-        self.fetch_elm_btn.setStyleSheet(_chip)
+        self.fetch_elm_btn.setObjectName("chip_btn")
+        self.fetch_elm_btn.setProperty("chip_state", "normal")
         self.fetch_elm_btn.setEnabled(False)
         self.fetch_elm_btn.setToolTip("Fetch experimentally validated linear motifs from ELM (UniProt only)")
         self.fetch_elm_btn.clicked.connect(self.fetch_elm)
         tb2.addWidget(self.fetch_elm_btn)
         self.fetch_disprot_btn = QPushButton("DisProt")
-        self.fetch_disprot_btn.setStyleSheet(_chip)
+        self.fetch_disprot_btn.setObjectName("chip_btn")
+        self.fetch_disprot_btn.setProperty("chip_state", "normal")
         self.fetch_disprot_btn.setEnabled(False)
         self.fetch_disprot_btn.setToolTip("Fetch disorder annotations from DisProt (UniProt only)")
         self.fetch_disprot_btn.clicked.connect(self.fetch_disprot)
         tb2.addWidget(self.fetch_disprot_btn)
         self.fetch_mobidb_btn = QPushButton("MobiDB")
-        self.fetch_mobidb_btn.setStyleSheet(_chip)
+        self.fetch_mobidb_btn.setObjectName("chip_btn")
+        self.fetch_mobidb_btn.setProperty("chip_state", "normal")
         self.fetch_mobidb_btn.setEnabled(False)
         self.fetch_mobidb_btn.setToolTip("Fetch consensus disorder annotations from MobiDB (UniProt only)")
         self.fetch_mobidb_btn.clicked.connect(self.fetch_mobidb)
         tb2.addWidget(self.fetch_mobidb_btn)
         self.fetch_phasepdb_btn = QPushButton("PhaSepDB")
-        self.fetch_phasepdb_btn.setStyleSheet(_chip)
+        self.fetch_phasepdb_btn.setObjectName("chip_btn")
+        self.fetch_phasepdb_btn.setProperty("chip_state", "normal")
         self.fetch_phasepdb_btn.setEnabled(False)
         self.fetch_phasepdb_btn.setToolTip("Check phase-separation database PhaSepDB (UniProt only)")
         self.fetch_phasepdb_btn.clicked.connect(self.fetch_phasepdb)
@@ -1036,22 +1029,25 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         # — Interactions —
         grp_lbl3 = QLabel("Interactions")
-        grp_lbl3.setStyleSheet(_lbl_css)
+        grp_lbl3.setObjectName("group_lbl")
         tb2.addWidget(grp_lbl3)
         self.fetch_variants_btn = QPushButton("Variants")
-        self.fetch_variants_btn.setStyleSheet(_chip)
+        self.fetch_variants_btn.setObjectName("chip_btn")
+        self.fetch_variants_btn.setProperty("chip_state", "normal")
         self.fetch_variants_btn.setEnabled(False)
         self.fetch_variants_btn.setToolTip("Fetch natural variants and mutagenesis data from UniProt")
         self.fetch_variants_btn.clicked.connect(self.fetch_variants)
         tb2.addWidget(self.fetch_variants_btn)
         self.fetch_intact_btn = QPushButton("IntAct")
-        self.fetch_intact_btn.setStyleSheet(_chip)
+        self.fetch_intact_btn.setObjectName("chip_btn")
+        self.fetch_intact_btn.setProperty("chip_state", "normal")
         self.fetch_intact_btn.setEnabled(False)
         self.fetch_intact_btn.setToolTip("Fetch curated binary interactions from IntAct / EBI (UniProt only)")
         self.fetch_intact_btn.clicked.connect(self.fetch_intact)
         tb2.addWidget(self.fetch_intact_btn)
         self.fetch_alphafold_missense_btn = QPushButton("AlphaMissense")
-        self.fetch_alphafold_missense_btn.setStyleSheet(_chip)
+        self.fetch_alphafold_missense_btn.setObjectName("chip_btn")
+        self.fetch_alphafold_missense_btn.setProperty("chip_state", "normal")
         self.fetch_alphafold_missense_btn.setEnabled(False)
         self.fetch_alphafold_missense_btn.setToolTip(
             "Fetch AlphaMissense variant pathogenicity scores from EBI (UniProt only, requires internet)")
@@ -1078,8 +1074,7 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         # ── Persistent sequence info bar ─────────────────────────────────────
         self._seq_info_label = QLabel("")
-        self._seq_info_label.setStyleSheet(
-            "QLabel { color:#4361ee; font-size:9pt; font-weight:600; padding:2px 4px; }")
+        self._seq_info_label.setObjectName("seq_info_lbl")
         self._seq_info_label.hide()
         outer.addWidget(self._seq_info_label)
 
@@ -1094,7 +1089,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         left_layout.setSpacing(5)
 
         self._seq_label = QLabel("Protein Sequence:")
-        self._seq_label.setStyleSheet("font-weight:600; color:#4361ee;")
+        self._seq_label.setObjectName("accent_lbl")
         left_layout.addWidget(self._seq_label)
 
         self.seq_text = QTextEdit()
@@ -1117,7 +1112,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         # Sequence viewer (UniProt style) + motif search
         sv_hdr = QHBoxLayout()
         self._seq_view_label = QLabel("Sequence Viewer:")
-        self._seq_view_label.setStyleSheet("font-weight:600; color:#4361ee; margin-top:4px;")
+        self._seq_view_label.setObjectName("accent_lbl")
         sv_hdr.addWidget(self._seq_view_label)
         sv_hdr.addStretch()
         sv_hdr.addWidget(QLabel("Search:"))
@@ -1134,7 +1129,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         clr_btn.clicked.connect(self.clear_motif_highlight)
         sv_hdr.addWidget(clr_btn)
         self.motif_match_lbl = QLabel("")
-        self.motif_match_lbl.setStyleSheet("color:#4361ee; font-size:9pt;")
+        self.motif_match_lbl.setObjectName("accent_lbl")
         sv_hdr.addWidget(self.motif_match_lbl)
         left_layout.addLayout(sv_hdr)
         self.seq_viewer = QTextBrowser()
@@ -1152,10 +1147,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         clear_protein_btn = QPushButton("Clear All")
         clear_protein_btn.setToolTip("Clear the loaded protein, analysis, graphs and structure")
         clear_protein_btn.setMinimumHeight(28)
-        clear_protein_btn.setStyleSheet(
-            "QPushButton { background-color: #e63946; }"
-            "QPushButton:hover { background-color: #c1121f; }"
-        )
+        clear_protein_btn.setObjectName("delete_btn")
         clear_protein_btn.clicked.connect(self._clear_all)
         seq_action_row.addWidget(clear_protein_btn)
         seq_action_row.addStretch()
@@ -1195,10 +1187,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._protein_info_bar = QTextBrowser()
         self._protein_info_bar.setOpenExternalLinks(True)
         self._protein_info_bar.setMaximumHeight(72)
-        self._protein_info_bar.setStyleSheet(
-            "QTextBrowser { background:#f0f4ff; border:1px solid #c8d0ec;"
-            " border-radius:6px; padding:4px 8px; font-size:9pt; color:#2d3748; }"
-        )
+        self._protein_info_bar.setObjectName("info_bar")
         self._protein_info_bar.hide()
         right_layout.addWidget(self._protein_info_bar)
 
@@ -1367,7 +1356,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 vb.setContentsMargins(4, 4, 4, 4)
                 ph = QLabel(f"Run analysis to generate:\n{title}")
                 ph.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                ph.setStyleSheet("color:#718096; font-style:italic;")
+                ph.setObjectName("placeholder_lbl")
                 vb.addWidget(ph)
                 save_btn = QPushButton("Save Graph")
                 save_btn.setMaximumWidth(120)
@@ -1487,7 +1476,8 @@ class ProteinAnalyzerGUI(QMainWindow):
         # ── top info row ──────────────────────────────────────────────────────
         info_row = QHBoxLayout()
         self.af_status_lbl = QLabel("No structure loaded.  Import a PDB file, fetch a PDB ID, or fetch AlphaFold.")
-        self.af_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
+        self.af_status_lbl.setObjectName("status_lbl")
+        self.af_status_lbl.setProperty("status_state", "idle")
         info_row.addWidget(self.af_status_lbl, 1)
         self.export_structure_btn = QPushButton("Export Structure / Sequence")
         self.export_structure_btn.setToolTip(
@@ -1665,7 +1655,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 "You can still export the structure and open it in PyMOL or UCSF ChimeraX."
             )
             msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            msg.setStyleSheet("color:#718096; font-size:11pt;")
+            msg.setObjectName("placeholder_lbl")
             layout.addWidget(msg, 1)
             self.structure_viewer = None
 
@@ -2273,7 +2263,7 @@ window.addEventListener("load",init);
         ctrl_row.addWidget(self.blast_run_btn)
         self.blast_stop_btn = QPushButton("Stop BLAST")
         self.blast_stop_btn.setMinimumHeight(30)
-        self.blast_stop_btn.setStyleSheet("QPushButton { color: #c0392b; border: 1px solid #c0392b; }")
+        self.blast_stop_btn.setObjectName("danger_btn")
         self.blast_stop_btn.clicked.connect(self._stop_blast)
         self.blast_stop_btn.setVisible(False)
         ctrl_row.addWidget(self.blast_stop_btn)
@@ -2281,7 +2271,8 @@ window.addEventListener("load",init);
         layout.addLayout(ctrl_row)
 
         self.blast_status_lbl = QLabel("Ready.  Run analysis first, then click 'BLAST Current Sequence'.")
-        self.blast_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
+        self.blast_status_lbl.setObjectName("status_lbl")
+        self.blast_status_lbl.setProperty("status_state", "idle")
         layout.addWidget(self.blast_status_lbl)
 
         self.blast_table = QTableWidget()
@@ -2389,10 +2380,7 @@ window.addEventListener("load",init);
 
         def _section(title):
             lbl = QLabel(title)
-            lbl.setStyleSheet(
-                "font-size:11pt; font-weight:700; color:#4361ee;"
-                " border-bottom:1px solid #d0d4e0; padding-bottom:4px; margin-top:8px;"
-            )
+            lbl.setObjectName("section_header")
             layout.addWidget(lbl)
 
         form = QFormLayout()
@@ -3077,7 +3065,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 f"Loaded {os.path.basename(file_name)}  —  "
                 f"{len(chain_structs)} chain(s), {n_res} residues total"
             )
-            self.af_status_lbl.setStyleSheet("color:#2d6a2d;")
+            self.af_status_lbl.setProperty("status_state", "success")
+            self.af_status_lbl.style().unpolish(self.af_status_lbl)
+            self.af_status_lbl.style().polish(self.af_status_lbl)
         self.sequence_name = entries[0][0] if entries else pdb_base
         # Auto-populate the sequence viewer and run graphs immediately.
         # _load_batch already analysed every chain; use the first chain's data.
@@ -3902,13 +3892,37 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 " padding:4px 0; background:transparent;"
             )
 
-        # Update accent-coloured labels in Analysis tab
-        if hasattr(self, "_seq_label"):
-            self._seq_label.setStyleSheet(f"font-weight:600; color:{accent};")
-        if hasattr(self, "_seq_view_label"):
-            self._seq_view_label.setStyleSheet(f"font-weight:600; color:{accent}; margin-top:4px;")
-        if hasattr(self, "motif_match_lbl"):
-            self.motif_match_lbl.setStyleSheet(f"color:{accent}; font-size:9pt;")
+        # Re-polish chip buttons so property-based chip/fetched styles update
+        if hasattr(self, "_db_fetch_btns"):
+            for _btn in self._db_fetch_btns:
+                _btn.style().unpolish(_btn)
+                _btn.style().polish(_btn)
+
+        # Re-style matplotlib navigation toolbars to match the new theme
+        _toolbar_light_css = (
+            "QToolBar { background: #eef0f8; border: 1px solid #d0d4e0;"
+            "           border-radius: 4px; padding: 2px; spacing: 1px; }"
+            "QToolButton { background: #ffffff; border: 1px solid #d0d4e0;"
+            "              border-radius: 3px; padding: 3px; color: #2d3748; }"
+            "QToolButton:hover   { background: #e0e4f4; border-color: #4361ee; }"
+            "QToolButton:pressed { background: #c8d0ec; }"
+            "QToolButton:checked { background: #dce3f8; border-color: #4361ee; }"
+        )
+        _toolbar_dark_css = (
+            "QToolBar { background: #1e2640; border: none; border-radius: 4px;"
+            "           padding: 2px; spacing: 1px; }"
+            "QToolButton { background: transparent; border: none; border-radius: 3px;"
+            "              padding: 3px; color: #e8eaef; }"
+            "QToolButton:hover   { background: rgba(255,255,255,0.15); }"
+            "QToolButton:pressed { background: rgba(255,255,255,0.25); }"
+            "QToolButton:checked { background: rgba(67,97,238,0.55); }"
+        )
+        _tb_css = _toolbar_dark_css if is_dark else _toolbar_light_css
+        if hasattr(self, "graph_stack"):
+            for _tb in self.graph_stack.findChildren(NavigationToolbar2QT):
+                _tb.setStyleSheet(_tb_css)
+                if not is_dark:
+                    self._tint_toolbar_icons_dark(_tb)
 
         # Re-render sequence viewer with updated colors
         if self.analysis_data:
@@ -4356,7 +4370,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                     f"Loaded PDB {acc.upper()}  —  "
                     f"{len(chain_structs)} chain(s), {len(tagged)} sequence(s)"
                 )
-                self.af_status_lbl.setStyleSheet("color:#2d6a2d;")
+                self.af_status_lbl.setProperty("status_state", "success")
+                self.af_status_lbl.style().unpolish(self.af_status_lbl)
+                self.af_status_lbl.style().polish(self.af_status_lbl)
             except Exception:
                 pass  # Structure fetch is best-effort; sequences are already loaded
         else:
@@ -4501,7 +4517,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             f"Loaded AlphaFold structure for {data['accession']}  "
             f"({n_res} residues, mean pLDDT = {mean_plddt:.1f})"
         )
-        self.af_status_lbl.setStyleSheet("color:#43aa8b; font-weight:600;")
+        self.af_status_lbl.setProperty("status_state", "success")
+        self.af_status_lbl.style().unpolish(self.af_status_lbl)
+        self.af_status_lbl.style().polish(self.af_status_lbl)
         self._load_structure_viewer(data["pdb_str"])
         if self.analysis_data:
             self.update_graph_tabs()
@@ -4593,7 +4611,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._blast_start_time = None
         self.blast_stop_btn.setVisible(False)
         self.blast_run_btn.setEnabled(True)
-        self.blast_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
+        self.blast_status_lbl.setObjectName("status_lbl")
+        self.blast_status_lbl.setProperty("status_state", "idle")
         self.blast_status_lbl.setText("BLAST stopped.")
 
     def _on_blast_finished(self, hits: list):
@@ -4603,7 +4622,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._blast_start_time = None
         self.blast_stop_btn.setVisible(False)
         self.blast_run_btn.setEnabled(True)
-        self.blast_status_lbl.setStyleSheet("color:#2d6a2d;")
+        self.blast_status_lbl.setProperty("status_state", "success")
+        self.blast_status_lbl.style().unpolish(self.blast_status_lbl)
+        self.blast_status_lbl.style().polish(self.blast_status_lbl)
         self.blast_status_lbl.setText(f"{len(hits)} hit(s) returned.")
         self.blast_table.setRowCount(0)
         for hit in hits:
@@ -4630,7 +4651,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._blast_start_time = None
         self.blast_stop_btn.setVisible(False)
         self.blast_run_btn.setEnabled(True)
-        self.blast_status_lbl.setStyleSheet("color:#c0392b;")
+        self.blast_status_lbl.setProperty("status_state", "error")
+        self.blast_status_lbl.style().unpolish(self.blast_status_lbl)
+        self.blast_status_lbl.style().polish(self.blast_status_lbl)
         self.blast_status_lbl.setText(f"Error: {msg}")
         QMessageBox.warning(self, "BLAST Error", msg)
 
@@ -4800,7 +4823,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.export_structure_btn.setEnabled(False)
         for btn in self._db_fetch_btns:
             btn.setEnabled(False)
-            btn.setStyleSheet(self._chip_style)
+            btn.setProperty("chip_state", "normal")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
 
         self.statusBar.showMessage("Session cleared.", 2500)
 
@@ -4997,7 +5022,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         layout.addLayout(ctrl)
 
         self.trunc_status_lbl = QLabel("Run analysis first, then click 'Run Truncation Series'.")
-        self.trunc_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
+        self.trunc_status_lbl.setObjectName("status_lbl")
+        self.trunc_status_lbl.setProperty("status_state", "idle")
         layout.addWidget(self.trunc_status_lbl)
 
         self.trunc_table = QTableWidget()
@@ -5754,7 +5780,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self._blast_start_time is None:
             return
         elapsed = int(_time.time() - self._blast_start_time)
-        self.blast_status_lbl.setStyleSheet("color:#718096; font-style:italic;")
+        self.blast_status_lbl.setObjectName("status_lbl")
+        self.blast_status_lbl.setProperty("status_state", "idle")
         self.blast_status_lbl.setText(f"Searching NCBI\u2026  {elapsed} s elapsed")
 
     def _on_report_section_clicked(self, item, _col=0):
