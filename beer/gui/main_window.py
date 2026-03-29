@@ -4090,7 +4090,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._mark_chip_fetched(self.fetch_deeptmhmm_btn)
         if self.analysis_data:
             self.analysis_data["tm_helices"] = helices
-            self._generated_graphs.pop("TM Topology", None)
+            self._generated_graphs.discard("TM Topology")
             self._render_visible_graph()
 
     def _on_deeptmlhmm_error(self, msg: str):
