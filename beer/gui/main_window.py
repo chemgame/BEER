@@ -680,7 +680,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 "              border-radius: 3px; padding: 3px; color: #2d3748; }"
                 "QToolButton:hover   { background: #e0e4f4; border-color: #4361ee; }"
                 "QToolButton:pressed { background: #c8d0ec; }"
-                "QToolButton:checked { background: #dce3f8; border-color: #4361ee; }"
+                "QToolButton:checked { background: #4361ee; border-color: #3451d1; color: #ffffff; }"
             )
             # matplotlib reads QPalette to decide icon colour at __init__ time;
             # on macOS system-dark-mode the palette reports a dark window even
@@ -3910,7 +3910,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             "              border-radius: 3px; padding: 3px; color: #2d3748; }"
             "QToolButton:hover   { background: #e0e4f4; border-color: #4361ee; }"
             "QToolButton:pressed { background: #c8d0ec; }"
-            "QToolButton:checked { background: #dce3f8; border-color: #4361ee; }"
+            "QToolButton:checked { background: #4361ee; border-color: #3451d1; color: #ffffff; }"
         )
         _toolbar_dark_css = (
             "QToolBar { background: #1e2640; border: none; border-radius: 4px;"
