@@ -268,6 +268,7 @@ def create_cation_pi_map_figure(
     seq: str,
     label_font: int = 14,
     tick_font: int = 12,
+    cmap: str = "YlOrRd",
 ) -> Figure:
     """Cation-pi proximity heatmap."""
     n = len(seq)
@@ -288,7 +289,7 @@ def create_cation_pi_map_figure(
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     ax.set_facecolor("#fafbff")
-    im = ax.imshow(mat, cmap="YlOrRd", aspect="auto", origin="upper",
+    im = ax.imshow(mat, cmap=cmap, aspect="auto", origin="upper",
                    interpolation="nearest")
     cbar = fig.colorbar(im, ax=ax, shrink=0.85, aspect=20, pad=0.02)
     cbar.set_label("Proximity (1/d)", fontsize=tick_font - 1, color="#4a5568")

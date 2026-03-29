@@ -47,7 +47,6 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 import matplotlib.pyplot as plt
 plt.style.use("default")
-import mplcursors
 import numpy as np
 from collections import Counter
 
@@ -122,7 +121,7 @@ from beer.graphs import (
     create_local_complexity_figure, create_ramachandran_figure,
     create_contact_network_figure, create_plddt_figure, create_distance_map_figure,
     create_msa_conservation_figure, create_complex_mw_figure,
-    create_truncation_series_figure, create_pI_MW_gel_figure,
+    create_truncation_series_figure,
     create_saturation_mutagenesis_figure, create_uversky_phase_plot,
     create_annotation_track_figure, create_cleavage_map_figure,
     create_plaac_profile_figure,
@@ -215,9 +214,10 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.use_reducing         = _cfg.get("use_reducing", False)
         self.custom_pka           = _cfg.get("custom_pka", None)
         self.colormap             = _cfg.get("colormap", "coolwarm")
+        self.heatmap_cmap         = _cfg.get("heatmap_cmap", "viridis")
         self.transparent_bg       = _cfg.get("transparent_bg", False)
-        self.label_font_size      = _cfg.get("label_font_size", 14)
-        self.tick_font_size       = _cfg.get("tick_font_size", 12)
+        self.label_font_size      = _cfg.get("label_font_size", 11)
+        self.tick_font_size       = _cfg.get("tick_font_size", 9)
         self.marker_size          = _cfg.get("marker_size", 10)
         self.show_bead_labels     = _cfg.get("show_bead_labels", True)
         self.graph_color          = NAMED_COLORS.get(_cfg.get("graph_color", "Royal Blue"), "#4361ee")
@@ -315,44 +315,320 @@ class ProteinAnalyzerGUI(QMainWindow):
                 w.setParent(None)
 
     _GRAPH_HINTS: dict = {
-        "Amino Acid Composition (Bar)":  "Residue counts as a bar chart, coloured by physiochemical group.",
-        "Amino Acid Composition (Pie)":  "Residue frequency as a pie chart; groupings follow Koolman & R\u00f6hm.",
-        "Hydrophobicity Profile":        "Kyte\u2013Doolittle hydropathy averaged over a sliding window (default 9 aa). Values > 1.8 indicate potential TM helices.",
-        "Local Charge Profile":          "Mean net charge per window; positive = blue, negative = red.",
-        "Local Complexity":              "Shannon entropy per window; low values indicate low-complexity / repetitive sequence.",
-        "Disorder Profile":              "Per-residue disorder score (0 = ordered, 1 = disordered). Threshold 0.5.",
-        "Coiled-Coil Profile":           "Heptad-weighted propensity score (sequence-relative, not a validated predictor).",
-        "Linear Sequence Map":           "All predicted features on a single ruler: TM helices, signal peptide, PTM sites, LARKS.",
-        "Isoelectric Focus":             "Net charge vs pH curve; pI is where the curve crosses zero.",
-        "Charge Decoration":             "Das\u2013Pappu diagram of FCR vs NCPR; coloured regions correspond to IDP sub-classes.",
-        "Cation\u2013\u03c0 Map":        "Pairwise cation\u2013\u03c0 interactions between K/R and F/W/Y residues.",
-        "Bead Model (Hydrophobicity)":   "Residues as spheres coloured by Kyte\u2013Doolittle score; links show sequence connectivity.",
-        "Bead Model (Charge)":           "Residues as spheres coloured by charge (K/R blue, D/E red, other grey).",
-        "Sticker Map":                   "Aromatic (sticker) and charged residues highlighted on a sequence axis.",
-        "Helical Wheel":                 "Helical-wheel projection of the first 18 residues (or selection); identifies amphipathic faces.",
-        "TM Topology":                   "KD sliding window with TM threshold line; topology annotated using inside-positive rule.",
-        "Uversky Phase Plot":            "Mean net charge vs mean hydrophobicity; points above the Uversky boundary are predicted disordered.",
-        "Single-Residue Perturbation Map": "Effect of every possible point mutation on GRAVY / pI; hot = destabilising, cool = neutral.",
-        "pLDDT Profile":                 "AlphaFold per-residue confidence score. > 90 very high, 70\u201390 confident, 50\u201370 low, < 50 very low.",
-        "Distance Map":                  "C\u03b1\u2013C\u03b1 distance matrix (\u00c5). Contacts < 8 \u00c5 are highlighted; diagonal = self.",
-        "Domain Architecture":           "Pfam domain assignments drawn as coloured boxes on a sequence ruler.",
-        "Ramachandran Plot":             "\u03c6/\u03c8 dihedral angle plot; coloured regions show allowed (Ramachandran 1963) and favoured zones.",
-        "Residue Contact Network":       "Graph of residue pairs within 8 \u00c5; hub residues (high degree) shown larger.",
-        "\u03b2-Aggregation Profile":     "ZYGGREGATOR score per residue; values > 1.0 indicate aggregation-prone regions.",
-        "Solubility Profile":            "CamSol intrinsic solubility; negative values indicate low solubility.",
-        "Hydrophobic Moment":            "Eisenberg hydrophobic moment per helical turn; peaks indicate amphipathic helices.",
-        "Annotation Track":              "Five aligned tracks: disorder, hydrophobicity, aggregation, feature annotations, and ruler.",
-        "Cleavage Map":                  "Predicted proteolytic cut sites for 9 enzymes as coloured tick marks; trypsin peptide masses listed.",
-        "PLAAC Profile":                 "Per-residue log-odds prion-like amino-acid composition score (Lancaster et al. 2014). Positive = prion-like.",
-        "PTM Map":                       "ESM2-predicted PTM sites (phosphorylation, ubiquitination, SUMOylation, glycosylation, methylation) on a ruler.",
-        "RNA-Binding Profile":           "Per-residue RNA-binding propensity with detected RGG/RRM/KH/SR motif positions marked.",
-        "SCD Profile":                   "Sequence Charge Decoration (Sawle & Ghosh 2015): pairwise charge product weighted by sequence separation.",
-        "pI / MW Map":                   "Scatter of all tryptic peptides in pI vs log(MW) space \u2014 conceptual 2D gel view.",
-        "Truncation Series":             "Selected biophysical properties (disorder, hydrophobicity, pI) across progressive N- or C-terminal truncations.",
-        "MSA Conservation":              "Per-column conservation score (1 \u2013 normalised entropy) across the loaded multiple sequence alignment.",
-        "MSA Covariance":                "Pairwise mutual information with APC correction (Dunn et al. 2008). High values indicate co-evolving residue pairs.",
-        "Complex Mass":                  "Bar chart of subunit and total complex molecular weights given the entered stoichiometry.",
+        "Amino Acid Composition (Bar)": (
+            "Bar chart of raw amino acid counts.\n\n"
+            "The 20 standard amino acids are plotted in alphabetical order. "
+            "Counts are derived directly from the input sequence; no window averaging is applied.\n\n"
+            "Interpretation: High Gly/Ala content suggests a flexible or disordered backbone. "
+            "Enrichment in Arg/Lys indicates a positively charged protein; Asp/Glu enrichment indicates negative charge."
+        ),
+        "Amino Acid Composition (Pie)": (
+            "Pie chart of amino acid frequencies (%).\n\n"
+            "Residues with zero count are excluded. Colour coding is consistent with the bar chart.\n\n"
+            "Tip: IDPs typically show depletion of order-promoting residues (C, W, F, Y, I, L, V) "
+            "and enrichment of disorder-promoting residues (E, K, R, S, P, Q)."
+        ),
+        "Hydrophobicity Profile": (
+            "Sliding-window average of residue hydrophobicity.\n\n"
+            "Formula: H(i) = (1/w) \u00b7 \u03a3 h(j)  for j = i\u2013\u230aw/2\u230b to i+\u230aw/2\u230b\n"
+            "where h(j) is the per-residue score and w is the window size (default 9).\n\n"
+            "Kyte & Doolittle scale (J. Mol. Biol. 157:105, 1982): range \u22124.5 (Arg) to +4.5 (Ile). "
+            "Values > 1.8 sustained over \u2265 20 residues suggest a transmembrane helix.\n\n"
+            "Other scales available in Settings: Wimley\u2013White, Hessa, GES, Hopp\u2013Woods, "
+            "Fauch\u00e8re\u2013Pliska, Urry, Moon\u2013Fleming."
+        ),
+        "Local Charge Profile": (
+            "Sliding-window mean net charge per residue (NCPR).\n\n"
+            "NCPR = (f\u207a \u2212 f\u207b) averaged over a window, "
+            "where f\u207a = fraction positive (K, R) and f\u207b = fraction negative (D, E).\n\n"
+            "Positive values (blue) = net positive; negative values (red) = net negative. "
+            "Useful for identifying charged patches, NLS signals, and polyampholyte regions."
+        ),
+        "Local Complexity": (
+            "Per-window Shannon sequence entropy (bits).\n\n"
+            "Formula: H = \u2212\u03a3\u1d62 p\u1d62 \u00b7 log\u2082(p\u1d62)\n"
+            "Maximum H = log\u2082(20) \u2248 4.32 bits (all residues equally frequent).\n\n"
+            "Low-complexity regions (H < 2 bits) often indicate repetitive or disordered segments.\n"
+            "Reference: Wootton & Federhen, Comput. Chem. 17:149, 1993."
+        ),
+        "Disorder Profile": (
+            "Per-residue intrinsic disorder score (0 = ordered, 1 = disordered).\n\n"
+            "Computed with metapredict v3 (Emenecker et al., eLife 2022), a deep-learning predictor "
+            "trained on DisProt/PED experimental data. Threshold: 0.5 (dashed line).\n\n"
+            "Regions consistently above 0.5 are predicted intrinsically disordered (IDRs). "
+            "The score is a continuous probability, not a binary state."
+        ),
+        "Coiled-Coil Profile": (
+            "Per-residue coiled-coil propensity based on heptad repeat scoring.\n\n"
+            "Coiled coils follow an (a-b-c-d-e-f-g)\u2099 heptad; positions a and d are typically hydrophobic. "
+            "Score = heptad-weighted sum of Chou\u2013Fasman \u03b1-helix propensities.\n\n"
+            "For validated predictions use COILS (Lupas et al., Science 252:1162, 1991) or DeepCoil."
+        ),
+        "Linear Sequence Map": (
+            "Unified ruler view of all predicted sequence features.\n\n"
+            "Tracks: transmembrane helices, signal peptide cleavage site, PTM positions "
+            "(phospho, ubiq, SUMO, glyco, methyl), LARKS motifs, and hydrophobicity.\n\n"
+            "Overlapping TM and PTM regions may indicate regulated membrane protein function."
+        ),
+        "Isoelectric Focus": (
+            "Net charge vs pH titration curve.\n\n"
+            "Charge computed via Henderson\u2013Hasselbalch:\n"
+            "  Q(pH) = \u03a3 q\u1d62 / (1 + 10^(\u00b1(pH \u2212 pK\u2090\u1d62)))\n"
+            "summed over all ionisable groups (N-term, C-term, D, E, H, C, Y, K, R).\n\n"
+            "The pI is where Q = 0. Dashed line marks physiological pH 7.4. "
+            "Default pK\u2090 values follow Lehninger (2005); custom values set in Settings."
+        ),
+        "Charge Decoration": (
+            "Das\u2013Pappu phase diagram of sequence charge patterning.\n\n"
+            "x-axis: FCR = f\u207a + f\u207b (fraction of charged residues)\n"
+            "y-axis: NCPR = |f\u207a \u2212 f\u207b| (net charge per residue)\n\n"
+            "Coloured regions: weak polyampholyte/polyelectrolyte (low FCR), "
+            "strong polyampholyte (high FCR, low NCPR), strong polyelectrolyte (high NCPR).\n"
+            "Reference: Das & Pappu, PNAS 110:13392, 2013."
+        ),
+        "Cation\u2013\u03c0 Map": (
+            "Pairwise cation\u2013\u03c0 proximity map.\n\n"
+            "Cation\u2013\u03c0 interactions occur between positively charged side chains (K, R) and "
+            "aromatic rings (F, W, Y). Proximity score = 1/|i\u2212j| for pairs within 8 residues.\n\n"
+            "\u0394G \u2248 \u22121 to \u22123 kcal/mol. Enriched in phase-separating IDPs and RNA-binding proteins.\n"
+            "Reference: Gallivan & Dougherty, PNAS 96:9459, 1999."
+        ),
+        "Bead Model (Hydrophobicity)": (
+            "Bead-and-stick sequence representation coloured by Kyte\u2013Doolittle hydrophobicity.\n\n"
+            "Blue = hydrophilic, warm = hydrophobic (colourmap selectable in Settings). "
+            "Useful for visually identifying hydrophobic patches and amphipathic stretches."
+        ),
+        "Bead Model (Charge)": (
+            "Bead-and-stick model coloured by residue charge state.\n\n"
+            "Blue = positive (K, R); red = negative (D, E); grey = uncharged. Charge at neutral pH.\n\n"
+            "Useful for visualising charge clusters, salt-bridge potential, and "
+            "electrostatic patterning relevant to condensate behaviour."
+        ),
+        "Sticker Map": (
+            "Stickers-and-spacers model visualisation.\n\n"
+            "Stickers (aromatic: F, W, Y, H) in magenta; charged residues (K/R blue; D/E red) "
+            "on a sequence ruler.\n\n"
+            "Sticker\u2013sticker interactions drive condensate formation; "
+            "spacers modulate valency and phase boundaries.\n"
+            "Reference: Mittag & Pappu, eLife 11:e75818, 2022."
+        ),
+        "Helical Wheel": (
+            "Helical-wheel projection of the sequence.\n\n"
+            "Residues projected with 100\u00b0/residue rotation (\u03b1-helix geometry). "
+            "A hydrophobic face (yellow sector) indicates an amphipathic helix capable of "
+            "membrane insertion or protein\u2013protein interaction.\n\n"
+            "Reference: Schiffer & Edmundson, Biophys. J. 7:121, 1967."
+        ),
+        "TM Topology": (
+            "Transmembrane topology prediction.\n\n"
+            "KD sliding-window profile overlaid with threshold (KD \u2265 1.8). "
+            "If DeepTMHMM has been run, topology is annotated using the positive-inside rule "
+            "(von Heijne, EMBO J. 5:3021, 1986).\n\n"
+            "DeepTMHMM reference: Hallgren et al., Nat. Methods 2022."
+        ),
+        "Uversky Phase Plot": (
+            "Charge\u2013hydrophobicity phase diagram for disorder prediction.\n\n"
+            "Boundary: H* = 2.785 \u00b7 |R| + 0.446 (Uversky et al. 2000).\n"
+            "Points above the line are predicted disordered; below = ordered.\n\n"
+            "\u26a0 Caution: derived from only 28 IDPs + 91 folded proteins. "
+            "Use as visual context only; the Disorder Profile tab is more reliable.\n"
+            "Reference: Uversky et al., Proteins 41:415, 2000."
+        ),
+        "Single-Residue Perturbation Map": (
+            "In silico saturation mutagenesis heatmap.\n\n"
+            "Score(i\u2192j) = |\u0394GRAVY| + |\u0394NCPR|\n\n"
+            "where \u0394GRAVY and \u0394NCPR are changes in global hydrophobicity index and net charge "
+            "per residue upon the substitution. Hot = strongly destabilising; white dots = wild type.\n\n"
+            "Note: this is a biophysical perturbation metric, not a pathogenicity predictor. "
+            "Heatmap colour scale selectable in Settings."
+        ),
+        "pLDDT Profile": (
+            "AlphaFold per-residue confidence score (pLDDT, 0\u2013100).\n\n"
+            "  > 90:  Very high confidence (well-structured)\n"
+            "  70\u201390: Confident backbone\n"
+            "  50\u201370: Low confidence (flexible/disordered)\n"
+            "  < 50:  Very low confidence (likely IDR)\n\n"
+            "pLDDT strongly correlates with experimental disorder scores.\n"
+            "Reference: Jumper et al., Nature 596:583, 2021."
+        ),
+        "Distance Map": (
+            "C\u03b1\u2013C\u03b1 pairwise distance matrix (\u00c5) from the loaded structure.\n\n"
+            "Pixel (i, j) = Euclidean distance between C\u03b1 atoms of residues i and j. "
+            "Pink contour lines mark the 8 \u00c5 contact threshold.\n\n"
+            "Patterns:\n"
+            "  \u2022 Off-diagonal stripes \u2192 \u03b1-helices (i, i+4 contacts)\n"
+            "  \u2022 Triangular patches  \u2192 \u03b2-strands\n"
+            "  \u2022 Scattered clusters  \u2192 long-range tertiary contacts\n\n"
+            "Heatmap colour scale selectable in Settings."
+        ),
+        "Domain Architecture": (
+            "Pfam domain architecture on a sequence ruler.\n\n"
+            "Coloured boxes = Pfam-A domains fetched from EBI REST API. "
+            "Disorder (grey gradient) and TM helices (orange) overlaid when available.\n\n"
+            "Reference: Mistry et al. (Pfam), Nucleic Acids Res. 49:D412, 2021."
+        ),
+        "Ramachandran Plot": (
+            "\u03c6/\u03c8 backbone dihedral angle scatter plot.\n\n"
+            "\u03c6 (phi): C\u2013N\u2013C\u03b1\u2013C torsion angle (around N\u2013C\u03b1 bond).\n"
+            "\u03c8 (psi): N\u2013C\u03b1\u2013C\u2013N torsion angle (around C\u03b1\u2013C bond).\n\n"
+            "Dark shading = favoured (\u226598% of high-res structures); light = allowed; "
+            "white = disallowed. Outliers may indicate modelling errors.\n"
+            "Reference: Ramachandran et al., J. Mol. Biol. 7:95, 1963."
+        ),
+        "Residue Contact Network": (
+            "Graph of residue\u2013residue contacts (C\u03b1\u2013C\u03b1 < 8 \u00c5).\n\n"
+            "Node size \u221d betweenness centrality. Node colour = eigenvector centrality "
+            "(colourmap selectable in Settings).\n\n"
+            "Hub residues (high degree/centrality) are often structurally important; "
+            "mutations at hubs tend to be destabilising."
+        ),
+        "\u03b2-Aggregation Profile": (
+            "Per-residue \u03b2-aggregation propensity (ZYGGREGATOR algorithm).\n\n"
+            "Score estimates the tendency to join amyloid-like \u03b2-sheet stacks. "
+            "Values > 1.0 (threshold) are aggregation-prone.\n\n"
+            "Reference: Tartaglia et al., J. Mol. Biol. 380:425, 2008."
+        ),
+        "TANGO Aggregation": (
+            "\u03b2-aggregation prediction via a statistical-thermodynamic competing-states model.\n\n"
+            "Partition function balances four states per hexapeptide window:\n"
+            "  1. \u03b2-aggregation  (\u0394G_agg: Ile/Leu/Val/Phe/Trp favoured)\n"
+            "  2. \u03b1-helix        (Chou\u2013Fasman propensity)\n"
+            "  3. \u03b2-turn\n"
+            "  4. Unstructured\n\n"
+            "Score (0\u2013100%) = P_agg = exp(\u2212\u0394G_agg/RT) / Z,  RT = 0.616 kcal/mol at 298 K.\n"
+            "Pro, Glu, Asp, Lys, Arg strongly break aggregation.\n\n"
+            "Reference: Fernandez-Escamilla et al., Nat. Biotechnol. 22:1302, 2004."
+        ),
+        "Solubility Profile": (
+            "CamSol intrinsic solubility score per residue.\n\n"
+            "Sliding-window sum of per-residue solubility parameters combining hydrophobicity, "
+            "charge, and backbone flexibility. Negative values indicate low solubility / aggregation risk.\n\n"
+            "Reference: Sormanni et al., J. Mol. Biol. 427:478, 2015."
+        ),
+        "Hydrophobic Moment": (
+            "Eisenberg hydrophobic moment \u03bcH \u2014 a measure of amphipathicity.\n\n"
+            "\u03bcH = \u221a[(\u03a3 h\u1d62 sin(\u03b4i))\u00b2 + (\u03a3 h\u1d62 cos(\u03b4i))\u00b2] / n\n"
+            "\u03b4 = 100\u00b0/residue (\u03b1-helix) or 160\u00b0/residue (\u03b2-strand); "
+            "h\u1d62 = Eisenberg consensus hydrophobicity.\n\n"
+            "High \u03bcH > 0.4 indicates amphipathic helices (membrane insertion or AMP activity).\n"
+            "Reference: Eisenberg et al., PNAS 79:4969, 1982."
+        ),
+        "Annotation Track": (
+            "Five-track integrated overview.\n\n"
+            "Tracks (top to bottom):\n"
+            "  1. Disorder score (metapredict, 0\u20131)\n"
+            "  2. Hydrophobicity (sliding-window KD)\n"
+            "  3. Aggregation propensity (ZYGGREGATOR)\n"
+            "  4. Feature annotations: TM helices, signal peptide, PTM sites, LARKS\n"
+            "  5. Residue ruler"
+        ),
+        "Cleavage Map": (
+            "Predicted proteolytic cleavage sites for 9 enzymes.\n\n"
+            "Enzymes: Trypsin (K/R|\u00acP), Chymotrypsin (F/W/Y|\u00acP), Glu-C, Lys-C, Lys-N, "
+            "Asp-N, CNBr (Met), Pepsin, Thermolysin.\n\n"
+            "Sites shown as coloured tick marks. Tryptic peptides listed with predicted m/z (2+ charge). "
+            "Useful for LC-MS/MS experiment design and sequence coverage estimation."
+        ),
+        "PLAAC Profile": (
+            "Prion-like amino acid composition (PLAAC) score per residue.\n\n"
+            "Positive values = prion-like sequence character (Q/N-rich low-complexity). "
+            "HMM trained on yeast prion-like domains (PrLDs).\n\n"
+            "PrLDs are enriched in FUS, TDP-43, hnRNPA1, and other RBPs linked to "
+            "amyloid and phase separation.\n"
+            "Reference: Lancaster et al., Cell 149:936, 2014."
+        ),
+        "PTM Map": (
+            "ESM2-predicted post-translational modification (PTM) sites.\n\n"
+            "Five PTM types predicted from ESM2 embeddings:\n"
+            "  \u2022 Phosphorylation (S/T/Y)\n"
+            "  \u2022 Ubiquitination (K)\n"
+            "  \u2022 SUMOylation (K)\n"
+            "  \u2022 N-Glycosylation (N in N-x-S/T motif)\n"
+            "  \u2022 Methylation (K/R)\n\n"
+            "Predictions are approximate; validate with PhosphoSitePlus or UniProt annotations."
+        ),
+        "RNA-Binding Profile": (
+            "Per-residue RNA-binding propensity score.\n\n"
+            "Scored using a sliding-window sum of RBP-associated amino acid weights "
+            "(Arg, Gly, Tyr enriched in RNA-binding). Canonical RBP motifs detected:\n"
+            "  \u2022 RGG/RGX boxes\n"
+            "  \u2022 RRM (RNA recognition motif)\n"
+            "  \u2022 KH domain\n"
+            "  \u2022 SR repeats\n\n"
+            "High scores (> 0.6) + motif presence strongly suggest RNA-binding activity."
+        ),
+        "SCD Profile": (
+            "Sequence Charge Decoration (SCD) per-residue contribution.\n\n"
+            "SCD = (1/N) \u00b7 \u03a3\u1d62<\u2c7c \u03c3\u1d62\u03c3\u2c7c \u00b7 |i\u2212j|^0.5\n\n"
+            "where \u03c3\u1d62 = +1 (K/R), \u22121 (D/E), 0 otherwise.\n\n"
+            "High positive SCD = alternating charges (compact polyampholyte). "
+            "High negative SCD = like-charge clusters (extended chain).\n"
+            "Reference: Sawle & Ghosh, J. Chem. Phys. 143:085101, 2015."
+        ),
+        "Truncation Series": (
+            "Biophysical properties across progressive N- or C-terminal truncations.\n\n"
+            "At each truncation step the following are re-computed:\n"
+            "  \u2022 Disorder fraction (metapredict mean)\n"
+            "  \u2022 GRAVY index (mean KD hydrophobicity)\n"
+            "  \u2022 Isoelectric point (pI)\n\n"
+            "Useful for rational design of truncated constructs that preserve biophysical character."
+        ),
+        "MSA Conservation": (
+            "Per-column sequence conservation across the loaded MSA.\n\n"
+            "Conservation = 1 \u2212 H_norm,  where\n"
+            "  H = \u2212\u03a3\u1d62 p\u1d62 \u00b7 log\u2082(p\u1d62)  (Shannon entropy)\n"
+            "  H_norm = H / log\u2082(20)\n\n"
+            "Score 1.0 = fully conserved. Score \u2248 0 = maximally variable. "
+            "Highly conserved positions are functionally or structurally important."
+        ),
+        "MSA Covariance": (
+            "Pairwise residue coevolution from MSA mutual information (MI) with APC correction.\n\n"
+            "MI(i,j) = \u03a3\u2090 \u03a3\u1d67 f(a,b) \u00b7 log(f(a,b) / (f(a)\u00b7f(b)))\n\n"
+            "APC correction removes phylogenetic background noise:\n"
+            "  MI_APC(i,j) = MI(i,j) \u2212 MI(i,\u00b7)\u00b7MI(\u00b7,j) / MI(\u00b7,\u00b7)\n\n"
+            "High MI-APC = co-evolving pairs, often spatially proximal or functionally coupled.\n"
+            "Reference: Dunn et al., Bioinformatics 24:333, 2008.  "
+            "Heatmap colour scale selectable in Settings."
+        ),
+        "Complex Mass": (
+            "Molecular weight composition of a multi-subunit complex.\n\n"
+            "Each bar = one subunit \u00d7 copy number. Total = \u03a3 (MW_subunit \u00d7 n_copies).\n\n"
+            "MW computed from amino acid composition using average monoisotopic residue masses. "
+            "Useful for SEC-MALS, AUC, or native MS experimental planning."
+        ),
+        "Variant Effect Map": (
+            "ESM2 log-likelihood ratio (LLR) map for all single-residue substitutions.\n\n"
+            "LLR(i, a) = log P(a | context) \u2212 log P(WT | context)\n\n"
+            "Positive LLR (blue) = tolerated/favoured substitution. "
+            "Negative LLR (red) = likely deleterious.\n\n"
+            "Lower panel: mean LLR per position \u2014 "
+            "positions with low mean LLR are evolutionarily constrained.\n\n"
+            "Reference: Rives et al. (ESM2), PNAS 118:e2016239118, 2021."
+        ),
+        "Binding Pocket Proxy": (
+            "Sequence-based proxy score for potential ligand-binding pockets.\n\n"
+            "Score combines:\n"
+            "  \u2022 Local hydrophobicity (KD sliding window)\n"
+            "  \u2022 Low disorder (inverted metapredict score)\n"
+            "  \u2022 Estimated backbone rigidity\n\n"
+            "Threshold = 0.65. Highlighted regions (\u2265 5 consecutive residues above threshold) "
+            "are candidate binding sites.\n\n"
+            "Note: structural methods (fpocket, SiteMap) should be used for validation."
+        ),
+        "AlphaMissense": (
+            "AlphaMissense pathogenicity scores for all single-amino-acid substitutions.\n\n"
+            "Score 0 = benign, 1 = pathogenic.\n"
+            "  \u2022 > 0.564: likely pathogenic\n"
+            "  \u2022 0.340\u20130.564: ambiguous\n"
+            "  \u2022 < 0.340: likely benign\n\n"
+            "AlphaMissense uses AlphaFold structure + evolutionary context. "
+            "Scores fetched from EBI AlphaFold API.\n\n"
+            "Lower panel: mean pathogenicity per position \u2014 "
+            "positions with high mean scores are intolerant to substitution.\n\n"
+            "Reference: Cheng et al., Science 381:eadg7492, 2023."
+        ),
     }
+
 
     def _replace_graph(self, title: str, fig):
         """Swap graph canvas in the named tab."""
@@ -418,27 +694,6 @@ class ProteinAnalyzerGUI(QMainWindow):
             _dtm_btn.clicked.connect(self._run_deeptmlhmm)
             vb.addWidget(_dtm_btn)
         vb.addWidget(canvas)
-        try:
-            import mplcursors as _mplcursors
-            import warnings as _warnings
-            with _warnings.catch_warnings():
-                _warnings.filterwarnings(
-                    "ignore",
-                    message="Pick support for.*Collection",
-                    category=UserWarning,
-                )
-                _cur = _mplcursors.cursor(canvas.figure, hover=True)
-
-            @_cur.connect("add")
-            def _style_annot(sel):
-                sel.annotation.set_fontsize(9)
-                sel.annotation.set_color("#1a1a2e")
-                patch = sel.annotation.get_bbox_patch()
-                if patch is not None:
-                    patch.set(facecolor="white", edgecolor="#4361ee",
-                              alpha=0.92, linewidth=1.0, boxstyle="round,pad=0.4")
-        except Exception:
-            pass
         # Vertical crosshair on single-axes profile graphs (residue-position x-axis)
         _PROFILE_GRAPHS = {
             "Hydrophobicity Profile", "Disorder Profile", "Local Charge Profile",
@@ -455,14 +710,37 @@ class ProteinAnalyzerGUI(QMainWindow):
                 pass
         hint = self._GRAPH_HINTS.get(title, "")
         if hint:
-            from PySide6.QtWidgets import QToolButton as _QGTB
+            from PySide6.QtWidgets import (QToolButton as _QGTB, QDialog as _QDlg,
+                                           QVBoxLayout as _QVB, QTextBrowser as _QTB,
+                                           QDialogButtonBox as _QBB)
+            from PySide6.QtCore import Qt as _Qt2
             info_btn = _QGTB()
             info_btn.setText("\u24d8")
             info_btn.setMaximumWidth(28)
             info_btn.setStyleSheet("QToolButton { font-size:11pt; border:none; color:#718096; }")
-            info_btn.setToolTip(hint)
-            info_btn.clicked.connect(
-                lambda _, h=hint, t=title: QMessageBox.information(self, t, h))
+            info_btn.setToolTip("Click for description, equations, and references.")
+
+            def _show_info(_, h=hint, t=title):
+                dlg = _QDlg(self)
+                dlg.setWindowTitle(t)
+                dlg.setMinimumWidth(520)
+                dlg.setMinimumHeight(340)
+                vbl = _QVB(dlg)
+                browser = _QTB()
+                browser.setOpenExternalLinks(False)
+                browser.setReadOnly(True)
+                browser.setPlainText(h)
+                browser.setStyleSheet(
+                    "QTextBrowser { font-family: 'Menlo', 'Consolas', monospace; "
+                    "font-size: 10pt; background: #f8f9ff; border: none; padding: 8px; }")
+                vbl.addWidget(browser)
+                bb = _QBB(_QBB.StandardButton.Close)
+                bb.rejected.connect(dlg.reject)
+                bb.accepted.connect(dlg.accept)
+                vbl.addWidget(bb)
+                dlg.exec()
+
+            info_btn.clicked.connect(_show_info)
             vb.addWidget(info_btn, alignment=Qt.AlignmentFlag.AlignRight)
         btn = QPushButton("Save Graph")
         btn.clicked.connect(lambda _, t=title: self.save_graph(t))
@@ -2188,6 +2466,14 @@ window.addEventListener("load",init);
         self._set_tooltip(self.colormap_combo, "Colour map for the bead hydrophobicity model.")
         form3.addRow("Bead Colormap:", self.colormap_combo)
 
+        self.heatmap_cmap_combo = QComboBox()
+        self.heatmap_cmap_combo.addItems(NAMED_COLORMAPS)
+        self.heatmap_cmap_combo.setCurrentText(self.heatmap_cmap)
+        self._set_tooltip(self.heatmap_cmap_combo,
+            "Colour map for heatmaps: Distance Map, Cation\u2013\u03c0 Map, "
+            "MSA Covariance, Single-Residue Perturbation Map, Residue Contact Network.")
+        form3.addRow("Heatmap Colormap:", self.heatmap_cmap_combo)
+
         self.graph_color_combo = QComboBox()
         self.graph_color_combo.addItems(list(NAMED_COLORS.keys()))
         # Select the name that matches the current hex
@@ -3069,6 +3355,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         sg  = self.show_grid
         sbl = self.show_bead_labels
         cm  = self.colormap
+        hcm = self.heatmap_cmap
         pk  = self.custom_pka
         sn  = self.sequence_name
         hs  = self.hydro_scale
@@ -3105,7 +3392,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         gens["Local Complexity"] = lambda: _wrap(lambda: create_local_complexity_figure(
             ad["entropy_profile"], ad["window_size"], label_font=lf, tick_font=tf))
         gens["Cation\u2013\u03c0 Map"] = lambda: _wrap(lambda: create_cation_pi_map_figure(
-            seq, label_font=lf, tick_font=tf))
+            seq, label_font=lf, tick_font=tf, cmap=hcm))
         gens["Isoelectric Focus"] = lambda: _wrap(lambda: create_isoelectric_focus_figure(
             seq, label_font=lf, tick_font=tf, pka=pk))
         gens["Helical Wheel"] = lambda: _wrap(lambda: create_helical_wheel_figure(seq, label_font=lf))
@@ -3121,7 +3408,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         gens["Uversky Phase Plot"] = lambda: _wrap(lambda: create_uversky_phase_plot(
             seq, label_font=lf, tick_font=tf))
         gens["Single-Residue Perturbation Map"] = lambda: _wrap(lambda: create_saturation_mutagenesis_figure(
-            seq, label_font=lf, tick_font=tf))
+            seq, label_font=lf, tick_font=tf, cmap=hcm))
         gens["Domain Architecture"] = lambda: _wrap(lambda: create_domain_architecture_figure(
             len(seq), self.pfam_domains, seq=seq,
             disorder_scores=ad.get("disorder_scores"),
@@ -3135,11 +3422,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             label_font=lf, tick_font=tf))
         gens["Cleavage Map"] = lambda: _wrap(lambda: create_cleavage_map_figure(
             seq, ad.get("prot_sites", {}), label_font=lf, tick_font=tf))
-        gens["pI / MW Map"] = lambda: _wrap(lambda: create_pI_MW_gel_figure(
-            [{"name": sn or "Protein", "pI": ad["iso_point"],
-              "mol_weight": ad["mol_weight"]}],
-            label_font=lf, tick_font=tf))
-
         if ad.get("cc_profile"):
             gens["Coiled-Coil Profile"] = lambda: _wrap(lambda: create_coiled_coil_profile_figure(
                 ad["cc_profile"], label_font=lf, tick_font=tf))
@@ -3200,9 +3482,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             dm = afd.get("dist_matrix")
             if dm is not None and dm.ndim == 2 and dm.shape[0] == len(seq) > 0:
                 gens["Distance Map"] = lambda: _wrap(lambda: create_distance_map_figure(
-                    afd["dist_matrix"], label_font=lf, tick_font=tf))
+                    afd["dist_matrix"], label_font=lf, tick_font=tf, cmap=hcm))
                 gens["Residue Contact Network"] = lambda: _wrap(lambda: create_contact_network_figure(
-                    seq, afd["dist_matrix"], label_font=lf, tick_font=tf))
+                    seq, afd["dist_matrix"], label_font=lf, tick_font=tf, cmap=hcm))
             if _HAS_PHI_PSI:
                 gens["Ramachandran Plot"] = lambda: _wrap(lambda: create_ramachandran_figure(
                     _extract_phi_psi(afd["pdb_str"]), label_font=lf, tick_font=tf))
@@ -3213,7 +3495,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 self._msa_sequences, self._msa_names, label_font=lf, tick_font=tf))
         if self._msa_mi_apc is not None:
             gens["MSA Covariance"] = lambda: _wrap(lambda: create_msa_covariance_figure(
-                self._msa_mi_apc, label_font=lf, tick_font=tf))
+                self._msa_mi_apc, label_font=lf, tick_font=tf, cmap=hcm))
 
         # Variant Effect Map (ESM2)
         if self._embedder is not None and "Variant Effect Map" in self.graph_tabs:
@@ -3647,6 +3929,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.show_bead_labels = self.label_checkbox.isChecked()
         self.transparent_bg   = self.transparent_bg_checkbox.isChecked()
         self.colormap         = self.colormap_combo.currentText()
+        self.heatmap_cmap     = self.heatmap_cmap_combo.currentText()
         try:
             self.label_font_size = int(self.label_font_input.text())
             self.tick_font_size  = int(self.tick_font_input.text())
@@ -3716,6 +3999,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             "use_reducing":     self.use_reducing,
             "custom_pka":       self.custom_pka,
             "colormap":         self.colormap,
+            "heatmap_cmap":     self.heatmap_cmap,
             "graph_color":      self.graph_color_combo.currentText(),
             "label_font_size":  self.label_font_size,
             "tick_font_size":   self.tick_font_size,
@@ -3740,8 +4024,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.reducing_checkbox.setChecked(False)
         self.label_checkbox.setChecked(True)
         self.colormap_combo.setCurrentText("coolwarm")
-        self.label_font_input.setText("14")
-        self.tick_font_input.setText("12")
+        self.heatmap_cmap_combo.setCurrentText("viridis")
+        self.label_font_input.setText("11")
+        self.tick_font_input.setText("9")
         self.marker_size_input.setText("10")
         self.graph_color_combo.setCurrentText("Royal Blue")
         self.graph_format_combo.setCurrentText("PNG")
@@ -4665,8 +4950,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.custom_pka       = state.get("custom_pka", None)
         self.transparent_bg   = state.get("transparent_bg", False)
         self.app_font_size    = state.get("app_font_size", 12)
-        self.label_font_size  = state.get("label_font_size", 14)
-        self.tick_font_size   = state.get("tick_font_size", 12)
+        self.label_font_size  = state.get("label_font_size", 11)
+        self.tick_font_size   = state.get("tick_font_size", 9)
         # Update settings UI widgets
         self.ph_input.setText(str(self.default_pH))
         self.window_size_input.setText(str(self.default_window_size))

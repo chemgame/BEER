@@ -113,6 +113,7 @@ def create_contact_network_figure(
     cutoff_angstrom: float = 8.0,
     label_font: int = 14,
     tick_font: int = 12,
+    cmap: str = "viridis",
 ) -> Figure:
     """Residue contact network derived from Ca distance matrix."""
     n = len(seq)
@@ -156,7 +157,7 @@ def create_contact_network_figure(
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
 
-    cmap = cm.get_cmap("viridis")
+    _cmap = cm.get_cmap(cmap)
     norm = mcolors.Normalize(vmin=0, vmax=centrality.max() if centrality.max() > 0 else 1)
 
     for i in range(sub_n):
@@ -172,7 +173,7 @@ def create_contact_network_figure(
     node_sizes = 45 + (node_degrees / max_deg) * 200
     scatter = ax.scatter(
         pos[:, 0], pos[:, 1],
-        c=centrality, cmap="viridis", norm=norm,
+        c=centrality, cmap=cmap, norm=norm,
         s=node_sizes, zorder=3, edgecolors="black", linewidths=0.3,
     )
 
@@ -244,6 +245,7 @@ def create_distance_map_figure(
     dist_matrix: np.ndarray,
     label_font: int = 14,
     tick_font: int = 12,
+    cmap: str = "viridis_r",
 ) -> Figure:
     """Ca pairwise distance heatmap from a loaded PDB structure."""
     n = dist_matrix.shape[0]
@@ -253,7 +255,7 @@ def create_distance_map_figure(
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     ax.set_facecolor("#fafbff")
-    im = ax.imshow(dist_matrix, cmap="viridis_r", aspect="auto",
+    im = ax.imshow(dist_matrix, cmap=cmap, aspect="auto",
                    origin="upper", interpolation="nearest",
                    vmin=0, vmax=min(40, dist_matrix.max()))
     cbar = fig.colorbar(im, ax=ax, shrink=0.85, aspect=20, pad=0.02)

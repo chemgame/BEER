@@ -144,11 +144,11 @@ Residues in the sequence viewer are colour-coded by type. Use the **Search** / *
 
 ## Graphs Tab
 
-Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, pan, home) appears above each figure. Right-click any graph to copy to clipboard or save. **Save All Graphs** exports every generated graph to a directory.
+Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, pan, home) appears above each figure. Click the **ⓘ** button (bottom-right of each graph) for a detailed description, equations, and references. Right-click any graph to copy to clipboard or save. **Save All Graphs** exports every generated graph to a directory.
 
 | Category | Graphs |
 |----------|--------|
-| Composition | AA Composition (Bar), AA Composition (Pie), pI/MW Map |
+| Composition | AA Composition (Bar), AA Composition (Pie) |
 | Profiles | Hydrophobicity, Local Charge, Local Complexity, Disorder, Linear Sequence Map, Coiled-Coil |
 | Charge & π | Isoelectric Focus, Charge Decoration (Das-Pappu), Cation–π Map |
 | Structure & Folding | Bead Model (Hydrophobicity), Bead Model (Charge), Sticker Map, Helical Wheel, TM Topology |
@@ -212,8 +212,8 @@ Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu), embedde
 | Analysis | Sliding Window Size | 9 |
 | Analysis | Override pKa | — (nine comma-separated values) |
 | Analysis | Reducing conditions | Off |
-| Graphs | Label / Tick font size, Marker size, Format (PNG/SVG/PDF) | — |
-| Graphs | Bead colormap, Accent colour, Titles, Grid, Transparent BG | — |
+| Graphs | Label / Tick font size (default 11/9), Marker size, Format (PNG/SVG/PDF) | — |
+| Graphs | Bead colormap, Heatmap colormap, Accent colour, Titles, Grid, Transparent BG | — |
 | Interface | Dark theme, Tooltips | — |
 | ESM2 | Model size (8M / 35M / 150M / 650M) | 8M |
 

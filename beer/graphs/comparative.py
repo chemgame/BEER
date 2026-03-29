@@ -303,6 +303,7 @@ def create_saturation_mutagenesis_figure(
     seq: str,
     label_font: int = 14,
     tick_font: int = 12,
+    cmap: str = "hot_r",
 ) -> Figure:
     """In silico saturation mutagenesis heatmap."""
     n = len(seq)
@@ -343,7 +344,7 @@ def create_saturation_mutagenesis_figure(
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
 
-    im = ax.imshow(mat, aspect="auto", cmap="hot_r", origin="upper",
+    im = ax.imshow(mat, aspect="auto", cmap=cmap, origin="upper",
                    interpolation="nearest",
                    vmin=0, vmax=np.percentile(mat[mat > 0], 95) if mat.max() > 0 else 1)
     cbar = fig.colorbar(im, ax=ax, shrink=0.85, aspect=20, pad=0.02)
@@ -432,6 +433,7 @@ def create_msa_covariance_figure(
     mi_apc: "list[list[float]]",
     label_font: int = 14,
     tick_font: int = 12,
+    cmap: str = "viridis",
 ) -> Figure:
     """Residue covariance heatmap from MSA mutual information (APC-corrected).
 
@@ -462,7 +464,7 @@ def create_msa_covariance_figure(
 
     pos_vals = mat[mat > 0]
     vmax = float(np.percentile(pos_vals, 95)) if pos_vals.size > 0 else 1.0
-    im = ax.imshow(mat, cmap="viridis", aspect="auto", origin="upper",
+    im = ax.imshow(mat, cmap=cmap, aspect="auto", origin="upper",
                    vmin=0.0, vmax=vmax, interpolation="nearest")
     cbar = fig.colorbar(im, ax=ax, shrink=0.85, aspect=22, pad=0.02)
     cbar.set_label("MI-APC (bits)", fontsize=tick_font - 1, color="#4a5568")
