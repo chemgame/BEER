@@ -356,7 +356,6 @@ GRAPH_TITLES: list[str] = [
     "PTM Map",
     "RNA-Binding Profile",
     "SCD Profile",
-    "pI / MW Map",
     "Truncation Series",
     "Ramachandran Plot",
     "Residue Contact Network",
@@ -373,7 +372,6 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
     ("Composition", [
         "Amino Acid Composition (Bar)",
         "Amino Acid Composition (Pie)",
-        "pI / MW Map",
     ]),
     ("Profiles", [
         "Hydrophobicity Profile",
