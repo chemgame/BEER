@@ -22,7 +22,7 @@ def create_variant_effect_figure(
     """
     L = len(seq)
     fig = Figure(figsize=(max(10, L * 0.18), 7), layout="constrained")
-    gs  = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.4)
+    gs  = fig.add_gridspec(2, 1, height_ratios=[3, 1])
 
     # --- Heatmap ---
     ax_heat = fig.add_subplot(gs[0])
@@ -38,11 +38,7 @@ def create_variant_effect_figure(
     )
     ax_heat.set_yticks(range(20))
     ax_heat.set_yticklabels(AA_ORDER, fontsize=max(tick_font - 2, 7))
-    # Sparse x-ticks
-    step = max(1, L // 20)
-    xticks = list(range(0, L, step))
-    ax_heat.set_xticks(xticks)
-    ax_heat.set_xticklabels([str(i + 1) for i in xticks], fontsize=max(tick_font - 2, 7))
+    ax_heat.tick_params(labelbottom=False)
     _pub_style_ax(ax_heat, title="Variant Effect Map",
                   xlabel="", ylabel="Mutant AA",
                   grid=False, despine=False,
@@ -51,8 +47,8 @@ def create_variant_effect_figure(
     fig.colorbar(im, ax=ax_heat, fraction=0.02, pad=0.02,
                  label="LLR (mut\u2212WT)")
 
-    # --- Per-position mean LLR ---
-    ax_mean = fig.add_subplot(gs[1])
+    # --- Per-position mean LLR (shares x-axis with heatmap) ---
+    ax_mean = fig.add_subplot(gs[1], sharex=ax_heat)
     from beer.analysis.variant_scoring import mean_effect_per_position
     mean_llr = mean_effect_per_position(llr_matrix)
     positions = np.arange(1, L + 1)
@@ -60,6 +56,11 @@ def create_variant_effect_figure(
                 color=["#f72585" if v < 0 else "#4361ee" for v in mean_llr],
                 width=0.8, alpha=0.85)
     ax_mean.axhline(0, color="#1a1a2e", linewidth=0.8)
+    # Sparse, adaptive x-ticks only on the bottom panel
+    step = max(1, L // 20)
+    xticks = list(range(step, L + 1, step))
+    ax_mean.set_xticks([x - 1 for x in xticks])  # imshow uses 0-based indices
+    ax_mean.set_xticklabels([str(x) for x in xticks], fontsize=max(tick_font - 2, 7))
     _pub_style_ax(ax_mean, title="",
                   xlabel="Residue",
                   ylabel="Mean LLR",
@@ -133,7 +134,7 @@ def create_alphafold_missense_figure(
                     mat[pos - 1, AA_ORDER_LOCAL.index(aa)] = val
 
     fig = Figure(figsize=(max(10, L * 0.18), 7), layout="constrained")
-    gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.4)
+    gs = fig.add_gridspec(2, 1, height_ratios=[3, 1])
 
     ax_heat = fig.add_subplot(gs[0])
     norm = mcolors.Normalize(vmin=0, vmax=1)
@@ -141,10 +142,7 @@ def create_alphafold_missense_figure(
                         norm=norm, interpolation="nearest")
     ax_heat.set_yticks(range(20))
     ax_heat.set_yticklabels(AA_ORDER_LOCAL, fontsize=max(tick_font - 2, 7))
-    step = max(1, L // 20)
-    xticks = list(range(0, L, step))
-    ax_heat.set_xticks(xticks)
-    ax_heat.set_xticklabels([str(i + 1) for i in xticks], fontsize=max(tick_font - 2, 7))
+    ax_heat.tick_params(labelbottom=False)
     _pub_style_ax(ax_heat, title="AlphaMissense Pathogenicity",
                   xlabel="", ylabel="Mutant AA",
                   grid=False, despine=False,
@@ -153,7 +151,8 @@ def create_alphafold_missense_figure(
     fig.colorbar(im, ax=ax_heat, fraction=0.02, pad=0.02,
                  label="Pathogenicity (0=benign, 1=pathogenic)")
 
-    ax_mean = fig.add_subplot(gs[1])
+    # Bottom panel shares x-axis with heatmap
+    ax_mean = fig.add_subplot(gs[1], sharex=ax_heat)
     pos_arr = np.arange(1, L + 1)
     mean_arr = np.array(mean_profile[:L])
     ax_mean.bar(pos_arr, mean_arr,
@@ -162,6 +161,11 @@ def create_alphafold_missense_figure(
                 width=0.9, alpha=0.85)
     ax_mean.axhline(0.564, color="#d62728", linewidth=0.8, linestyle="--", alpha=0.7)
     ax_mean.axhline(0.340, color="#2ca02c", linewidth=0.8, linestyle="--", alpha=0.7)
+    # Sparse, adaptive x-ticks only on the bottom panel
+    step = max(1, L // 20)
+    xticks = list(range(step, L + 1, step))
+    ax_mean.set_xticks(xticks)
+    ax_mean.set_xticklabels([str(x) for x in xticks], fontsize=max(tick_font - 2, 7))
     _pub_style_ax(ax_mean, title="",
                   xlabel="Residue", ylabel="Mean path.",
                   grid=True, despine=True,

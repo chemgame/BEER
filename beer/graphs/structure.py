@@ -26,6 +26,14 @@ def _bead_width(n: int) -> float:
     return max(10, min(22, 0.25 * n + 4))
 
 
+def _x_tick_step(n: int) -> int:
+    """Adaptive x-axis tick spacing so bead/linear plots stay readable at any length."""
+    for s in (5, 10, 20, 25, 50, 100, 200, 250, 500):
+        if n // s <= 20:
+            return s
+    return 500
+
+
 def create_bead_model_hydrophobicity_figure(
     seq: str,
     show_labels: bool,
@@ -61,7 +69,8 @@ def create_bead_model_hydrophobicity_figure(
             ax.text(xs[i], 1, aa, ha="center", va="center",
                     fontsize=max(5, label_font - 5), color="white",
                     fontweight="bold")
-    ax.set_xticks([i for i in range(10, n + 1, 10)])
+    _step = _x_tick_step(n)
+    ax.set_xticks(range(_step, n + 1, _step))
     ax.tick_params(labelsize=tick_font - 2)
     fig.tight_layout(pad=1.2)
     return fig
@@ -110,7 +119,8 @@ def create_bead_model_charge_figure(
             ax.text(xs[i], 1, aa, ha="center", va="center",
                     fontsize=max(5, label_font - 5), color="white",
                     fontweight="bold")
-    ax.set_xticks([i for i in range(10, n + 1, 10)])
+    _step = _x_tick_step(n)
+    ax.set_xticks(range(_step, n + 1, _step))
     ax.tick_params(labelsize=tick_font - 2)
     fig.tight_layout(pad=1.2)
     return fig
@@ -278,7 +288,8 @@ def create_sticker_map_figure(
             tc = "#ffffff" if aa in _STICKER_ALL else "#6b7280"
             ax.text(xs[i], 1, aa, ha="center", va="center",
                     fontsize=max(5, label_font - 5), color=tc, fontweight="bold")
-    ax.set_xticks([i for i in range(10, n + 1, 10)])
+    _step = _x_tick_step(n)
+    ax.set_xticks(range(_step, n + 1, _step))
     ax.tick_params(labelsize=tick_font - 2)
     fig.tight_layout(pad=1.2)
     return fig
