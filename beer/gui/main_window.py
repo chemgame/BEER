@@ -261,6 +261,9 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._msa_sequences      = []   # list of aligned sequences
         self._msa_names          = []   # corresponding names
         self._plugins            = []   # loaded plugin modules
+        # Lazy graph generation
+        self._graph_generators: dict = {}   # title → callable that returns Figure
+        self._generated_graphs: set  = set()  # titles already rendered this session
         self._load_plugins()
 
         self.setAcceptDrops(True)
@@ -349,8 +352,18 @@ class ProteinAnalyzerGUI(QMainWindow):
 
     def _replace_graph(self, title: str, fig):
         """Swap graph canvas in the named tab."""
+        import matplotlib.pyplot as _plt
         tab, vb = self.graph_tabs[title]
+        # Close the old figure to free memory before clearing the layout
+        for i in range(vb.count()):
+            item = vb.itemAt(i)
+            if item and isinstance(item.widget(), FigureCanvas):
+                _plt.close(item.widget().figure)
+                break
         self._clear_layout(vb)
+        # High-DPI: match canvas DPI to physical screen resolution
+        dpr = self.devicePixelRatioF() if hasattr(self, "devicePixelRatioF") else 1.0
+        fig.set_dpi(min(150, max(96, int(96 * dpr))))
         canvas = FigureCanvas(fig)
         canvas.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         canvas.customContextMenuRequested.connect(
@@ -405,6 +418,20 @@ class ProteinAnalyzerGUI(QMainWindow):
                               alpha=0.92, linewidth=1.0, boxstyle="round,pad=0.4")
         except Exception:
             pass
+        # Vertical crosshair on single-axes profile graphs (residue-position x-axis)
+        _PROFILE_GRAPHS = {
+            "Hydrophobicity Profile", "Disorder Profile", "Local Charge Profile",
+            "Local Complexity", "SCD Profile", "RNA-Binding Profile",
+            "Coiled-Coil Profile", "β-Aggregation Profile", "Solubility Profile",
+            "pLDDT Profile", "Hydrophobic Moment",
+        }
+        if title in _PROFILE_GRAPHS and len(canvas.figure.axes) == 1:
+            try:
+                from matplotlib.widgets import Cursor as _MplCursor
+                _MplCursor(canvas.figure.axes[0], useblit=True,
+                           color="#4361ee", linewidth=0.7, linestyle="--", alpha=0.6)
+            except Exception:
+                pass
         hint = self._GRAPH_HINTS.get(title, "")
         if hint:
             from PySide6.QtWidgets import QToolButton as _QGTB
@@ -997,10 +1024,38 @@ class ProteinAnalyzerGUI(QMainWindow):
         right_v.setSpacing(4)
         outer.addWidget(right, 1)
 
+        # Top bar: Save All + zoom-to-region input
+        top_bar = QHBoxLayout()
+        zoom_lbl = QLabel("Zoom residues:")
+        zoom_lbl.setStyleSheet("QLabel { color: #718096; font-size: 10px; }")
+        self._zoom_from = QLineEdit()
+        self._zoom_from.setPlaceholderText("from")
+        self._zoom_from.setMaximumWidth(55)
+        self._zoom_from.setMaximumHeight(24)
+        self._zoom_to = QLineEdit()
+        self._zoom_to.setPlaceholderText("to")
+        self._zoom_to.setMaximumWidth(55)
+        self._zoom_to.setMaximumHeight(24)
+        zoom_go = QPushButton("Go")
+        zoom_go.setMaximumWidth(36)
+        zoom_go.setMaximumHeight(24)
+        zoom_go.clicked.connect(self._apply_graph_zoom)
+        zoom_reset = QPushButton("Reset")
+        zoom_reset.setMaximumWidth(48)
+        zoom_reset.setMaximumHeight(24)
+        zoom_reset.clicked.connect(self._reset_graph_zoom)
+        top_bar.addWidget(zoom_lbl)
+        top_bar.addWidget(self._zoom_from)
+        top_bar.addWidget(QLabel("–"))
+        top_bar.addWidget(self._zoom_to)
+        top_bar.addWidget(zoom_go)
+        top_bar.addWidget(zoom_reset)
+        top_bar.addStretch()
         save_all = QPushButton("Save All Graphs")
         save_all.setMaximumWidth(160)
         save_all.clicked.connect(self.save_all_graphs)
-        right_v.addWidget(save_all, alignment=Qt.AlignmentFlag.AlignRight)
+        top_bar.addWidget(save_all)
+        right_v.addLayout(top_bar)
 
         self.graph_stack = QStackedWidget()
         right_v.addWidget(self.graph_stack, 1)
@@ -1745,6 +1800,54 @@ window.addEventListener("load",init);
         self._pending_pdb = pdb_json
         # 1-arg form is the only safe form in PySide6 (no 2-arg callback variant).
         self._js(f"loadPDB({pdb_json});")
+        # Annotate disorder regions and signal peptide in 3D viewer after a short delay
+        from PySide6.QtCore import QTimer as _QT
+        _QT.singleShot(800, self._annotate_structure_viewer)
+
+    def _annotate_structure_viewer(self) -> None:
+        """Overlay disorder and signal-peptide annotations in the 3D viewer via JS."""
+        if not _WEBENGINE_AVAILABLE or self.structure_viewer is None:
+            return
+        if not self.analysis_data:
+            return
+        disorder = self.analysis_data.get("disorder_scores", [])
+        sp = self.analysis_data.get("sp_result", {})
+        # Build JS: addLabel calls for disordered stretches
+        js_parts = ["if(typeof viewer!=='undefined' && viewer){",
+                    "viewer.removeAllLabels();"]
+        if disorder:
+            threshold = 0.5
+            in_region = False
+            start = 0
+            L = len(disorder)
+            for i, s in enumerate(disorder):
+                if s >= threshold and not in_region:
+                    in_region = True; start = i + 1
+                elif s < threshold and in_region:
+                    in_region = False
+                    mid = (start + i) // 2
+                    js_parts.append(
+                        f"viewer.addLabel('IDR {start}–{i}',"
+                        f"{{position:{{resi:{mid}}},backgroundColor:'0x4361ee',"
+                        f"fontColor:'white',fontSize:8,backgroundOpacity:0.7}});")
+            if in_region:
+                mid = (start + L) // 2
+                js_parts.append(
+                    f"viewer.addLabel('IDR {start}–{L}',"
+                    f"{{position:{{resi:{mid}}},backgroundColor:'0x4361ee',"
+                    f"fontColor:'white',fontSize:8,backgroundOpacity:0.7}});")
+        # Signal peptide label
+        sp_end = sp.get("sp_end", 0) if isinstance(sp, dict) else 0
+        if sp_end and sp_end > 0:
+            js_parts.append(
+                f"viewer.addLabel('Signal peptide (1–{sp_end})',"
+                f"{{position:{{resi:{max(1, sp_end//2)}}},backgroundColor:'0xf72585',"
+                f"fontColor:'white',fontSize:8,backgroundOpacity:0.7}});")
+        js_parts.append("viewer.render();}")
+        try:
+            self._js("".join(js_parts))
+        except Exception:
+            pass
 
     def _save_pdb(self):
         if not self.alphafold_data:
@@ -2819,188 +2922,203 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.seq_viewer.setHtml(html)
 
     def update_graph_tabs(self):
+        """Register lazy graph generators; only render the currently-visible graph now."""
         if not self.analysis_data:
             return
-        seq  = self.analysis_data["seq"]
-        lf   = self.label_font_size
-        tf   = self.tick_font_size
-        figs = {
-            "Amino Acid Composition (Bar)": create_amino_acid_composition_figure(
-                self.analysis_data["aa_counts"], self.analysis_data["aa_freq"],
-                label_font=lf, tick_font=tf),
-            "Amino Acid Composition (Pie)": create_amino_acid_composition_pie_figure(
-                self.analysis_data["aa_counts"], label_font=lf),
-            "Hydrophobicity Profile": create_hydrophobicity_figure(
-                self.analysis_data["hydro_profile"], self.analysis_data["window_size"],
-                label_font=lf, tick_font=tf),
-            "Bead Model (Hydrophobicity)": create_bead_model_hydrophobicity_figure(
-                seq, self.show_bead_labels, label_font=lf, tick_font=tf, cmap=self.colormap),
-            "Bead Model (Charge)": create_bead_model_charge_figure(
-                seq, self.show_bead_labels, label_font=lf, tick_font=tf),
-            "Sticker Map": create_sticker_map_figure(
-                seq, self.show_bead_labels, label_font=lf, tick_font=tf),
-            "Local Charge Profile": create_local_charge_figure(
-                self.analysis_data["ncpr_profile"], self.analysis_data["window_size"],
-                label_font=lf, tick_font=tf),
-            "Local Complexity": create_local_complexity_figure(
-                self.analysis_data["entropy_profile"], self.analysis_data["window_size"],
-                label_font=lf, tick_font=tf),
-            "Cation\u2013\u03c0 Map": create_cation_pi_map_figure(
-                seq, label_font=lf, tick_font=tf),
-            "Isoelectric Focus": create_isoelectric_focus_figure(
-                seq, label_font=lf, tick_font=tf, pka=self.custom_pka),
-            "Helical Wheel": create_helical_wheel_figure(
-                seq, label_font=lf),
-            "Charge Decoration": create_charge_decoration_figure(
-                self.analysis_data["fcr"], self.analysis_data["ncpr"],
-                label_font=lf, tick_font=tf),
-            "Linear Sequence Map": create_linear_sequence_map_figure(
-                seq,
-                self.analysis_data["hydro_profile"],
-                self.analysis_data["ncpr_profile"],
-                self.analysis_data["disorder_scores"],
-                label_font=lf, tick_font=tf),
-            "Disorder Profile": create_disorder_profile_figure(
-                self.analysis_data["disorder_scores"], label_font=lf, tick_font=tf),
-        }
+        self._build_graph_generators()
+        self._generated_graphs.clear()
+        # Immediately render whichever graph is currently selected
+        self._render_visible_graph()
 
-        # TM Topology is always available after analysis
-        figs["TM Topology"] = create_tm_topology_figure(
-            seq, self.analysis_data.get("tm_helices", []),
-            label_font=lf, tick_font=tf)
+    def _build_graph_generators(self):
+        """Populate self._graph_generators with {title: callable} for all graphs."""
+        if not self.analysis_data:
+            return
+        ad  = self.analysis_data       # captured by reference — always current
+        seq = ad["seq"]
+        lf  = self.label_font_size
+        tf  = self.tick_font_size
+        sh  = self.show_heading
+        sg  = self.show_grid
+        sbl = self.show_bead_labels
+        cm  = self.colormap
+        pk  = self.custom_pka
+        sn  = self.sequence_name
 
-        # Phase separation / IDP graphs
-        figs["Uversky Phase Plot"] = create_uversky_phase_plot(
-            seq, label_font=lf, tick_font=tf)
-        if self.analysis_data.get("cc_profile"):
-            figs["Coiled-Coil Profile"] = create_coiled_coil_profile_figure(
-                self.analysis_data["cc_profile"], label_font=lf, tick_font=tf)
-        figs["Single-Residue Perturbation Map"] = create_saturation_mutagenesis_figure(
-            seq, label_font=lf, tick_font=tf)
-
-        # Structure-dependent graphs — available from any structure source
-        # (PDB upload, RCSB PDB fetch, or AlphaFold fetch).
-        if self.alphafold_data:
-            plddt = self.alphafold_data.get("plddt")
-            if plddt and len(plddt) == len(seq):
-                figs["pLDDT Profile"] = create_plddt_figure(
-                    plddt, label_font=lf, tick_font=tf)
-            dm = self.alphafold_data.get("dist_matrix")
-            # Guard: dist_matrix must be square and match the analysed sequence length.
-            # A mismatch occurs when the FASTA and PDB chain have different residue
-            # counts (e.g. disordered tails absent from the structure).
-            if dm is not None and dm.ndim == 2 and dm.shape[0] == len(seq) and dm.shape[0] > 0:
-                figs["Distance Map"] = create_distance_map_figure(
-                    dm, label_font=lf, tick_font=tf)
-
-        # Domain architecture — always rendered; shows all available tracks
-        figs["Domain Architecture"] = create_domain_architecture_figure(
-            len(seq), self.pfam_domains,
-            seq=seq,
-            disorder_scores=self.analysis_data.get("disorder_scores"),
-            tm_helices=self.analysis_data.get("tm_helices"),
-            label_font=lf, tick_font=tf)
-
-        # ── New feature graphs ────────────────────────────────────────────────
-        # β-Aggregation & Solubility
-        if _HAS_AGGREGATION:
-            aggr_profile = calc_aggregation_profile(seq)
-            hotspots     = predict_aggregation_hotspots(seq)
-            figs["\u03b2-Aggregation Profile"] = create_aggregation_profile_figure(
-                seq, aggr_profile, hotspots, label_font=lf, tick_font=tf)
-            camsolmt = calc_camsolmt_score(seq)
-            figs["Solubility Profile"] = create_solubility_profile_figure(
-                seq, camsolmt, label_font=lf, tick_font=tf)
-
-        if _HAS_AMPHIPATHIC:
-            figs["Hydrophobic Moment"] = create_hydrophobic_moment_figure(
-                seq,
-                self.analysis_data.get("moment_alpha", []),
-                self.analysis_data.get("moment_beta", []),
-                self.analysis_data.get("amph_regions", []),
-                label_font=lf, tick_font=tf)
-
-        if _HAS_PTM:
-            figs["PTM Map"] = create_ptm_profile_figure(
-                seq, self.analysis_data.get("ptm_sites", []),
-                label_font=lf, tick_font=tf)
-
-        if _HAS_RBP:
-            figs["RNA-Binding Profile"] = create_rbp_profile_figure(
-                seq,
-                self.analysis_data.get("rbp_profile", []),
-                self.analysis_data.get("rbp", {}).get("motifs_found", []),
-                label_font=lf, tick_font=tf)
-
-        if _HAS_SCD:
-            figs["SCD Profile"] = create_scd_profile_figure(
-                seq, self.analysis_data.get("scd_profile", []),
-                window=20, label_font=lf, tick_font=tf)
-
-        # pI / MW Map — always available
-        figs["pI / MW Map"] = create_pI_MW_gel_figure(
-            [{"name": self.sequence_name or "Protein",
-              "pI":   self.analysis_data["iso_point"],
-              "mol_weight": self.analysis_data["mol_weight"]}],
-            label_font=lf, tick_font=tf)
-
-        # Ramachandran plot — any loaded PDB structure (upload, RCSB fetch, AlphaFold)
-        if self.alphafold_data and _HAS_PHI_PSI:
-            phi_psi = _extract_phi_psi(self.alphafold_data["pdb_str"])
-            figs["Ramachandran Plot"] = create_ramachandran_figure(
-                phi_psi, label_font=lf, tick_font=tf)
-
-        # Residue contact network — requires distance matrix matching sequence length
-        if self.alphafold_data:
-            dm = self.alphafold_data.get("dist_matrix")
-            if (dm is not None and dm.ndim == 2
-                    and dm.shape[0] == len(seq) and dm.shape[0] > 0):
-                figs["Residue Contact Network"] = create_contact_network_figure(
-                    seq, dm, label_font=lf, tick_font=tf)
-
-        # MSA Conservation + Covariance (require MSA data)
-        if self._msa_sequences:
-            figs["MSA Conservation"] = create_msa_conservation_figure(
-                self._msa_sequences, self._msa_names,
-                label_font=lf, tick_font=tf)
-        if self._msa_mi_apc is not None:
-            figs["MSA Covariance"] = create_msa_covariance_figure(
-                self._msa_mi_apc, label_font=lf, tick_font=tf)
-
-        # Annotation Track — unified multi-track view
-        figs["Annotation Track"] = create_annotation_track_figure(
-            seq,
-            self.analysis_data.get("disorder_scores", []),
-            self.analysis_data.get("hydro_profile", []),
-            calc_aggregation_profile(seq),
-            self.analysis_data.get("ptm_sites", []),
-            self.analysis_data.get("tm_helices", []),
-            self.analysis_data.get("larks", []),
-            self.analysis_data.get("sp_result", {}),
-            label_font=lf, tick_font=tf)
-
-        # Proteolytic Cleavage Map
-        figs["Cleavage Map"] = create_cleavage_map_figure(
-            seq,
-            self.analysis_data.get("prot_sites", {}),
-            label_font=lf, tick_font=tf)
-
-        # PLAAC prion-like domain profile
-        if self.analysis_data.get("plaac"):
-            figs["PLAAC Profile"] = create_plaac_profile_figure(
-                self.analysis_data["plaac"],
-                label_font=lf, tick_font=tf)
-
-        # Apply global heading/grid/colour overrides
-        for title, fig in figs.items():
-            if title not in self.graph_tabs:
-                continue  # skip graphs not in the tree (e.g. plugin graphs added later)
+        def _wrap(fn):
+            """Apply heading/grid overrides then return figure."""
+            fig = fn()
             if fig.axes:
-                ax = fig.axes[0]
-                if not self.show_heading:
-                    ax.set_title("")
-                ax.grid(self.show_grid)
+                if not sh:
+                    fig.axes[0].set_title("")
+                fig.axes[0].grid(sg)
+            return fig
+
+        gens = {}
+        gens["Amino Acid Composition (Bar)"] = lambda: _wrap(lambda: create_amino_acid_composition_figure(
+            ad["aa_counts"], ad["aa_freq"], label_font=lf, tick_font=tf))
+        gens["Amino Acid Composition (Pie)"] = lambda: _wrap(lambda: create_amino_acid_composition_pie_figure(
+            ad["aa_counts"], label_font=lf))
+        gens["Hydrophobicity Profile"] = lambda: _wrap(lambda: create_hydrophobicity_figure(
+            ad["hydro_profile"], ad["window_size"], label_font=lf, tick_font=tf))
+        gens["Bead Model (Hydrophobicity)"] = lambda: _wrap(lambda: create_bead_model_hydrophobicity_figure(
+            seq, sbl, label_font=lf, tick_font=tf, cmap=cm))
+        gens["Bead Model (Charge)"] = lambda: _wrap(lambda: create_bead_model_charge_figure(
+            seq, sbl, label_font=lf, tick_font=tf))
+        gens["Sticker Map"] = lambda: _wrap(lambda: create_sticker_map_figure(
+            seq, sbl, label_font=lf, tick_font=tf))
+        gens["Local Charge Profile"] = lambda: _wrap(lambda: create_local_charge_figure(
+            ad["ncpr_profile"], ad["window_size"], label_font=lf, tick_font=tf))
+        gens["Local Complexity"] = lambda: _wrap(lambda: create_local_complexity_figure(
+            ad["entropy_profile"], ad["window_size"], label_font=lf, tick_font=tf))
+        gens["Cation\u2013\u03c0 Map"] = lambda: _wrap(lambda: create_cation_pi_map_figure(
+            seq, label_font=lf, tick_font=tf))
+        gens["Isoelectric Focus"] = lambda: _wrap(lambda: create_isoelectric_focus_figure(
+            seq, label_font=lf, tick_font=tf, pka=pk))
+        gens["Helical Wheel"] = lambda: _wrap(lambda: create_helical_wheel_figure(seq, label_font=lf))
+        gens["Charge Decoration"] = lambda: _wrap(lambda: create_charge_decoration_figure(
+            ad["fcr"], ad["ncpr"], label_font=lf, tick_font=tf))
+        gens["Linear Sequence Map"] = lambda: _wrap(lambda: create_linear_sequence_map_figure(
+            seq, ad["hydro_profile"], ad["ncpr_profile"], ad["disorder_scores"],
+            label_font=lf, tick_font=tf))
+        gens["Disorder Profile"] = lambda: _wrap(lambda: create_disorder_profile_figure(
+            ad["disorder_scores"], label_font=lf, tick_font=tf))
+        gens["TM Topology"] = lambda: _wrap(lambda: create_tm_topology_figure(
+            seq, ad.get("tm_helices", []), label_font=lf, tick_font=tf))
+        gens["Uversky Phase Plot"] = lambda: _wrap(lambda: create_uversky_phase_plot(
+            seq, label_font=lf, tick_font=tf))
+        gens["Single-Residue Perturbation Map"] = lambda: _wrap(lambda: create_saturation_mutagenesis_figure(
+            seq, label_font=lf, tick_font=tf))
+        gens["Domain Architecture"] = lambda: _wrap(lambda: create_domain_architecture_figure(
+            len(seq), self.pfam_domains, seq=seq,
+            disorder_scores=ad.get("disorder_scores"),
+            tm_helices=ad.get("tm_helices"),
+            label_font=lf, tick_font=tf))
+        gens["Annotation Track"] = lambda: _wrap(lambda: create_annotation_track_figure(
+            seq, ad.get("disorder_scores", []), ad.get("hydro_profile", []),
+            calc_aggregation_profile(seq),
+            ad.get("ptm_sites", []), ad.get("tm_helices", []),
+            ad.get("larks", []), ad.get("sp_result", {}),
+            label_font=lf, tick_font=tf))
+        gens["Cleavage Map"] = lambda: _wrap(lambda: create_cleavage_map_figure(
+            seq, ad.get("prot_sites", {}), label_font=lf, tick_font=tf))
+        gens["pI / MW Map"] = lambda: _wrap(lambda: create_pI_MW_gel_figure(
+            [{"name": sn or "Protein", "pI": ad["iso_point"],
+              "mol_weight": ad["mol_weight"]}],
+            label_font=lf, tick_font=tf))
+
+        if ad.get("cc_profile"):
+            gens["Coiled-Coil Profile"] = lambda: _wrap(lambda: create_coiled_coil_profile_figure(
+                ad["cc_profile"], label_font=lf, tick_font=tf))
+        if _HAS_AGGREGATION:
+            gens["\u03b2-Aggregation Profile"] = lambda: _wrap(lambda: create_aggregation_profile_figure(
+                seq, calc_aggregation_profile(seq), predict_aggregation_hotspots(seq),
+                label_font=lf, tick_font=tf))
+            gens["Solubility Profile"] = lambda: _wrap(lambda: create_solubility_profile_figure(
+                seq, calc_camsolmt_score(seq), label_font=lf, tick_font=tf))
+        if _HAS_AMPHIPATHIC:
+            gens["Hydrophobic Moment"] = lambda: _wrap(lambda: create_hydrophobic_moment_figure(
+                seq, ad.get("moment_alpha", []), ad.get("moment_beta", []),
+                ad.get("amph_regions", []), label_font=lf, tick_font=tf))
+        if _HAS_PTM:
+            gens["PTM Map"] = lambda: _wrap(lambda: create_ptm_profile_figure(
+                seq, ad.get("ptm_sites", []), label_font=lf, tick_font=tf))
+        if _HAS_RBP:
+            gens["RNA-Binding Profile"] = lambda: _wrap(lambda: create_rbp_profile_figure(
+                seq, ad.get("rbp_profile", []),
+                ad.get("rbp", {}).get("motifs_found", []),
+                label_font=lf, tick_font=tf))
+        if _HAS_SCD:
+            gens["SCD Profile"] = lambda: _wrap(lambda: create_scd_profile_figure(
+                seq, ad.get("scd_profile", []), window=20, label_font=lf, tick_font=tf))
+        if ad.get("plaac"):
+            gens["PLAAC Profile"] = lambda: _wrap(lambda: create_plaac_profile_figure(
+                ad["plaac"], label_font=lf, tick_font=tf))
+
+        # Structure-dependent
+        afd = self.alphafold_data
+        if afd:
+            plddt = afd.get("plddt")
+            if plddt and len(plddt) == len(seq):
+                gens["pLDDT Profile"] = lambda: _wrap(lambda: create_plddt_figure(
+                    afd["plddt"], label_font=lf, tick_font=tf))
+            dm = afd.get("dist_matrix")
+            if dm is not None and dm.ndim == 2 and dm.shape[0] == len(seq) > 0:
+                gens["Distance Map"] = lambda: _wrap(lambda: create_distance_map_figure(
+                    afd["dist_matrix"], label_font=lf, tick_font=tf))
+                gens["Residue Contact Network"] = lambda: _wrap(lambda: create_contact_network_figure(
+                    seq, afd["dist_matrix"], label_font=lf, tick_font=tf))
+            if _HAS_PHI_PSI:
+                gens["Ramachandran Plot"] = lambda: _wrap(lambda: create_ramachandran_figure(
+                    _extract_phi_psi(afd["pdb_str"]), label_font=lf, tick_font=tf))
+
+        # MSA
+        if self._msa_sequences:
+            gens["MSA Conservation"] = lambda: _wrap(lambda: create_msa_conservation_figure(
+                self._msa_sequences, self._msa_names, label_font=lf, tick_font=tf))
+        if self._msa_mi_apc is not None:
+            gens["MSA Covariance"] = lambda: _wrap(lambda: create_msa_covariance_figure(
+                self._msa_mi_apc, label_font=lf, tick_font=tf))
+
+        # Variant Effect Map (ESM2)
+        if self._embedder is not None and "Variant Effect Map" in self.graph_tabs:
+            gens["Variant Effect Map"] = lambda: self._gen_variant_effect_fig(
+                seq, lf, tf)
+
+        # Binding Pocket Proxy
+        if "Binding Pocket Proxy" in self.graph_tabs:
+            gens["Binding Pocket Proxy"] = lambda: self._gen_pocket_proxy_fig(
+                seq, lf, tf)
+
+        self._graph_generators = gens
+
+    def _render_visible_graph(self) -> None:
+        """Render the graph currently selected in the tree (if not already done)."""
+        item = self.graph_tree.currentItem()
+        if item is None:
+            return
+        title = item.data(0, Qt.ItemDataRole.UserRole)
+        if title:
+            self._render_graph(title)
+
+    def _render_graph(self, title: str) -> None:
+        """Generate and display a single graph on demand."""
+        if title not in self._graph_generators:
+            return
+        if title in self._generated_graphs:
+            return  # already rendered; canvas is still in the layout
+        try:
+            import logging as _log
+            fig = self._graph_generators[title]()
             self._replace_graph(title, fig)
+            self._generated_graphs.add(title)
+        except Exception as _exc:
+            import logging as _log2
+            _log2.getLogger("beer.graphs").warning(
+                "Failed to render graph '%s': %s", title, _exc, exc_info=True)
+
+    def _gen_variant_effect_fig(self, seq: str, lf: int, tf: int):
+        """Generate ESM2 variant effect map (called lazily)."""
+        from beer.analysis.variant_scoring import compute_single_mutant_llr
+        from beer.graphs.variant_map import create_variant_effect_figure
+        llr = compute_single_mutant_llr(seq, self._embedder)
+        if llr is None:
+            from matplotlib.figure import Figure as _Fig
+            fig = _Fig(figsize=(6, 3))
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, "ESM2 not available for variant scoring",
+                    ha="center", va="center", transform=ax.transAxes, color="#718096")
+            ax.axis("off")
+            return fig
+        return create_variant_effect_figure(seq, llr, label_font=lf, tick_font=tf)
+
+    def _gen_pocket_proxy_fig(self, seq: str, lf: int, tf: int):
+        """Generate binding pocket proxy figure (called lazily)."""
+        from beer.analysis.pocket_proxy import calc_pocket_proxy_score, find_pocket_regions
+        from beer.graphs.variant_map import create_pocket_proxy_figure
+        scores = calc_pocket_proxy_score(seq)
+        regions = find_pocket_regions(scores)
+        return create_pocket_proxy_figure(seq, scores, regions, label_font=lf, tick_font=tf)
 
     def show_batch_details(self, row, _):
         sid = self.batch_table.item(row, 0).text()
@@ -3033,6 +3151,73 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         title = item.data(0, Qt.ItemDataRole.UserRole)
         if title and title in self._graph_title_to_stack_idx:
             self.graph_stack.setCurrentIndex(self._graph_title_to_stack_idx[title])
+            self._render_graph(title)  # lazy: no-op if already rendered
+
+    def _apply_graph_zoom(self) -> None:
+        """Zoom all profile axes in the current graph to the entered residue range."""
+        try:
+            lo = int(self._zoom_from.text())
+            hi = int(self._zoom_to.text())
+        except ValueError:
+            return
+        item = self.graph_tree.currentItem()
+        if item is None:
+            return
+        title = item.data(0, Qt.ItemDataRole.UserRole)
+        if not title or title not in self.graph_tabs:
+            return
+        _, vb = self.graph_tabs[title]
+        for i in range(vb.count()):
+            w = vb.itemAt(i).widget()
+            if isinstance(w, FigureCanvas):
+                for ax in w.figure.axes:
+                    ax.set_xlim(lo, hi)
+                w.draw()
+
+    def _reset_graph_zoom(self) -> None:
+        """Reset x-axis limits on the current graph to auto."""
+        item = self.graph_tree.currentItem()
+        if item is None:
+            return
+        title = item.data(0, Qt.ItemDataRole.UserRole)
+        if not title or title not in self.graph_tabs:
+            return
+        _, vb = self.graph_tabs[title]
+        for i in range(vb.count()):
+            w = vb.itemAt(i).widget()
+            if isinstance(w, FigureCanvas):
+                for ax in w.figure.axes:
+                    ax.autoscale(axis="x")
+                w.draw()
+        self._zoom_from.clear()
+        self._zoom_to.clear()
+
+    def _graph_nav_next(self) -> None:
+        """Select the next leaf in the graph tree."""
+        self._graph_nav_step(+1)
+
+    def _graph_nav_prev(self) -> None:
+        """Select the previous leaf in the graph tree."""
+        self._graph_nav_step(-1)
+
+    def _graph_nav_step(self, direction: int) -> None:
+        """Move to the next (+1) or previous (-1) leaf item in the graph tree."""
+        leaves = []
+        for i in range(self.graph_tree.topLevelItemCount()):
+            cat = self.graph_tree.topLevelItem(i)
+            for j in range(cat.childCount()):
+                leaves.append(cat.child(j))
+        if not leaves:
+            return
+        cur = self.graph_tree.currentItem()
+        try:
+            idx = leaves.index(cur)
+        except ValueError:
+            idx = -1
+        new_idx = (idx + direction) % len(leaves)
+        new_item = leaves[new_idx]
+        self.graph_tree.setCurrentItem(new_item)
+        self._on_graph_tree_clicked(new_item, 0)
 
     # --- Export ---
 
@@ -3219,6 +3404,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         ext = self.default_graph_format.lower()
         try:
+            # Ensure every registered graph is rendered before saving
+            for title in list(self._graph_generators.keys()):
+                self._render_graph(title)
             use_transparent = self.transparent_bg and ext in ("png", "svg")
             for title, (tab, vb) in self.graph_tabs.items():
                 canvas = self._find_canvas(vb)
@@ -3545,6 +3733,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         QShortcut(QKeySequence("Ctrl+F"),      self,
                   lambda: self.motif_input.setFocus())
         QShortcut(QKeySequence("Ctrl+/"),      self, self.show_shortcuts)
+        QShortcut(QKeySequence("Ctrl+Right"), self, self._graph_nav_next)
+        QShortcut(QKeySequence("Ctrl+Left"),  self, self._graph_nav_prev)
 
     def show_shortcuts(self):
         """Show keyboard shortcut reference overlay."""
@@ -3556,6 +3746,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             ("Ctrl+3",      "Switch to BLAST tab"),
             ("Ctrl+7",      "Switch to MSA tab"),
             ("Ctrl+Z",      "Undo last mutation"),
+            ("Ctrl+Right",  "Next graph"),
+            ("Ctrl+Left",   "Previous graph"),
             ("Ctrl+S",      "Save session"),
             ("Ctrl+O",      "Load session"),
             ("Ctrl+F",      "Focus motif search"),

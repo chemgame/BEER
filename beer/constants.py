@@ -335,6 +335,10 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
     ("Post-Translational & Binding", [
         "PTM Map",
         "RNA-Binding Profile",
+        "Binding Pocket Proxy",
+    ]),
+    ("Variant Effects", [
+        "Variant Effect Map",
     ]),
     ("Evolutionary & Comparative", [
         "Truncation Series",

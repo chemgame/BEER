@@ -15,9 +15,19 @@ from beer.graphs._style import (
 
 # Module-level thresholds (mirrors beer.py inline constants)
 AGGREGATION_THRESHOLD = 1.0
+
+
 SOLUBILITY_NEUTRAL = 0.0
 HM_THRESHOLD = 0.35
 RBP_THRESHOLD = 0.3
+
+
+def _maybe_downsample(x_arr, y_arr, max_pts: int = 800):
+    """Thin (x, y) arrays to at most max_pts points using uniform stride."""
+    if len(y_arr) <= max_pts:
+        return x_arr, y_arr
+    stride = max(1, len(y_arr) // max_pts)
+    return x_arr[::stride], y_arr[::stride]
 
 
 def create_hydrophobicity_figure(
@@ -30,14 +40,16 @@ def create_hydrophobicity_figure(
     fig = Figure(figsize=(9, 4), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
-    xs = list(range(1, len(hydro_profile) + 1))
-    ax.fill_between(xs, hydro_profile, 0,
-                    where=[v >= 0 for v in hydro_profile],
+    xs = np.arange(1, len(hydro_profile) + 1, dtype=float)
+    ys = np.asarray(hydro_profile, dtype=float)
+    xs, ys = _maybe_downsample(xs, ys)
+    ax.fill_between(xs, ys, 0,
+                    where=(ys >= 0),
                     alpha=0.18, color=_ACCENT, interpolate=True)
-    ax.fill_between(xs, hydro_profile, 0,
-                    where=[v < 0 for v in hydro_profile],
+    ax.fill_between(xs, ys, 0,
+                    where=(ys < 0),
                     alpha=0.18, color=_NEG_COL, interpolate=True)
-    ax.plot(xs, hydro_profile, color=_ACCENT, linewidth=1.8,
+    ax.plot(xs, ys, color=_ACCENT, linewidth=1.8,
             marker="o", markersize=3.5, markerfacecolor=_ACCENT,
             markeredgewidth=0, zorder=4)
     ax.axhline(0, color="#888", linewidth=0.8, linestyle="--", zorder=3)
@@ -64,6 +76,7 @@ def create_aggregation_profile_figure(
     """Line plot of per-residue beta-aggregation propensity (Zyggregator)."""
     x = _residue_x(seq)
     y = np.asarray(aggregation_profile, dtype=float)
+    x, y = _maybe_downsample(x, y)
 
     fig = Figure(figsize=(10, 4), tight_layout=True)
     ax = fig.add_subplot(111)
@@ -113,6 +126,7 @@ def create_solubility_profile_figure(
     """Per-residue CamSol intrinsic solubility profile."""
     x = _residue_x(seq)
     y = np.asarray(camsolmt_profile, dtype=float)
+    x, y = _maybe_downsample(x, y)
 
     fig = Figure(figsize=(10, 4), tight_layout=True)
     ax = fig.add_subplot(111)
@@ -144,6 +158,7 @@ def create_scd_profile_figure(
     """Sliding-window SCD (Sequence Charge Decoration) profile."""
     x = np.arange(1, len(scd_profile) + 1, dtype=float)
     y = np.asarray(scd_profile, dtype=float)
+    x, y = _maybe_downsample(x, y)
 
     fig = Figure(figsize=(10, 4), tight_layout=True)
     ax = fig.add_subplot(111)
