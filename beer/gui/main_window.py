@@ -417,19 +417,6 @@ class ProteinAnalyzerGUI(QMainWindow):
             _dtm_btn.setFixedHeight(28)
             _dtm_btn.clicked.connect(self._run_deeptmlhmm)
             vb.addWidget(_dtm_btn)
-        if title == "AlphaMissense":
-            _uid_edit = QLineEdit()
-            _uid_edit.setPlaceholderText("UniProt ID (e.g. P04637)")
-            _uid_edit.setFixedHeight(28)
-            _uid_edit.setMaximumWidth(200)
-            _fetch_am_btn = QPushButton("Fetch AlphaMissense")
-            _fetch_am_btn.setFixedHeight(28)
-            _uid_row = QHBoxLayout()
-            _uid_row.addWidget(_uid_edit)
-            _uid_row.addWidget(_fetch_am_btn)
-            _uid_row.addStretch()
-            vb.addLayout(_uid_row)
-            _fetch_am_btn.clicked.connect(lambda: self._run_alphafold_missense(_uid_edit.text().strip()))
         vb.addWidget(canvas)
         try:
             import mplcursors as _mplcursors
@@ -785,12 +772,21 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.fetch_intact_btn.setToolTip("Fetch curated binary interactions from IntAct / EBI (UniProt only)")
         self.fetch_intact_btn.clicked.connect(self.fetch_intact)
         tb2.addWidget(self.fetch_intact_btn)
+        self.fetch_alphafold_missense_btn = QPushButton("AlphaMissense")
+        self.fetch_alphafold_missense_btn.setStyleSheet(_chip)
+        self.fetch_alphafold_missense_btn.setEnabled(False)
+        self.fetch_alphafold_missense_btn.setToolTip(
+            "Fetch AlphaMissense variant pathogenicity scores from EBI (UniProt only, requires internet)")
+        self.fetch_alphafold_missense_btn.clicked.connect(
+            lambda: self._run_alphafold_missense(self.current_accession))
+        tb2.addWidget(self.fetch_alphafold_missense_btn)
 
         # Convenience list for bulk enable/disable
         self._db_fetch_btns = [
             self.fetch_af_btn, self.fetch_pfam_btn, self.fetch_elm_btn,
             self.fetch_disprot_btn, self.fetch_mobidb_btn, self.fetch_phasepdb_btn,
             self.fetch_variants_btn, self.fetch_intact_btn,
+            self.fetch_alphafold_missense_btn,
         ]
 
         tb2.addStretch()
@@ -3165,10 +3161,11 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 from matplotlib.figure import Figure as _Fig
                 _f = _Fig(figsize=(9, 4), dpi=120)
                 _ax = _f.add_subplot(111)
-                _ax.text(0.5, 0.6, "AlphaMissense data not loaded.",
+                _ax.text(0.5, 0.55, "AlphaMissense data not loaded.",
                          ha="center", va="center", transform=_ax.transAxes,
                          fontsize=13, color="#374151")
-                _ax.text(0.5, 0.45, "Enter UniProt ID in the Fetch bar and click\n\"Fetch AlphaMissense\" button below.",
+                _ax.text(0.5, 0.42, "Fetch a UniProt entry first, then click\n"
+                         "the \u201cAlphaMissense\u201d button in the toolbar.",
                          ha="center", va="center", transform=_ax.transAxes,
                          fontsize=10, color="#718096")
                 _ax.set_axis_off()
@@ -3778,7 +3775,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _run_alphafold_missense(self, uniprot_id: str):
         if not uniprot_id:
-            QMessageBox.warning(self, "AlphaMissense", "Please enter a UniProt ID.")
+            QMessageBox.warning(self, "AlphaMissense",
+                                "No UniProt accession loaded.\n"
+                                "Fetch a protein via the Fetch bar first.")
             return
         from beer.network.workers import AlphaMissenseWorker
         self._am_worker = AlphaMissenseWorker(uniprot_id, self)
@@ -3789,8 +3788,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_alphafold_missense_done(self, data: dict):
         self._alphafold_missense_data = data
-        self._generated_graphs.pop("AlphaMissense", None)
-        self._render_visible_graph()
+        self._mark_chip_fetched(self.fetch_alphafold_missense_btn)
+        # Rebuild generators so the AlphaMissense graph uses real data, not placeholder
+        self.update_graph_tabs()
 
     # --- Chain selection ---
 
@@ -4089,6 +4089,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.fetch_mobidb_btn.setEnabled(not is_pdb)
         self.fetch_variants_btn.setEnabled(not is_pdb)
         self.fetch_intact_btn.setEnabled(not is_pdb)
+        self.fetch_alphafold_missense_btn.setEnabled(not is_pdb)
         self.accession_input.clear()
         src = "PDB" if is_pdb else "UniProt"
         msg = f"Fetched {rid} from {src}  ({len(seq)} aa)"
