@@ -1330,6 +1330,30 @@ class ProteinAnalyzerGUI(QMainWindow):
             snap_gl.addWidget(snapshot_btn)
             ctrl_layout.addWidget(snap_grp)
 
+            # ── Chain visibility ──────────────────────────────────────────
+            self._chains_grp = QGroupBox("Chains")
+            chains_gl = QVBoxLayout(self._chains_grp)
+            chains_gl.setContentsMargins(6, 4, 6, 6)
+            chains_gl.setSpacing(4)
+            chain_btn_row = QHBoxLayout()
+            chain_all_btn = QPushButton("All")
+            chain_all_btn.setFixedHeight(22)
+            chain_all_btn.clicked.connect(self._show_all_chains)
+            chain_none_btn = QPushButton("None")
+            chain_none_btn.setFixedHeight(22)
+            chain_none_btn.clicked.connect(self._hide_all_chains)
+            chain_btn_row.addWidget(chain_all_btn)
+            chain_btn_row.addWidget(chain_none_btn)
+            chains_gl.addLayout(chain_btn_row)
+            self._chain_cbs_widget = QWidget()
+            self._chain_cbs_layout = QVBoxLayout(self._chain_cbs_widget)
+            self._chain_cbs_layout.setContentsMargins(0, 0, 0, 0)
+            self._chain_cbs_layout.setSpacing(2)
+            chains_gl.addWidget(self._chain_cbs_widget)
+            self._chains_grp.setVisible(False)
+            ctrl_layout.addWidget(self._chains_grp)
+            self._chain_checkboxes: dict = {}
+
             ctrl_layout.addStretch()
             content_row.addWidget(ctrl_scroll)
 
@@ -1542,6 +1566,21 @@ function _styleOpts(rep,opacity){{
     return o;
 }}
 
+// ── chain visibility ───────────────────────────────────────────────────────
+var hiddenChains = {{}};   // {{chainId: true}} for hidden chains
+
+function setChainVisible(chainId, visible){{
+    if(visible) delete hiddenChains[chainId];
+    else hiddenChains[chainId]=true;
+    applyStyle();
+}}
+function showAllChains(){{ hiddenChains={{}}; applyStyle(); }}
+function hideAllChains(chainList){{
+    hiddenChains={{}};
+    if(chainList){{ chainList.forEach(function(c){{ hiddenChains[c]=true; }}); }}
+    applyStyle();
+}}
+
 // ── apply representation ───────────────────────────────────────────────────
 function applyStyle(){{
     if(!viewer) return;
@@ -1554,9 +1593,13 @@ function applyStyle(){{
     surfaceGen++;
     var myGen=surfaceGen;
 
+    var hiddenList=Object.keys(hiddenChains);
+
     if(repMode==='surface'){{
         // Show a ghost cartoon immediately while the surface is computing.
         viewer.setStyle({{}},_styleOpts('cartoon',Math.min(repOpacity*0.22,0.20)));
+        // Hide hidden chains in ghost too
+        hiddenList.forEach(function(c){{ viewer.setStyle({{chain:c}},{{}}); }});
         var sOpts={{opacity:repOpacity}};
         if(colorMode==='plddt')        sOpts.colorscheme=_plddtScheme();
         else if(colorMode==='residue') sOpts.colorscheme=colorScheme==='Shapely'?'shapely':'amino';
@@ -1576,6 +1619,8 @@ function applyStyle(){{
         var opts=_styleOpts(repMode);
         if(repMode==='sphere') opts[repMode].radius=0.5;
         viewer.setStyle({{}},opts);
+        // Override hidden chains with empty style (invisible)
+        hiddenList.forEach(function(c){{ viewer.setStyle({{chain:c}},{{}}); }});
     }}
     viewer.render();
     updateColorBar();
@@ -1666,6 +1711,7 @@ function setColorBarVisible(v) {{ colorBarVisible=v; updateColorBar(); }}
 function setSpin(on,axis)      {{ if(!viewer) return; if(on) viewer.spin(axis||'y',1); else viewer.spin(false); viewer.render(); }}
 function resetView()           {{
     repMode='cartoon'; colorMode='plddt'; colorScheme='Red-White-Blue';
+    hiddenChains={{}};
     setBackground('#ffffff');
     if(viewer){{ viewer.spin(false); viewer.zoomTo(); }}
     applyStyle();
@@ -1674,6 +1720,7 @@ function resetView()           {{
 // ── loadPDB: swap in a new structure without reloading the page ────────────
 function loadPDB(data){{
     pdbData = data || null;   // always store first — init() picks this up if viewer not ready yet
+    hiddenChains = {{}};       // reset chain visibility on every new structure
     if(!viewer) return;        // CDN still loading; init() will load pdbData when ready
     viewer.clear();
     if(pdbData){{
@@ -1800,9 +1847,60 @@ window.addEventListener("load",init);
         self._pending_pdb = pdb_json
         # 1-arg form is the only safe form in PySide6 (no 2-arg callback variant).
         self._js(f"loadPDB({pdb_json});")
+        self._populate_chain_controls(pdb_str)
         # Annotate disorder regions and signal peptide in 3D viewer after a short delay
         from PySide6.QtCore import QTimer as _QT
         _QT.singleShot(800, self._annotate_structure_viewer)
+
+    @staticmethod
+    def _parse_pdb_chains(pdb_str: str) -> list[str]:
+        """Return sorted list of unique chain IDs found in ATOM/HETATM records."""
+        seen: dict = {}
+        for line in pdb_str.splitlines():
+            if line.startswith(("ATOM  ", "HETATM")):
+                chain = line[21:22].strip()
+                if chain and chain not in seen:
+                    seen[chain] = None
+        return sorted(seen.keys())
+
+    def _populate_chain_controls(self, pdb_str: str) -> None:
+        """Build per-chain visibility checkboxes from a PDB string."""
+        if not hasattr(self, "_chains_grp"):
+            return
+        chains = self._parse_pdb_chains(pdb_str)
+        # Clear existing checkboxes
+        self._chain_checkboxes.clear()
+        while self._chain_cbs_layout.count():
+            item = self._chain_cbs_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        if len(chains) <= 1:
+            self._chains_grp.setVisible(False)
+            return
+        for chain_id in chains:
+            cb = QCheckBox(f"Chain {chain_id}")
+            cb.setChecked(True)
+            cb.toggled.connect(lambda checked, c=chain_id:
+                self._js(f"setChainVisible('{c}', {'true' if checked else 'false'});"))
+            self._chain_cbs_layout.addWidget(cb)
+            self._chain_checkboxes[chain_id] = cb
+        self._chains_grp.setVisible(True)
+
+    def _show_all_chains(self) -> None:
+        for cb in self._chain_checkboxes.values():
+            cb.blockSignals(True)
+            cb.setChecked(True)
+            cb.blockSignals(False)
+        self._js("showAllChains();")
+
+    def _hide_all_chains(self) -> None:
+        chain_list = list(self._chain_checkboxes.keys())
+        for cb in self._chain_checkboxes.values():
+            cb.blockSignals(True)
+            cb.setChecked(False)
+            cb.blockSignals(False)
+        import json as _json
+        self._js(f"hideAllChains({_json.dumps(chain_list)});")
 
     def _annotate_structure_viewer(self) -> None:
         """Overlay disorder and signal-peptide annotations in the 3D viewer via JS."""
