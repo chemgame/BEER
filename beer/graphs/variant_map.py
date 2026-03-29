@@ -43,13 +43,13 @@ def create_variant_effect_figure(
     xticks = list(range(0, L, step))
     ax_heat.set_xticks(xticks)
     ax_heat.set_xticklabels([str(i + 1) for i in xticks], fontsize=max(tick_font - 2, 7))
-    _pub_style_ax(ax_heat, title="ESM2 Variant Effect Map (LLR)",
-                  xlabel="", ylabel="Mutant amino acid",
+    _pub_style_ax(ax_heat, title="Variant Effect Map",
+                  xlabel="", ylabel="Mutant AA",
                   grid=False, despine=False,
                   title_size=label_font - 1, label_size=label_font - 2,
                   tick_size=tick_font - 2)
     fig.colorbar(im, ax=ax_heat, fraction=0.02, pad=0.02,
-                 label="Log-likelihood ratio (mut \u2212 WT)")
+                 label="LLR (mut\u2212WT)")
 
     # --- Per-position mean LLR ---
     ax_mean = fig.add_subplot(gs[1])
@@ -61,7 +61,7 @@ def create_variant_effect_figure(
                 width=0.8, alpha=0.85)
     ax_mean.axhline(0, color="#1a1a2e", linewidth=0.8)
     _pub_style_ax(ax_mean, title="",
-                  xlabel="Residue position",
+                  xlabel="Residue",
                   ylabel="Mean LLR",
                   grid=True, despine=True,
                   title_size=label_font - 1, label_size=label_font - 2,

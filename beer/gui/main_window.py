@@ -379,6 +379,8 @@ class ProteinAnalyzerGUI(QMainWindow):
         canvas.customContextMenuRequested.connect(
             lambda pos, c=canvas: self._graph_context_menu(c, pos))
         toolbar = NavigationToolbar2QT(canvas, self)
+        from PySide6.QtCore import QSize as _QSize
+        toolbar.setIconSize(_QSize(20, 20))
         is_dark = hasattr(self, "theme_toggle") and self.theme_toggle.isChecked()
         if is_dark:
             toolbar.setStyleSheet(

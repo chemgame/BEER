@@ -77,10 +77,11 @@ def create_msa_conservation_figure(
         else:
             dominant_aa[col] = "-"
 
-    fig = Figure(figsize=(max(10, aln_len * 0.15), 4), tight_layout=True)
+    fig = Figure(figsize=(max(10, aln_len * 0.15), 4), dpi=120)
+    fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
 
-    ax.bar(positions, conservation, color="steelblue", width=0.8, zorder=2)
+    ax.bar(positions, conservation, color="#4361ee", width=0.8, zorder=2, alpha=0.8)
 
     for col in range(aln_len):
         if conservation[col] > 0.7 and dominant_aa[col] not in ("-", ""):
@@ -89,20 +90,21 @@ def create_msa_conservation_figure(
                 dominant_aa[col],
                 ha="center", va="bottom",
                 fontsize=max(tick_font - 4, 6),
-                color="darkblue",
+                color="#1a1a2e",
             )
 
-    ax.axhline(0.7, color="red", linestyle="--", linewidth=0.8,
-               label="Conservation = 0.7")
+    ax.axhline(0.7, color="#f72585", linestyle="--", linewidth=0.8,
+               label="Threshold (0.7)")
 
-    ax.set_xlabel("Alignment Position", fontsize=label_font)
-    ax.set_ylabel("Conservation", fontsize=label_font)
-    ax.set_title("MSA Conservation Profile", fontsize=label_font - 2)
+    _pub_style_ax(ax, title="MSA Conservation",
+                  xlabel="Alignment Position", ylabel="Conservation",
+                  grid=True, title_size=label_font - 1,
+                  label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(0.5, aln_len + 0.5)
     ax.set_ylim(0, 1.15)
-    ax.tick_params(axis="both", labelsize=tick_font)
-    ax.legend(fontsize=tick_font, loc="upper right")
-
+    ax.legend(fontsize=tick_font - 2, loc="upper right",
+              framealpha=0.85, edgecolor="#d0d4e0")
+    fig.tight_layout(pad=1.5)
     return fig
 
 
@@ -142,7 +144,8 @@ def create_complex_mw_figure(
     bar_heights = chain_mws + [total_mw]
     bar_colors_all = chain_colors + ["#333333"]
 
-    fig = Figure(figsize=(max(6, len(bar_labels) * 1.2 + 2), 5), tight_layout=True)
+    fig = Figure(figsize=(max(6, len(bar_labels) * 1.2 + 2), 5), dpi=120)
+    fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
 
     bars = ax.bar(
@@ -173,11 +176,14 @@ def create_complex_mw_figure(
     )
 
     ax.set_xticks(range(len(bar_labels)))
-    ax.set_xticklabels(bar_labels, fontsize=tick_font)
-    ax.set_ylabel("Molecular Weight (kDa)", fontsize=label_font)
-    ax.set_title("Protein Complex Mass Composition", fontsize=label_font - 2)
-    ax.tick_params(axis="y", labelsize=tick_font)
-
+    ax.set_xticklabels(bar_labels, fontsize=tick_font - 1)
+    _pub_style_ax(ax, title="Complex Mass Composition",
+                  xlabel="", ylabel="MW (kDa)",
+                  grid=True, title_size=label_font - 1,
+                  label_size=label_font - 1, tick_size=tick_font - 1)
+    for sp in ("top", "right"):
+        ax.spines[sp].set_visible(False)
+    fig.tight_layout(pad=1.5)
     return fig
 
 
@@ -205,8 +211,12 @@ def create_truncation_series_figure(
             [d.get(key, 0) for d in data_list],
         )
 
-    fig = Figure(figsize=(14, 8), tight_layout=True)
-    fig.suptitle("Truncation Series Analysis", fontsize=label_font + 2)
+    fig = Figure(figsize=(14, 8), dpi=120)
+    fig.set_facecolor("#ffffff")
+    fig.suptitle("Truncation Series", fontsize=label_font,
+                 fontweight="bold", color="#1a1a2e")
+    fig.subplots_adjust(hspace=0.45, wspace=0.38,
+                        left=0.08, right=0.97, top=0.91, bottom=0.09)
 
     for panel_idx, (key, ylabel) in enumerate(panels):
         ax = fig.add_subplot(2, 3, panel_idx + 1)
@@ -215,19 +225,20 @@ def create_truncation_series_figure(
         cx, cy = extract(c_trunc, key)
 
         if nx:
-            ax.plot(nx, ny, color="blue", linewidth=1.5, marker="o",
-                    markersize=4, label="N-terminal")
+            ax.plot(nx, ny, color="#4361ee", linewidth=1.4, marker="o",
+                    markersize=3.5, label="N-term")
         if cx:
-            ax.plot(cx, cy, color="red", linewidth=1.5, marker="s",
-                    markersize=4, label="C-terminal")
+            ax.plot(cx, cy, color="#f72585", linewidth=1.4, marker="s",
+                    markersize=3.5, label="C-term")
 
-        ax.set_xlabel("Truncation (%)", fontsize=label_font - 2)
-        ax.set_ylabel(ylabel, fontsize=label_font - 2)
-        ax.tick_params(axis="both", labelsize=tick_font - 1)
+        _pub_style_ax(ax, title="", xlabel="Truncation (%)", ylabel=ylabel,
+                      grid=True, title_size=label_font - 2,
+                      label_size=label_font - 3, tick_size=tick_font - 2)
         ax.set_xlim(0, 90)
 
         if panel_idx == 0:
-            ax.legend(fontsize=tick_font - 2, loc="best")
+            ax.legend(fontsize=tick_font - 3, loc="best",
+                      framealpha=0.85, edgecolor="#d0d4e0")
 
     return fig
 
@@ -238,7 +249,8 @@ def create_pI_MW_gel_figure(
     tick_font: int = 12,
 ) -> Figure:
     """2D scatter plot of pI vs log10(MW) - SDS-PAGE proxy."""
-    fig = Figure(figsize=(9, 6), tight_layout=True)
+    fig = Figure(figsize=(9, 6), dpi=120)
+    fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
 
     single = len(proteins_data) == 1
@@ -289,14 +301,15 @@ def create_pI_MW_gel_figure(
 
     std_log_ticks = [math.log10(mw * 1000) for mw in MW_STANDARDS_KDA]
     ax.set_yticks(std_log_ticks)
-    ax.set_yticklabels([f"{mw} kDa" for mw in MW_STANDARDS_KDA], fontsize=tick_font)
+    ax.set_yticklabels([f"{mw} kDa" for mw in MW_STANDARDS_KDA],
+                       fontsize=tick_font - 1)
 
-    ax.set_xlabel("Isoelectric Point (pI)", fontsize=label_font)
-    ax.set_ylabel("Molecular Weight", fontsize=label_font)
-    ax.set_title("pI / MW 2D Map (SDS-PAGE Proxy)", fontsize=label_font - 2)
+    _pub_style_ax(ax, title="pI–MW Map",
+                  xlabel="pI", ylabel="MW",
+                  grid=True, title_size=label_font - 1,
+                  label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(0, 14)
-    ax.tick_params(axis="x", labelsize=tick_font)
-
+    fig.tight_layout(pad=1.5)
     return fig
 
 
@@ -358,7 +371,7 @@ def create_saturation_mutagenesis_figure(
 
     ax.set_yticks(range(20))
     ax.set_yticklabels(AAS_BY_HYDRO, fontsize=max(6, tick_font - 4))
-    ax.set_xlabel("Residue Position", fontsize=label_font - 1, color="#4a5568")
+    ax.set_xlabel("Residue", fontsize=label_font - 1, color="#4a5568")
     ax.set_ylabel("Substitution", fontsize=label_font - 1, color="#4a5568")
     ax.set_title("Single-Residue Perturbation Map",
                  fontsize=label_font, fontweight="bold", color="#1a1a2e", pad=8)
@@ -416,9 +429,9 @@ def create_uversky_phase_plot(
                 xytext=(mean_charge + 0.02, h_norm + 0.04))
 
     _pub_style_ax(ax,
-                  title="Uversky Charge\u2013Hydrophobicity Phase Plot",
-                  xlabel="Mean |Net Charge| per residue",
-                  ylabel="Mean Hydrophobicity (normalised 0\u20131)",
+                  title="Uversky Phase Diagram",
+                  xlabel="|Mean Charge|",
+                  ylabel="Mean Hydrophobicity",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(0, 0.5)
@@ -469,12 +482,10 @@ def create_msa_covariance_figure(
     cbar.set_label("MI-APC (bits)", fontsize=tick_font - 1, color="#4a5568")
     cbar.ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
 
-    ax.set_xlabel("Alignment Column", fontsize=label_font - 1, color="#4a5568")
-    ax.set_ylabel("Alignment Column", fontsize=label_font - 1, color="#4a5568")
-    ax.set_title(
-        "Residue Covariance  (Mutual Information, APC-corrected; Dunn et al. 2008)",
-        fontsize=label_font - 1, fontweight="bold", color="#1a1a2e", pad=8,
-    )
-    ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
+    _pub_style_ax(ax, title="Residue Covariance  (MI-APC)",
+                  xlabel="Column", ylabel="Column",
+                  grid=False, title_size=label_font - 1,
+                  label_size=label_font - 1, tick_size=tick_font - 2)
+    ax.tick_params(colors="#4a5568")
     fig.tight_layout(pad=1.5)
     return fig

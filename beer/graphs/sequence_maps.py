@@ -39,7 +39,8 @@ def create_linear_sequence_map_figure(
     n = len(seq)
     xs_win = list(range(1, len(hydro_profile) + 1))
     xs_all = list(range(1, n + 1))
-    fig = Figure(figsize=(10, 6), dpi=120)
+    w = max(10, min(18, 10 + n * 0.015))
+    fig = Figure(figsize=(w, 6), dpi=120)
     fig.set_facecolor("#ffffff")
     axs = fig.subplots(3, 1, sharex=False)
     fig.subplots_adjust(hspace=0.55, left=0.10, right=0.97, top=0.93, bottom=0.08)
@@ -69,7 +70,7 @@ def create_linear_sequence_map_figure(
     _track(axs[1], xs_win, ncpr_profile, "#7209b7", 0, "NCPR")
     _track(axs[2], xs_all, disorder_scores, "#f3722c", 0.5, "Disorder",
            fill_above=True, fill_below=False)
-    axs[2].set_xlabel("Residue Position", fontsize=tick_font - 1, color="#4a5568")
+    axs[2].set_xlabel("Residue", fontsize=tick_font - 1, color="#4a5568")
     return fig
 
 
@@ -91,7 +92,8 @@ def create_ptm_profile_figure(
     ptm_y_map = {pt: i for i, pt in enumerate(ptm_types_present)}
     n_types = max(len(ptm_types_present), 1)
 
-    fig = Figure(figsize=(12, max(3, n_types * 1.2 + 1.5)), tight_layout=True)
+    fig = Figure(figsize=(12, max(3, n_types * 1.2 + 1.5)), dpi=120)
+    fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
 
     for site in ptm_sites:
@@ -108,21 +110,28 @@ def create_ptm_profile_figure(
     ax.set_yticklabels(list(ptm_y_map.keys()), fontsize=tick_font)
     ax.set_ylim(-0.8, n_types - 0.2)
 
-    ax.set_xlabel("Residue Position", fontsize=label_font)
-    ax.set_ylabel("PTM Type", fontsize=label_font)
-    ax.set_title("Post-Translational Modification Sites (Predicted)", fontsize=label_font - 2)
+    ax.set_xlabel("Residue", fontsize=label_font - 1, color="#4a5568")
+    ax.set_ylabel("PTM Type", fontsize=label_font - 1, color="#4a5568")
+    ax.set_title("PTM Sites (Predicted)", fontsize=label_font - 1,
+                 fontweight="bold", color="#1a1a2e")
     ax.set_xlim(0, len(seq) + 1)
-    ax.tick_params(axis="x", labelsize=tick_font)
+    ax.tick_params(axis="x", labelsize=tick_font - 1)
 
     legend_patches = [
         mpatches.Patch(color=PTM_COLORS.get(pt, "#7f7f7f"), label=pt)
         for pt in ptm_types_present
     ]
     if legend_patches:
-        ax.legend(handles=legend_patches, fontsize=tick_font,
+        ax.legend(handles=legend_patches, fontsize=tick_font - 1,
                   loc="upper right", title="PTM Type",
-                  title_fontsize=tick_font)
+                  title_fontsize=tick_font - 1)
 
+    for sp in ("top", "right"):
+        ax.spines[sp].set_visible(False)
+    ax.set_facecolor("#fafbff")
+    ax.grid(True, axis="x", linestyle="--", linewidth=0.3, alpha=0.45, color="#c8cdd8")
+    ax.set_axisbelow(True)
+    fig.tight_layout(pad=1.5)
     return fig
 
 
@@ -235,7 +244,7 @@ def create_domain_architecture_figure(
 
     _pub_style_ax(ax,
                   title="Domain Architecture",
-                  xlabel="Residue Position", ylabel="",
+                  xlabel="Residue", ylabel="",
                   grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(1, seq_len)
@@ -274,19 +283,20 @@ def create_cation_pi_map_figure(
                             (seq[i] in arom and seq[j] in basic)
                     if is_cp:
                         mat[i, j] = 1.0 / abs(i - j)
-    fig = Figure(figsize=(6, 5), dpi=120)
+    dim = max(5.5, min(9.0, 5.0 + n * 0.025))
+    fig = Figure(figsize=(dim + 1.0, dim), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     ax.set_facecolor("#fafbff")
     im = ax.imshow(mat, cmap="YlOrRd", aspect="auto", origin="upper",
                    interpolation="nearest")
     cbar = fig.colorbar(im, ax=ax, shrink=0.85, aspect=20, pad=0.02)
-    cbar.set_label("Proximity (1 / distance)", fontsize=tick_font - 1, color="#4a5568")
+    cbar.set_label("Proximity (1/d)", fontsize=tick_font - 1, color="#4a5568")
     cbar.ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
     _pub_style_ax(ax,
                   title="Cation\u2013\u03c0 Proximity Map",
-                  xlabel="Residue Position",
-                  ylabel="Residue Position",
+                  xlabel="Residue",
+                  ylabel="Residue",
                   grid=False,
                   title_size=label_font - 1,
                   label_size=label_font - 1,
@@ -302,7 +312,9 @@ def create_local_complexity_figure(
     tick_font: int = 12,
 ) -> Figure:
     """Shannon entropy sliding-window local complexity profile."""
-    fig = Figure(figsize=(9, 4), dpi=120)
+    n = len(entropy_profile)
+    w = max(9, min(16, 9 + n * 0.015))
+    fig = Figure(figsize=(w, 4), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     xs = list(range(1, len(entropy_profile) + 1))
@@ -316,9 +328,9 @@ def create_local_complexity_figure(
     ax.axhline(2.0, color="#f72585", linewidth=1.2, linestyle="--",
                zorder=3, label="LC threshold (2.0 bits)")
     _pub_style_ax(ax,
-                  title=f"Local Complexity  (window = {window_size})",
-                  xlabel="Residue Position",
-                  ylabel="Shannon Entropy (bits)",
+                  title=f"Local Complexity  (w={window_size})",
+                  xlabel="Residue",
+                  ylabel="Entropy (bits)",
                   grid=True,
                   title_size=label_font - 1,
                   label_size=label_font - 1,
@@ -544,7 +556,7 @@ def create_annotation_track_figure(
     ax_rul.set_facecolor("#ffffff")
     ax_rul.tick_params(axis="x", labelsize=tick_font - 3, length=4,
                        width=0.7, colors="#4a5568")
-    ax_rul.set_xlabel("Residue Position", fontsize=tick_font - 1,
+    ax_rul.set_xlabel("Residue", fontsize=tick_font - 1,
                       color="#4a5568", labelpad=3)
     # tick every 50 residues
     tick_step = 50
@@ -634,7 +646,7 @@ def create_cleavage_map_figure(
     ax.tick_params(axis="y", length=0, pad=5)
 
     # x-axis styling
-    ax.set_xlabel("Residue Position", fontsize=label_font - 1,
+    ax.set_xlabel("Residue", fontsize=label_font - 1,
                   color="#2d3748", labelpad=5)
     tick_step = 50
     major_ticks = list(range(0, n + 1, tick_step))
