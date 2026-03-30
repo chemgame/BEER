@@ -14,7 +14,7 @@ I built BEER because I wanted a single tool that handles everything from basic p
 Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewrite:
 
 - **Proper Python package** (`beer/`) — modular, installable via `pip`
-- **ESM2 neural predictions** for disorder and signal peptide — pre-trained heads bundled; optional ESM2 probe for β-aggregation (settings-controlled)
+- **ESM2 neural predictions** for disorder — pre-trained heads bundled; optional ESM2 probe for β-aggregation (settings-controlled)
 - **3D structure viewer** with multiple representations, colour modes, colour bar, spin, and snapshot export
 - **25 graphs** across 8 categories (up from ~12), including Ramachandran, contact network, pLDDT profile, domain architecture
 - **New analysis modules**: RNA binding, SCD/κ/Ω, LARKS, tandem repeats, TM topology, coiled coil, ELM linear motifs
@@ -131,9 +131,9 @@ Residues in the sequence viewer are colour-coded by type. Use the **Search** / *
 | **Charge** | FCR, NCPR, κ, Ω, net charge, charge asymmetry |
 | **Aromatic & π** | Aromatic fraction, cation–π and π–π pair counts |
 | **Low Complexity** | Shannon entropy, prion-like score, LC fraction, PLAAC score (Lancaster et al. 2014), PolyX stretches |
-| **Disorder** | ESM2 logistic probe (DisProt 2024, AUC 0.83); classical propensity fallback |
+| **Disorder** | ESM2 logistic probe (DisProt 2024, AUC 0.83); falls back to metapredict (Emenecker et al. 2021) or classical propensity scale |
 | **Aggregation** | ZYGGREGATOR hotspots (Tartaglia & Vendruscolo 2008); CamSol solubility; optional ESM2 probe (Settings) |
-| **Signal Peptide** | ESM2 probe (AUC 1.00); n/h/c-region annotation; GPI signal |
+| **Signal Peptide** | Von Heijne (1986) three-region (n/h/c) model; AXA cleavage motif; GPI anchor (Eisenhaber et al. 1999) |
 | **RNA Binding** | Per-residue propensity; RGG, RRM, KH, SR, DEAD-box, Zinc finger motif hits |
 | **Amphipathic Helices** | Regions with μH ≥ 0.35 (Eisenberg 1984); hydrophobic moment profile for α-helix (δ=100°) and β-strand (δ=160°) |
 | **SCD / κ / Ω** | Sequence charge decoration profile |
