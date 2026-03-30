@@ -46,7 +46,6 @@ from beer.analysis.aggregation import (
 from beer.models import (
     load_disorder_head,
     load_aggregation_head,
-    load_signal_head,
 )
 from beer.analysis.signal_peptide import (
     predict_signal_peptide,
@@ -293,7 +292,7 @@ class AnalysisTools:
           <tr><td>Mean per-residue disorder score</td><td>{mean_disorder:.3f}</td></tr>
           <tr><td>Disordered fraction (score &gt; 0.5)</td><td>{disordered_frac:.3f} ({disordered_frac*100:.1f}%)</td></tr>
         </table>
-        <p class="note">Disorder/order fractions: Uversky 2003. &Omega;: sticker patterning, 0 = evenly distributed, 1 = clustered (Das et al. 2015). Per-residue disorder: ESM2 logistic probe (AUC 0.874 on DisProt 2024); falls back to a per-residue propensity scale smoothed over the user-defined window when ESM2 is unavailable.</p>
+        <p class="note">Disorder/order fractions: Uversky 2003. &Omega;: sticker patterning, 0 = evenly distributed, 1 = clustered (Das et al. 2015). Per-residue disorder: ESM2 logistic probe (AUC 0.874 on DisProt 2024); falls back to metapredict (Emenecker et al. 2021, Cell Syst.) when ESM2 is unavailable, or to a classical sliding-window propensity scale if neither is installed.</p>
         """
 
         repeats_html = _style + f"""
@@ -420,7 +419,6 @@ class AnalysisTools:
                 )
 
         # --- Signal peptide & GPI ---
-        _signal_head = load_signal_head()
         signal_html = format_signal_report(seq, _accent)
         sp_result   = predict_signal_peptide(seq)
         gpi_result  = predict_gpi_anchor(seq)

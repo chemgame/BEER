@@ -71,7 +71,7 @@ def predict_signal_peptide(seq: str) -> dict:
     * **n-region** (positions 1-5): basic residues (K, R) provide a positive
       charge that targets the ribosome-translocon.
     * **h-region** (within the first 30 aa): the longest, most hydrophobic
-      stretch (10-15 aa with mean KD > 1.4).
+      stretch (7-15 aa with mean KD > 1.4).
     * **c-region** (3-7 aa after h-region): ends with AXA or SXA (-3/-1 rule).
     * **Cleavage site**: immediately C-terminal to the c-region.
 
@@ -275,8 +275,8 @@ def format_signal_report(seq: str, style_tag: str) -> str:
         "</table>"
         "<p class='note'>"
         "Three-region (n/h/c) model: von Heijne, G. (1986) Nucleic Acids Res. 14:4683. "
-        "Reports structural features only. For validated signal peptide prediction use "
-        "the ESM2-based score above (AUC = 1.00 on UniProt ft_signal) or SignalP 6.0."
+        "Reports structural features only (n/h/c regions and AXA cleavage motif). "
+        "For high-confidence signal peptide prediction use SignalP 6.0 or DeepSig."
         "</p>"
     )
 

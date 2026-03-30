@@ -181,6 +181,9 @@ def predict_amphipathic_helices(
             while j < n and moment_profile[j] >= moment_threshold:
                 j += 1
             length = j - i
+            if length < 4:
+                i = j
+                continue
             sub = seq[i:j]
             mean_mu = sum(moment_profile[i:j]) / length
             mean_h = sum(hydro_vals[i:j]) / length

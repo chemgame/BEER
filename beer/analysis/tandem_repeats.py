@@ -447,8 +447,8 @@ def format_repeats_report(seq: str, style_tag: str) -> str:
             f"{lc_header}{lc_rows}"
             "</table>"
             "<p class='note'>"
-            "Window = 10 aa; step = 5; flagged when top-3 AAs &gt; 70% of window. "
-            "Wootton &amp; Federhen (1993) Comput. Chem. 17:149."
+            "Heuristic: window = 10 aa, step = 5; flagged when the three most "
+            "frequent residues account for &gt;70% of the window."
             "</p>"
         )
     else:
