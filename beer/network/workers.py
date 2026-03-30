@@ -446,7 +446,9 @@ class AnalysisWorker(QThread):
     finished = Signal(dict)
     error = Signal(str)
 
-    def __init__(self, seq, pH, window_size, use_reducing, pka, hydro_scale="Kyte-Doolittle"):
+    def __init__(self, seq, pH, window_size, use_reducing, pka,
+                 hydro_scale="Kyte-Doolittle", embedder=None,
+                 use_esm2_aggregation=False):
         super().__init__()
         self.seq = seq
         self.pH = pH
@@ -454,6 +456,8 @@ class AnalysisWorker(QThread):
         self.use_reducing = use_reducing
         self.pka = pka
         self.hydro_scale = hydro_scale
+        self.embedder = embedder
+        self.use_esm2_aggregation = use_esm2_aggregation
 
     def run(self):
         try:
@@ -462,7 +466,9 @@ class AnalysisWorker(QThread):
             data = AnalysisTools.analyze_sequence(
                 self.seq, self.pH, self.window_size,
                 self.use_reducing, self.pka,
+                embedder=self.embedder,
                 hydro_scale=self.hydro_scale,
+                use_esm2_aggregation=self.use_esm2_aggregation,
             )
             self.finished.emit(data)
         except Exception as exc:

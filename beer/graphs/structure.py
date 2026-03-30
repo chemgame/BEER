@@ -371,5 +371,10 @@ def create_coiled_coil_profile_figure(
     ax.set_ylim(0, 1.05)
     ax.legend(fontsize=tick_font - 3, framealpha=0.85,
               edgecolor="#d0d4e0", loc="upper right")
+    ax.annotate(
+        "Lupas et al. (1991) Science 252:1162 · Berger et al. (1995) PNAS 92:8259",
+        xy=(0.01, 0.01), xycoords="axes fraction",
+        fontsize=max(6, tick_font - 5), color="#6b7280", ha="left", va="bottom",
+    )
     fig.tight_layout(pad=1.5)
     return fig

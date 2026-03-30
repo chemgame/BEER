@@ -128,26 +128,21 @@ def predict_amphipathic_helices(
     seq: str,
     window: int = 11,
     moment_threshold: float = 0.35,
-    min_length: int = 7,
 ) -> list[dict]:
     """Identify amphipathic helices using the Eisenberg hydrophobic moment.
 
-    A candidate helix is a contiguous run of residues where:
-
-    1. The sliding-window muH (alpha-helix, delta = 100 degrees) >= *moment_threshold*.
-    2. The mean Eisenberg hydrophobicity of the same window is between
-       -0.5 and 1.5 (not purely hydrophobic, not purely hydrophilic).
+    A candidate helix is a contiguous run of residues where the
+    sliding-window muH (alpha-helix, delta = 100 degrees) >= *moment_threshold*.
+    The threshold of 0.35 is from Eisenberg et al. (1984).
 
     Parameters
     ----------
     seq:
         Protein sequence in single-letter uppercase code.
     window:
-        Window size for hydrophobic moment calculation.
+        Window size for hydrophobic moment calculation (default 11 as in Eisenberg 1984).
     moment_threshold:
-        Minimum mean muH to flag a region as amphipathic (default 0.35).
-    min_length:
-        Minimum contiguous run length (default 7 aa).
+        Minimum muH to flag a region as amphipathic (default 0.35; Eisenberg et al. 1984).
 
     Returns
     -------
@@ -181,30 +176,23 @@ def predict_amphipathic_helices(
 
     while i < n:
         mu = moment_profile[i]
-        h = hydro_vals[i]
-        if mu >= moment_threshold and -0.5 <= h <= 1.5:
+        if mu >= moment_threshold:
             j = i
-            while j < n:
-                mu_j = moment_profile[j]
-                h_j = hydro_vals[j]
-                if mu_j >= moment_threshold and -0.5 <= h_j <= 1.5:
-                    j += 1
-                else:
-                    break
+            while j < n and moment_profile[j] >= moment_threshold:
+                j += 1
             length = j - i
-            if length >= min_length:
-                sub = seq[i:j]
-                mean_mu = sum(moment_profile[i:j]) / length
-                mean_h = sum(hydro_vals[i:j]) / length
-                helix_type = "membrane-binding" if mean_h > 0.2 else "amphipathic"
-                helices.append({
-                    'start': i,
-                    'end': j,
-                    'seq': sub,
-                    'mean_moment': round(mean_mu, 4),
-                    'mean_hydrophobicity': round(mean_h, 4),
-                    'type': helix_type,
-                })
+            sub = seq[i:j]
+            mean_mu = sum(moment_profile[i:j]) / length
+            mean_h = sum(hydro_vals[i:j]) / length
+            helix_type = "membrane-binding" if mean_h > 0.2 else "amphipathic"
+            helices.append({
+                'start': i,
+                'end': j,
+                'seq': sub,
+                'mean_moment': round(mean_mu, 4),
+                'mean_hydrophobicity': round(mean_h, 4),
+                'type': helix_type,
+            })
             i = j
         else:
             i += 1
@@ -273,8 +261,9 @@ def format_amphipathic_report(seq: str, style_tag: str) -> str:
         "<p class='note'>"
         "Hydrophobic moment (&mu;H): Eisenberg, Weiss &amp; Terwilliger (1984) "
         "Proc. Natl. Acad. Sci. USA 81:140. "
-        "Regions are reported where &mu;H &ge; 0.35 over &ge; 7 consecutive residues "
-        "(detection parameters; &mu;H values are continuous and should be interpreted as such)."
+        "Regions where &mu;H &ge; 0.35 (11-residue window, &delta;=100&deg;) are reported; "
+        "threshold from Eisenberg et al. (1984). &mu;H values are continuous and should be "
+        "interpreted as such."
         "</p>"
     )
 
@@ -304,7 +293,7 @@ def format_amphipathic_report(seq: str, style_tag: str) -> str:
         helix_html = (
             "<h2>Predicted Amphipathic Regions</h2>"
             "<p>No amphipathic regions detected "
-            "(&mu;H &ge; 0.35, hydrophobicity &minus;0.5 to 1.5, &ge; 7 aa).</p>"
+            "(&mu;H &ge; 0.35, 11-residue window, &delta;=100&deg;).</p>"
         )
 
     return _s + summary_html + helix_html

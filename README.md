@@ -2,7 +2,7 @@
 
 **BEER** is a desktop application for integrated biophysical analysis of protein sequences. It accepts a sequence (pasted, imported as FASTA/PDB, or fetched from UniProt/RCSB), runs 19 analysis modules in one click, and gives you interactive publication-quality graphs, a 3D structure viewer, and exportable reports — all from a single GUI.
 
-I built BEER because I wanted a single tool that handles everything from basic physicochemical properties to disorder prediction, aggregation hotspots, PTM sites, RNA-binding propensity, and phase separation metrics, without jumping between half a dozen web servers.
+I built BEER because I wanted a single tool that handles everything from basic physicochemical properties to disorder prediction, aggregation hotspots, RNA-binding propensity, and phase separation metrics, without jumping between half a dozen web servers.
 
 > **If you use BEER in your research, please cite:**
 > Mukherjee, S. *arXiv*:2504.20561. DOI: [https://doi.org/10.48550/arXiv.2504.20561](https://arxiv.org/abs/2504.20561)
@@ -14,7 +14,7 @@ I built BEER because I wanted a single tool that handles everything from basic p
 Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewrite:
 
 - **Proper Python package** (`beer/`) — modular, installable via `pip`
-- **ESM2 neural predictions** for disorder, aggregation, signal peptide, and PTM — pre-trained heads bundled, no training needed
+- **ESM2 neural predictions** for disorder and signal peptide — pre-trained heads bundled; optional ESM2 probe for β-aggregation (settings-controlled)
 - **3D structure viewer** with multiple representations, colour modes, colour bar, spin, and snapshot export
 - **25 graphs** across 8 categories (up from ~12), including Ramachandran, contact network, pLDDT profile, domain architecture
 - **New analysis modules**: RNA binding, SCD/κ/Ω, LARKS, tandem repeats, TM topology, coiled coil, ELM linear motifs
@@ -23,7 +23,7 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 - **Session-only history**: the last 10 analysed sequences are available in a dropdown during the session and cleared when you close the app
 - Persistent settings, drag-and-drop FASTA, session save/load, keyboard shortcuts overlay, right-click figure menu
 - Structure export in PDB, mmCIF, GRO, XYZ, and FASTA formats
-- Removed unreliable metrics (Instability Index, LLPS composite score, Chou-Fasman, unvalidated PTM rules)
+- Removed unreliable metrics (Instability Index, LLPS composite score, Chou-Fasman)
 
 ---
 
@@ -132,16 +132,15 @@ Residues in the sequence viewer are colour-coded by type. Use the **Search** / *
 | **Aromatic & π** | Aromatic fraction, cation–π and π–π pair counts |
 | **Low Complexity** | Shannon entropy, prion-like score, LC fraction, PLAAC score (Lancaster et al. 2014), PolyX stretches |
 | **Disorder** | ESM2 logistic probe (DisProt 2024, AUC 0.83); classical propensity fallback |
-| **Aggregation** | ESM2 probe (AUC 0.97); ZYGGREGATOR hotspots; CamSol solubility |
-| **PTM Sites** | ESM2 probe (AUC 0.93); CK2, PKA, ubiquitination, SUMOylation, glycosylation, methylation |
+| **Aggregation** | ZYGGREGATOR hotspots (Tartaglia & Vendruscolo 2008); CamSol solubility; optional ESM2 probe (Settings) |
 | **Signal Peptide** | ESM2 probe (AUC 1.00); n/h/c-region annotation; GPI signal |
 | **RNA Binding** | Per-residue propensity; RGG, RRM, KH, SR, DEAD-box, Zinc finger motif hits |
-| **Amphipathic Helices** | Detected helices with hydrophobic moment |
+| **Amphipathic Helices** | Regions with μH ≥ 0.35 (Eisenberg 1984); hydrophobic moment profile for α-helix (δ=100°) and β-strand (δ=160°) |
 | **SCD / κ / Ω** | Sequence charge decoration profile |
 | **LARKS** | Low-complexity Aromatic-Rich Kinked Segments (Hughes et al. 2018) |
 | **Tandem Repeats** | Direct, tandem, and compositional repeats |
 | **TM Topology** | KD sliding-window TM helix prediction; inside-positive topology |
-| **Coiled Coil** | Heptad-periodicity score profile |
+| **Coiled Coil** | Heptad-periodicity score profile (MTIDK propensities; Lupas et al. 1991, Berger et al. 1995) |
 | **Linear Motifs** | Regex scan: NLS, NES, PxxP, 14-3-3, KFERQ, KDEL, SxIP, NxS/T, … |
 | **Proteolytic Map** | Predicted cleavage sites for 9 enzymes (Trypsin, Chymotrypsin, Lys-C, Asp-N, Glu-C, CNBr, Arg-C); peptide masses in Da |
 | **Comparison** | Side-by-side disorder / hydrophobicity / aggregation overlays |
@@ -161,7 +160,7 @@ Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, 
 | Phase Sep / IDP | Uversky Phase Plot, Single-Residue Perturbation Map, SCD Profile |
 | Aggregation | β-Aggregation Profile, Solubility Profile, Hydrophobic Moment |
 | Sequence Analysis | Annotation Track, Cleavage Map, PLAAC Profile |
-| Post-Translational & Binding | PTM Map, RNA-Binding Profile |
+| Post-Translational & Binding | RNA-Binding Profile |
 | Evolutionary & Comparative | Truncation Series, MSA Conservation, MSA Covariance, Complex Mass |
 | AlphaFold / Structural* | pLDDT Profile, Distance Map, Domain Architecture, Ramachandran Plot, Residue Contact Network |
 
@@ -171,7 +170,7 @@ Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, 
 
 | Graph | Description |
 |-------|-------------|
-| **Annotation Track** | Unified five-track view: disorder, hydrophobicity, aggregation, feature annotations (TM helices, signal peptide, LARKS, PTM sites), and a sequence ruler — all aligned on the same x-axis |
+| **Annotation Track** | Unified five-track view: disorder, hydrophobicity, aggregation, feature annotations (TM helices, signal peptide, LARKS), and a sequence ruler — all aligned on the same x-axis |
 | **Cleavage Map** | Predicted proteolytic cut sites for 9 enzymes displayed as coloured ticks on horizontal tracks; includes a trypsin peptide mass summary |
 | **PLAAC Profile** | Per-residue prion-like amino acid composition score (Lancaster et al. 2014), with prion-like regions highlighted |
 
@@ -284,20 +283,6 @@ Change the model in **Settings → ESM2 model** and click **Apply Settings**.
 | Prion-like score | Fraction of N, Q, S, G, Y residues |
 | ZYGGREGATOR | β-aggregation propensity per residue (Tartaglia & Vendruscolo 2008) |
 | CamSol | Intrinsic solubility scale (Sormanni et al. 2015) |
-
-### PTM predictions
-
-Only well-validated motif rules are included (false positive rate < 50%).
-
-| PTM | Motif |
-|-----|-------|
-| N-linked glycosylation | N[^P][ST] |
-| Phosphoserine/Thr (CK2) | [ST]xx[DE] |
-| Phosphoserine/Thr (PKA) | R[^P][^P][ST] |
-| Ubiquitination | [LVIMF]K.[DE] |
-| SUMOylation | [VILMF]K.E |
-| N-terminal acetylation | NatA substrate rules |
-| Arginine methylation | RGG, RG, GR motifs |
 
 ---
 

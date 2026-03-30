@@ -47,9 +47,7 @@ from beer.models import (
     load_disorder_head,
     load_aggregation_head,
     load_signal_head,
-    load_ptm_head,
 )
-from beer.analysis.ptm import scan_ptm_sites, format_ptm_report
 from beer.analysis.signal_peptide import (
     predict_signal_peptide,
     predict_gpi_anchor,
@@ -79,7 +77,6 @@ from beer.analysis.proteolysis import (
     calc_proteolytic_sites,
     format_proteolysis_report,
 )
-from beer.analysis.tango import predict_tango_aggregation, predict_tango_hotspots
 from beer.utils.biophysics import calc_polyx_stretches, calc_plaac_score
 from beer.embeddings.base import SequenceEmbedder
 
@@ -94,6 +91,7 @@ class AnalysisTools:
         pka: dict = None,
         embedder: SequenceEmbedder | None = None,
         hydro_scale: str = "Kyte-Doolittle",
+        use_esm2_aggregation: bool = False,
     ) -> dict[str, Any]:
         pa          = BPProteinAnalysis(seq)
         aa_counts   = pa.count_amino_acids()
@@ -408,20 +406,18 @@ class AnalysisTools:
         # Pass the accent colour (hex string) expected by each format_* function,
         # not the full <style>…</style> HTML tag stored in _style.
         _accent = "#4361ee"
-        _aggr_head = load_aggregation_head()
         aggr_html   = format_aggregation_report(seq, _accent)
         solub_stats = calc_solubility_stats(seq)
-        # ESM2-blended aggregation profile (falls back to classical when head is None)
-        aggr_profile_esm2 = calc_aggregation_profile_esm2(seq, embedder=embedder, head=_aggr_head)
-
-        # --- TANGO aggregation ---
-        tango_profile = predict_tango_aggregation(seq)
-        tango_hotspots = predict_tango_hotspots(seq)
-
-        # --- PTM ---
-        _ptm_head = load_ptm_head()
-        ptm_html  = format_ptm_report(seq, _accent)
-        ptm_sites = scan_ptm_sites(seq)
+        # Primary aggregation profile: always ZYGGREGATOR (Tartaglia & Vendruscolo 2008)
+        aggr_profile_zygg = calc_aggregation_profile(seq)
+        # Optional ESM2-only aggregation profile (settings-controlled, no blend)
+        aggr_profile_esm2 = None
+        if use_esm2_aggregation and embedder is not None and embedder.is_available():
+            _aggr_head = load_aggregation_head()
+            if _aggr_head is not None:
+                aggr_profile_esm2 = calc_aggregation_profile_esm2(
+                    seq, embedder=embedder, head=_aggr_head
+                )
 
         # --- Signal peptide & GPI ---
         _signal_head = load_signal_head()
@@ -488,7 +484,6 @@ class AnalysisTools:
                 "LARKS":                   larks_html,
                 "Linear Motifs":           motifs_html,
                 "\u03b2-Aggregation & Solubility": aggr_html,
-                "PTM Sites":               ptm_html,
                 "Signal Peptide & GPI":    signal_html,
                 "Amphipathic Helices":     amph_html,
                 "Charge Decoration (SCD)": scd_html,
@@ -523,8 +518,8 @@ class AnalysisTools:
             "cc_profile":      cc_profile,
             "motifs":          motifs,
             "solub_stats":     solub_stats,
+            "aggr_profile":    aggr_profile_zygg,
             "aggr_profile_esm2": aggr_profile_esm2,
-            "ptm_sites":       ptm_sites,
             "sp_result":       sp_result,
             "gpi_result":      gpi_result,
             "moment_alpha":    moment_alpha,
@@ -539,6 +534,4 @@ class AnalysisTools:
             "polyx_stretches": polyx_stretches,
             "prot_sites":      prot_sites,
             "plaac":           _plaac,
-            "tango_profile":   tango_profile,
-            "tango_hotspots":  tango_hotspots,
         }

@@ -316,7 +316,6 @@ REPORT_SECTIONS: list[str] = [
     "Linear Motifs",
     # --- New sections ---
     "\u03b2-Aggregation & Solubility",
-    "PTM Sites",
     "Signal Peptide & GPI",
     "Amphipathic Helices",
     "Charge Decoration (SCD)",
@@ -351,9 +350,7 @@ GRAPH_TITLES: list[str] = [
     "\u03b2-Aggregation Profile",
     "Solubility Profile",
     "Hydrophobic Moment",
-    "TANGO Aggregation",
     "AlphaMissense",
-    "PTM Map",
     "RNA-Binding Profile",
     "SCD Profile",
     "Truncation Series",
@@ -409,13 +406,10 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
         "\u03b2-Aggregation Profile",
         "Solubility Profile",
         "Hydrophobic Moment",
-        "TANGO Aggregation",
         "AlphaMissense",
     ]),
     ("Post-Translational & Binding", [
-        "PTM Map",
         "RNA-Binding Profile",
-        "Binding Pocket Proxy",
     ]),
     ("Variant Effects", [
         "Variant Effect Map",

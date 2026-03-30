@@ -103,6 +103,13 @@ def predict_tm_helices(seq: str, window: int = 19, threshold: float = 1.6,
        the side flanking with more K/R is cytoplasmic.
 
     Returns list of dicts: {start (0-based), end (0-based inclusive), score, orientation}.
+
+    References
+    ----------
+    Kyte, J. & Doolittle, R.F. (1982) J. Mol. Biol. 157:105-132.
+        Window size 19 and threshold 1.6 for TM helix detection.
+    von Heijne, G. (1986) EMBO J. 5:3021-3027.
+        Inside-positive rule: the cytoplasmic flanking region is enriched in K/R.
     """
     n = len(seq)
     if n < window:
@@ -198,13 +205,20 @@ def detect_larks(seq: str, window: int = 7, min_arom: int = 1,
 
 
 def predict_coiled_coil(seq: str, window: int = 28) -> list:
-    """Heptad-periodicity coiled-coil scoring (Lupas-inspired).
+    """Heptad-periodicity coiled-coil scoring.
 
     Uses a 28-residue (4-heptad) sliding window with position-weighted
-    propensity scores for the a/d positions of the heptad (which are the
-    hydrophobic core positions).
+    propensity scores.  Positions a and d of each heptad (the hydrophobic
+    core positions) receive weight 0.20; flanking positions receive 0.05–0.10.
+    Propensity values are from the MTIDK database compiled by Lupas et al.
+    (1991), as tabulated in Berger et al. (1995).
 
-    Returns list of per-residue scores (0 = no coiled-coil propensity).
+    Returns list of per-residue scores normalised to [0, 1].
+
+    References
+    ----------
+    Lupas, A., Van Dyke, M. & Stock, J. (1991) Science 252:1162-1164.
+    Berger, B. et al. (1995) Proc. Natl. Acad. Sci. USA 92:8259-8263.
     """
     n = len(seq)
     scores = [0.0] * n

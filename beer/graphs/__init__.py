@@ -11,7 +11,6 @@ from beer.graphs.profiles import (
     create_rbp_profile_figure,
     create_disorder_profile_figure,
     create_plaac_profile_figure,
-    create_tango_figure,
 )
 from beer.graphs.charge import (
     create_isoelectric_focus_figure,
@@ -29,7 +28,6 @@ from beer.graphs.structure import (
 )
 from beer.graphs.sequence_maps import (
     create_linear_sequence_map_figure,
-    create_ptm_profile_figure,
     create_domain_architecture_figure,
     create_cation_pi_map_figure,
     create_local_complexity_figure,
@@ -62,7 +60,6 @@ __all__ = [
     "create_rbp_profile_figure",
     "create_disorder_profile_figure",
     "create_plaac_profile_figure",
-    "create_tango_figure",
     "create_isoelectric_focus_figure",
     "create_local_charge_figure",
     "create_charge_decoration_figure",
@@ -74,7 +71,6 @@ __all__ = [
     "create_hydrophobic_moment_figure",
     "create_coiled_coil_profile_figure",
     "create_linear_sequence_map_figure",
-    "create_ptm_profile_figure",
     "create_domain_architecture_figure",
     "create_cation_pi_map_figure",
     "create_local_complexity_figure",

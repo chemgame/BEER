@@ -239,47 +239,46 @@ def calc_solubility_stats(seq: str) -> dict:
 
 def calc_aggregation_profile_esm2(
     seq: str,
-    window: int = 6,
     embedder=None,
     head: dict | None = None,
-) -> list[float]:
-    """Blended aggregation profile combining classical ZYGGREGATOR and ESM2.
+) -> list[float] | None:
+    """ESM2 logistic-probe aggregation profile (optional, settings-controlled).
 
-    When *embedder* is available and *head* contains trained weights, the
-    function computes an ESM2-derived propensity score via logistic regression
-    and blends it with the classical profile (40 % ESM2, 60 % classical).
-    Falls back to the classical profile if ESM2 is unavailable.
+    Computes a per-residue aggregation propensity score from ESM2 embeddings
+    via a trained logistic regression probe.  Returns ``None`` if ESM2 is
+    unavailable or the head weights are missing.
+
+    Use :func:`calc_aggregation_profile` for the default ZYGGREGATOR-based
+    profile (Tartaglia & Vendruscolo 2008).
 
     Parameters
     ----------
     seq:
         Protein sequence in single-letter uppercase code.
-    window:
-        Sliding window forwarded to :func:`calc_aggregation_profile`.
     embedder:
-        Optional :class:`beer.embeddings.base.SequenceEmbedder` instance.
+        :class:`beer.embeddings.base.SequenceEmbedder` instance.
     head:
-        Optional dict with keys ``"coef"`` (numpy array, shape ``(1, D)``)
-        and ``"intercept"`` (float or array, default 0.0).
+        Dict with keys ``"coef"`` (numpy array, shape ``(1, D)``) and
+        ``"intercept"`` (float or array, default 0.0).
 
     Returns
     -------
-    list[float]
-        Per-residue blended aggregation propensity (length = ``len(seq)``).
+    list[float] or None
+        Per-residue ESM2 aggregation propensity (length = ``len(seq)``),
+        or ``None`` if ESM2 is unavailable.
     """
-    classical = calc_aggregation_profile(seq, window=window)
-    if embedder is not None and embedder.is_available() and head is not None:
-        emb = embedder.embed(seq)
-        if emb is not None and len(emb) == len(seq):
-            import numpy as np
-            coef = head.get("coef")
-            intercept = head.get("intercept", 0.0)
-            if coef is not None and coef.shape[-1] == emb.shape[-1]:
-                logits = emb @ coef.T + intercept
-                esm2_score = (1.0 / (1.0 + np.exp(-logits.ravel()))).tolist()
-                # blend: 40% ESM2, 60% classical
-                return [0.4 * e + 0.6 * c for e, c in zip(esm2_score, classical)]
-    return classical
+    if embedder is None or not embedder.is_available() or head is None:
+        return None
+    emb = embedder.embed(seq)
+    if emb is None or len(emb) != len(seq):
+        return None
+    import numpy as np
+    coef = head.get("coef")
+    intercept = head.get("intercept", 0.0)
+    if coef is None or coef.shape[-1] != emb.shape[-1]:
+        return None
+    logits = emb @ coef.T + intercept
+    return (1.0 / (1.0 + np.exp(-logits.ravel()))).tolist()
 
 
 # ---------------------------------------------------------------------------

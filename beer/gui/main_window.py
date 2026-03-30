@@ -15,7 +15,6 @@ _HAS_ELM          = True
 _HAS_NEW_GRAPHS   = True
 _HAS_PHASEPDB     = True
 _HAS_PHI_PSI      = True
-_HAS_PTM          = True
 _HAS_RBP          = True
 _HAS_SCD          = True
 
@@ -116,7 +115,7 @@ from beer.graphs import (
     create_helical_wheel_figure, create_tm_topology_figure,
     create_sticker_map_figure, create_hydrophobic_moment_figure,
     create_coiled_coil_profile_figure,
-    create_linear_sequence_map_figure, create_ptm_profile_figure,
+    create_linear_sequence_map_figure,
     create_domain_architecture_figure, create_cation_pi_map_figure,
     create_local_complexity_figure, create_ramachandran_figure,
     create_contact_network_figure, create_plddt_figure, create_distance_map_figure,
@@ -126,12 +125,11 @@ from beer.graphs import (
     create_annotation_track_figure, create_cleavage_map_figure,
     create_plaac_profile_figure,
     create_msa_covariance_figure,
-    create_tango_figure,
 )
 from beer.graphs.variant_map import create_alphafold_missense_figure
 from beer.reports.css import REPORT_CSS
 from beer.reports.sections import (
-    format_aggregation_report, format_ptm_report, format_signal_report,
+    format_aggregation_report, format_signal_report,
     format_amphipathic_report, format_scd_report, format_rbp_report,
     format_repeats_report,
 )
@@ -225,8 +223,10 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.show_grid            = _cfg.get("show_grid", True)
         self.default_graph_format = _cfg.get("graph_format", "PNG")
         self.app_font_size        = _cfg.get("app_font_size", 12)
-        self.enable_tooltips      = _cfg.get("enable_tooltips", True)
-        self.colorblind_safe      = _cfg.get("colorblind_safe", False)
+        self.enable_tooltips        = _cfg.get("enable_tooltips", True)
+        self.colorblind_safe        = _cfg.get("colorblind_safe", False)
+        self.use_esm2_aggregation   = _cfg.get("use_esm2_aggregation", False)
+        self._esm2_missing_warned   = False   # show ESM2 missing notice at most once
         self._history             = []   # session-only: never restored from disk
         self.hydro_scale          = "Kyte-Doolittle"
         self.sequence_name       = ""
@@ -519,7 +519,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             "  1. Disorder score (metapredict, 0\u20131)\n"
             "  2. Hydrophobicity (sliding-window KD)\n"
             "  3. Aggregation propensity (ZYGGREGATOR)\n"
-            "  4. Feature annotations: TM helices, signal peptide, PTM sites, LARKS\n"
+            "  4. Feature annotations: TM helices, signal peptide, LARKS\n"
             "  5. Residue ruler"
         ),
         "Cleavage Map": (
@@ -536,16 +536,6 @@ class ProteinAnalyzerGUI(QMainWindow):
             "PrLDs are enriched in FUS, TDP-43, hnRNPA1, and other RBPs linked to "
             "amyloid and phase separation.\n"
             "Reference: Lancaster et al., Cell 149:936, 2014."
-        ),
-        "PTM Map": (
-            "ESM2-predicted post-translational modification (PTM) sites.\n\n"
-            "Five PTM types predicted from ESM2 embeddings:\n"
-            "  \u2022 Phosphorylation (S/T/Y)\n"
-            "  \u2022 Ubiquitination (K)\n"
-            "  \u2022 SUMOylation (K)\n"
-            "  \u2022 N-Glycosylation (N in N-x-S/T motif)\n"
-            "  \u2022 Methylation (K/R)\n\n"
-            "Predictions are approximate; validate with PhosphoSitePlus or UniProt annotations."
         ),
         "RNA-Binding Profile": (
             "Per-residue RNA-binding propensity score.\n\n"
@@ -604,16 +594,6 @@ class ProteinAnalyzerGUI(QMainWindow):
             "Lower panel: mean LLR per position \u2014 "
             "positions with low mean LLR are evolutionarily constrained.\n\n"
             "Reference: Rives et al. (ESM2), PNAS 118:e2016239118, 2021."
-        ),
-        "Binding Pocket Proxy": (
-            "Sequence-based proxy score for potential ligand-binding pockets.\n\n"
-            "Score combines:\n"
-            "  \u2022 Local hydrophobicity (KD sliding window)\n"
-            "  \u2022 Low disorder (inverted metapredict score)\n"
-            "  \u2022 Estimated backbone rigidity\n\n"
-            "Threshold = 0.65. Highlighted regions (\u2265 5 consecutive residues above threshold) "
-            "are candidate binding sites.\n\n"
-            "Note: structural methods (fpocket, SiteMap) should be used for validation."
         ),
         "AlphaMissense": (
             "AlphaMissense pathogenicity scores for all single-amino-acid substitutions.\n\n"
@@ -2535,10 +2515,24 @@ window.addEventListener("load",init);
         self.esm2_combo.setCurrentText("esm2_t6_8M_UR50D")
         self._set_tooltip(
             self.esm2_combo,
-            "ESM2 model for per-residue embeddings (disorder, aggregation). "
+            "ESM2 model for per-residue embeddings (disorder, variant effect). "
             "Requires 'pip install fair-esm torch'. Larger models are more accurate but slower."
         )
         form5.addRow("ESM2 model:", self.esm2_combo)
+
+        self.esm2_aggr_checkbox = QCheckBox(
+            "Use ESM2 logistic probe for \u03b2-aggregation (requires ESM2)"
+        )
+        self.esm2_aggr_checkbox.setChecked(self.use_esm2_aggregation)
+        self._set_tooltip(
+            self.esm2_aggr_checkbox,
+            "When enabled, the \u03b2-Aggregation Profile uses the ESM2 logistic probe "
+            "instead of ZYGGREGATOR.\n"
+            "Default (unchecked): ZYGGREGATOR (Tartaglia & Vendruscolo 2008) — "
+            "peer-reviewed, no ML install required.\n"
+            "ESM2 option: in-house logistic probe; requires ESM2 to be installed."
+        )
+        form5.addRow("", self.esm2_aggr_checkbox)
         layout.addLayout(form5)
 
         btn_row = QHBoxLayout()
@@ -3249,7 +3243,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
         self._analysis_worker = AnalysisWorker(
             seq, pH, self.default_window_size, self.use_reducing, self.custom_pka,
-            hydro_scale=self.hydro_scale
+            hydro_scale=self.hydro_scale,
+            embedder=self._embedder,
+            use_esm2_aggregation=self.use_esm2_aggregation,
         )
         self._analysis_worker.finished.connect(self._on_worker_finished)
         self._analysis_worker.error.connect(self._on_worker_error)
@@ -3422,8 +3418,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             label_font=lf, tick_font=tf))
         gens["Annotation Track"] = lambda: _wrap(lambda: create_annotation_track_figure(
             seq, ad.get("disorder_scores", []), ad.get("hydro_profile", []),
-            calc_aggregation_profile(seq),
-            ad.get("ptm_sites", []), ad.get("tm_helices", []),
+            ad.get("aggr_profile", calc_aggregation_profile(seq)),
+            [], ad.get("tm_helices", []),
             ad.get("larks", []), ad.get("sp_result", {}),
             label_font=lf, tick_font=tf))
         gens["Cleavage Map"] = lambda: _wrap(lambda: create_cleavage_map_figure(
@@ -3432,14 +3428,15 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             gens["Coiled-Coil Profile"] = lambda: _wrap(lambda: create_coiled_coil_profile_figure(
                 ad["cc_profile"], label_font=lf, tick_font=tf))
         if _HAS_AGGREGATION:
+            # Use ESM2 profile if enabled in settings and available, else ZYGGREGATOR
+            _aggr_prof = ad.get("aggr_profile_esm2") if (
+                self.use_esm2_aggregation and ad.get("aggr_profile_esm2")
+            ) else ad.get("aggr_profile", calc_aggregation_profile(seq))
             gens["\u03b2-Aggregation Profile"] = lambda: _wrap(lambda: create_aggregation_profile_figure(
-                seq, calc_aggregation_profile(seq), predict_aggregation_hotspots(seq),
+                seq, _aggr_prof, predict_aggregation_hotspots(seq),
                 label_font=lf, tick_font=tf))
             gens["Solubility Profile"] = lambda: _wrap(lambda: create_solubility_profile_figure(
                 seq, calc_camsolmt_score(seq), label_font=lf, tick_font=tf))
-        gens["TANGO Aggregation"] = lambda: _wrap(lambda: create_tango_figure(
-            seq, ad.get("tango_profile", []), ad.get("tango_hotspots", []),
-            label_font=lf, tick_font=tf))
         _am_data = getattr(self, "_alphafold_missense_data", None)
         if _am_data:
             gens["AlphaMissense"] = lambda: _wrap(lambda: create_alphafold_missense_figure(
@@ -3463,9 +3460,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             gens["Hydrophobic Moment"] = lambda: _wrap(lambda: create_hydrophobic_moment_figure(
                 seq, ad.get("moment_alpha", []), ad.get("moment_beta", []),
                 ad.get("amph_regions", []), label_font=lf, tick_font=tf))
-        if _HAS_PTM:
-            gens["PTM Map"] = lambda: _wrap(lambda: create_ptm_profile_figure(
-                seq, ad.get("ptm_sites", []), label_font=lf, tick_font=tf))
         if _HAS_RBP:
             gens["RNA-Binding Profile"] = lambda: _wrap(lambda: create_rbp_profile_figure(
                 seq, ad.get("rbp_profile", []),
@@ -3506,11 +3500,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         # Variant Effect Map (ESM2)
         if self._embedder is not None and "Variant Effect Map" in self.graph_tabs:
             gens["Variant Effect Map"] = lambda: self._gen_variant_effect_fig(
-                seq, lf, tf)
-
-        # Binding Pocket Proxy
-        if "Binding Pocket Proxy" in self.graph_tabs:
-            gens["Binding Pocket Proxy"] = lambda: self._gen_pocket_proxy_fig(
                 seq, lf, tf)
 
         self._graph_generators = gens
@@ -3554,14 +3543,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             ax.axis("off")
             return fig
         return create_variant_effect_figure(seq, llr, label_font=lf, tick_font=tf)
-
-    def _gen_pocket_proxy_fig(self, seq: str, lf: int, tf: int):
-        """Generate binding pocket proxy figure (called lazily)."""
-        from beer.analysis.pocket_proxy import calc_pocket_proxy_score, find_pocket_regions
-        from beer.graphs.variant_map import create_pocket_proxy_figure
-        scores = calc_pocket_proxy_score(seq)
-        regions = find_pocket_regions(scores)
-        return create_pocket_proxy_figure(seq, scores, regions, label_font=lf, tick_font=tf)
 
     def show_batch_details(self, row, _):
         sid = self.batch_table.item(row, 0).text()
@@ -3998,6 +3979,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
         self.enable_tooltips = self.tooltips_checkbox.isChecked()
         self._apply_tooltips()
+        self.use_esm2_aggregation = self.esm2_aggr_checkbox.isChecked()
 
         # Re-initialise ESM2 embedder if model changed
         new_esm2_model = self.esm2_combo.currentText()
@@ -4040,9 +4022,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             "show_grid":        self.show_grid,
             "graph_format":     self.default_graph_format,
             "app_font_size":    self.app_font_size,
-            "enable_tooltips":  self.enable_tooltips,
-            "colorblind_safe":  getattr(self, "colorblind_safe", False),
-            "esm2_model":       self.esm2_combo.currentText(),
+            "enable_tooltips":      self.enable_tooltips,
+            "colorblind_safe":      getattr(self, "colorblind_safe", False),
+            "esm2_model":           self.esm2_combo.currentText(),
+            "use_esm2_aggregation": self.use_esm2_aggregation,
         })
         self.statusBar.showMessage("Settings applied and saved.", 5000)
 
@@ -4065,6 +4048,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.transparent_bg_checkbox.setChecked(True)
         self.theme_toggle.setChecked(False)
         self.tooltips_checkbox.setChecked(True)
+        self.esm2_aggr_checkbox.setChecked(False)
         self.apply_settings()
 
     # --- DeepTMHMM / AlphaMissense ---
@@ -4271,9 +4255,16 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if hasattr(self, "_progress_dlg") and self._progress_dlg:
             self._progress_dlg.close()
             self._progress_dlg = None
-        # Mark ESM2 as active if it contributed results
-        if data.get("aggr_profile_esm2") and self._embedder is not None:
+        # Mark ESM2 as active / warn once if missing
+        from beer.embeddings import ESM2_AVAILABLE
+        if self._embedder is not None and self._embedder.is_available():
             self._update_esm2_indicator("active")
+        elif not ESM2_AVAILABLE and not self._esm2_missing_warned:
+            self._esm2_missing_warned = True
+            self.statusBar.showMessage(
+                "ESM2 not installed \u2014 disorder uses metapredict/classical fallback. "
+                "Install with: pip install fair-esm torch", 8000
+            )
         seq  = data["seq"]
         self._run_plugins(seq, data)
         self.analysis_data = data
@@ -4908,8 +4899,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             dis_b = db.get("disorder_scores", [])
             hyd_a = da.get("hydro_profile", [])
             hyd_b = db.get("hydro_profile", [])
-            agg_a = da.get("aggr_profile_esm2", [])
-            agg_b = db.get("aggr_profile_esm2", [])
+            agg_a = da.get("aggr_profile", [])
+            agg_b = db.get("aggr_profile", [])
 
             name_a = entries_a[0][0][:20] if entries_a[0][0] else "Sequence A"
             name_b = entries_b[0][0][:20] if entries_b[0][0] else "Sequence B"

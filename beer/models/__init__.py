@@ -27,5 +27,3 @@ def load_signal_head() -> dict | None:
     return _load_head("signal_head.npz")
 
 
-def load_ptm_head() -> dict | None:
-    return _load_head("ptm_head.npz")
