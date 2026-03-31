@@ -3419,7 +3419,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         gens["Annotation Track"] = lambda: _wrap(lambda: create_annotation_track_figure(
             seq, ad.get("disorder_scores", []), ad.get("hydro_profile", []),
             ad.get("aggr_profile", calc_aggregation_profile(seq)),
-            [], ad.get("tm_helices", []),
+            ad.get("tm_helices", []),
             ad.get("larks", []), ad.get("sp_result", {}),
             label_font=lf, tick_font=tf))
         gens["Cleavage Map"] = lambda: _wrap(lambda: create_cleavage_map_figure(

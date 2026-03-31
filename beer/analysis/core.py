@@ -276,11 +276,24 @@ class AnalysisTools:
         <p class="note">Prion-like score: fraction of N,Q,S,G,Y. PLAAC: log-odds of yeast prion-like composition vs. SwissProt background, smoothed w=41 (Lancaster et al. 2014 Cell).</p>
         """
 
-        # --- IUPred-style disorder (ESM2-aware) — computed here for disorder_html ---
+        # --- Disorder profile (ESM2-aware) ---
         _disorder_head = load_disorder_head()
         disorder_scores = calc_disorder_profile(seq, window=window_size, embedder=embedder, head=_disorder_head)
         mean_disorder   = sum(disorder_scores) / seq_length
+        # 0.5 is the natural midpoint of the logistic/probability output for all
+        # three methods (ESM2 probe, metapredict, classical propensity).
         disordered_frac = sum(1 for v in disorder_scores if v > 0.5) / seq_length
+
+        # Determine which disorder method was actually used (for report transparency)
+        _disorder_method: str
+        if embedder is not None and embedder.is_available() and _disorder_head is not None:
+            _disorder_method = "ESM2 logistic probe (AUC 0.874, DisProt 2024)"
+        else:
+            try:
+                import metapredict  # noqa: F401
+                _disorder_method = "metapredict (Emenecker et al. 2021, Cell Syst.)"
+            except ImportError:
+                _disorder_method = "classical sliding-window propensity scale"
 
         disorder_html = _style + f"""
         <h2>Disorder &amp; Flexibility</h2>
@@ -292,7 +305,7 @@ class AnalysisTools:
           <tr><td>Mean per-residue disorder score</td><td>{mean_disorder:.3f}</td></tr>
           <tr><td>Disordered fraction (score &gt; 0.5)</td><td>{disordered_frac:.3f} ({disordered_frac*100:.1f}%)</td></tr>
         </table>
-        <p class="note">Disorder/order fractions: Uversky 2003. &Omega;: sticker patterning, 0 = evenly distributed, 1 = clustered (Das et al. 2015). Per-residue disorder: ESM2 logistic probe (AUC 0.874 on DisProt 2024); falls back to metapredict (Emenecker et al. 2021, Cell Syst.) when ESM2 is unavailable, or to a classical sliding-window propensity scale if neither is installed.</p>
+        <p class="note">Disorder/order fractions: Uversky 2003. &Omega;: sticker patterning, 0 = evenly distributed, 1 = clustered (Das et al. 2015). Per-residue disorder method used: <em>{_disorder_method}</em>. Threshold for disordered fraction: score &gt; 0.5 (natural midpoint of all three methods).</p>
         """
 
         repeats_html = _style + f"""
@@ -366,6 +379,9 @@ class AnalysisTools:
 
         # --- Coiled-coil prediction ---
         cc_profile  = predict_coiled_coil(seq)
+        # 0.50 threshold on the normalised COILS score: typical coiled-coil
+        # regions in known structures score 0.7–1.0; 0.50 is a conservative
+        # lower bound consistent with Lupas et al. (1991) Fig. 2 score ranges.
         cc_threshold = 0.50
         cc_regions  = []
         i = 0

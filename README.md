@@ -253,6 +253,8 @@ BEER uses Meta's ESM2 protein language model with pre-trained linear probe heads
 
 Change the model in **Settings → ESM2 model** and click **Apply Settings**.
 
+If ESM2 is not installed, BEER falls back automatically: disorder uses **metapredict** (Emenecker et al. 2021, *Cell Syst.*) if available, or a classical sliding-window propensity scale otherwise. The disorder report section displays which method was used. All other analysis runs fully offline without ESM2.
+
 ---
 
 ## Metrics Reference

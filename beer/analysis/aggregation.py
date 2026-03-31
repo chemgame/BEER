@@ -45,9 +45,9 @@ def calc_aggregation_profile(seq: str, window: int = 6) -> list[float]:
     profile: list[float] = []
 
     for i in range(n):
-        lo = max(0, i - half)
-        hi = min(n, i + half + (window - 2 * half))  # handle odd/even window
-        # For even window keep consistent: centre at i means [i-half, i-half+window)
+        # Anchor the window at the left edge of the half-window, then extend
+        # right by exactly `window` residues; clamp at the C-terminus by
+        # pulling the left boundary back so the window stays full-length.
         lo = max(0, i - half)
         hi = min(n, lo + window)
         if hi == n:
@@ -213,6 +213,7 @@ def calc_solubility_stats(seq: str) -> dict:
     camsolmt = calc_camsolmt_score(seq)
     smoothed = _smooth_profile(camsolmt, window=7)
     mean_cs = sum(camsolmt) / n
+    # ±0.2 thresholds follow Sormanni et al. (2015) J Mol Biol 427:478.
     frac_insol = sum(1 for v in camsolmt if v < -0.2) / n
     frac_sol = sum(1 for v in camsolmt if v > 0.2) / n
 

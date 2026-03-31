@@ -1,17 +1,11 @@
 """BEER analysis modules — re-exports of all public analysis functions."""
 
-from beer.analysis.tango import predict_tango_aggregation, predict_tango_hotspots
 from beer.analysis.aggregation import (
     calc_aggregation_profile,
     predict_aggregation_hotspots,
     calc_camsolmt_score,
     calc_solubility_stats,
     format_aggregation_report,
-)
-from beer.analysis.ptm import (
-    scan_ptm_sites,
-    summarize_ptm_sites,
-    format_ptm_report,
 )
 from beer.analysis.signal_peptide import (
     predict_signal_peptide,
@@ -47,19 +41,12 @@ from beer.analysis.tandem_repeats import (
 )
 
 __all__ = [
-    # tango
-    "predict_tango_aggregation",
-    "predict_tango_hotspots",
     # aggregation
     "calc_aggregation_profile",
     "predict_aggregation_hotspots",
     "calc_camsolmt_score",
     "calc_solubility_stats",
     "format_aggregation_report",
-    # ptm
-    "scan_ptm_sites",
-    "summarize_ptm_sites",
-    "format_ptm_report",
     # signal_peptide
     "predict_signal_peptide",
     "predict_gpi_anchor",

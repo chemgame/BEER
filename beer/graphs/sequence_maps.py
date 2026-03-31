@@ -1,4 +1,4 @@
-"""Sequence map figures: linear map, PTM, domain architecture, cation-pi, complexity."""
+"""Sequence map figures: linear map, domain architecture, cation-pi, complexity, annotation track."""
 from __future__ import annotations
 
 import math
@@ -12,16 +12,6 @@ from beer.graphs._style import (
     _pub_style_ax, _PALETTE, _ACCENT, _NEG_COL, _POS_COL,
 )
 
-# PTM colour palette
-PTM_COLORS = {
-    "phospho": "#1f77b4",
-    "glycosylation": "#2ca02c",
-    "ubiquitination": "#ff7f0e",
-    "sumo": "#9467bd",
-    "acetylation": "#17becf",
-    "methylation": "#e377c2",
-    "palmitoylation": "#8c564b",
-}
 
 # Sticker sets (needed locally)
 _STICKER_AROMATIC = set("FWY")
@@ -73,66 +63,6 @@ def create_linear_sequence_map_figure(
     axs[2].set_xlabel("Residue", fontsize=tick_font - 1, color="#4a5568")
     return fig
 
-
-def create_ptm_profile_figure(
-    seq: str,
-    ptm_sites: list,
-    label_font: int = 14,
-    tick_font: int = 12,
-) -> Figure:
-    """Lollipop/stem plot of predicted PTM sites."""
-    import matplotlib.patches as mpatches
-
-    ptm_types_present = []
-    for site in ptm_sites:
-        pt = site.get("ptm_type", "unknown")
-        if pt not in ptm_types_present:
-            ptm_types_present.append(pt)
-
-    ptm_y_map = {pt: i for i, pt in enumerate(ptm_types_present)}
-    n_types = max(len(ptm_types_present), 1)
-
-    fig = Figure(figsize=(12, max(3, n_types * 1.2 + 1.5)), dpi=120)
-    fig.set_facecolor("#ffffff")
-    ax = fig.add_subplot(111)
-
-    for site in ptm_sites:
-        pos = site.get("position", 1)
-        pt = site.get("ptm_type", "unknown")
-        y_idx = ptm_y_map.get(pt, 0)
-        color = PTM_COLORS.get(pt, "#7f7f7f")
-        ax.plot([pos, pos], [y_idx - 0.35, y_idx], color=color,
-                linewidth=1.0, zorder=2)
-        ax.scatter([pos], [y_idx], color=color, s=60, zorder=3,
-                   edgecolors="black", linewidths=0.4)
-
-    ax.set_yticks(list(ptm_y_map.values()))
-    ax.set_yticklabels(list(ptm_y_map.keys()), fontsize=tick_font)
-    ax.set_ylim(-0.8, n_types - 0.2)
-
-    ax.set_xlabel("Residue", fontsize=label_font - 1, color="#4a5568")
-    ax.set_ylabel("PTM Type", fontsize=label_font - 1, color="#4a5568")
-    ax.set_title("PTM Sites (Predicted)", fontsize=label_font - 1,
-                 fontweight="bold", color="#1a1a2e")
-    ax.set_xlim(0, len(seq) + 1)
-    ax.tick_params(axis="x", labelsize=tick_font - 1)
-
-    legend_patches = [
-        mpatches.Patch(color=PTM_COLORS.get(pt, "#7f7f7f"), label=pt)
-        for pt in ptm_types_present
-    ]
-    if legend_patches:
-        ax.legend(handles=legend_patches, fontsize=tick_font - 1,
-                  loc="upper right", title="PTM Type",
-                  title_fontsize=tick_font - 1)
-
-    for sp in ("top", "right"):
-        ax.spines[sp].set_visible(False)
-    ax.set_facecolor("#fafbff")
-    ax.grid(True, axis="x", linestyle="--", linewidth=0.3, alpha=0.45, color="#c8cdd8")
-    ax.set_axisbelow(True)
-    fig.tight_layout(pad=1.5)
-    return fig
 
 
 def create_domain_architecture_figure(
@@ -346,7 +276,6 @@ def create_annotation_track_figure(
     disorder_scores: list,
     hydro_profile: list,
     aggr_profile: list,
-    ptm_sites: list,
     tm_helices: list,
     larks: list,
     sp_result: dict,
@@ -359,7 +288,7 @@ def create_annotation_track_figure(
       1. Disorder score filled-area plot.
       2. Hydrophobicity sliding-window filled-area plot.
       3. Aggregation propensity filled-area plot.
-      4. Categorical features: TM helices, signal peptide, LARKS, PTM sites.
+      4. Categorical features: TM helices, signal peptide n/h-region, LARKS.
       5. Sequence ruler (x-axis only).
     """
     n = len(seq)
@@ -530,13 +459,6 @@ def create_annotation_track_figure(
                      color="#ff8800", linewidth=1.4, zorder=4,
                      solid_capstyle="round")
 
-    # PTM sites – small colored diamonds
-    for site in (ptm_sites or []):
-        pos = site.get("position", 1)
-        pt  = site.get("ptm_type", "unknown")
-        col = PTM_COLORS.get(pt, "#7f7f7f")
-        ax_feat.scatter([pos], [0.15], marker="D", s=28, color=col,
-                        edgecolors="#333333", linewidths=0.4, zorder=5)
 
     _style_track(ax_feat, "Features")
     # hide y spine for feature track

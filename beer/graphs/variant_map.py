@@ -73,39 +73,6 @@ def create_variant_effect_figure(
     return fig
 
 
-def create_pocket_proxy_figure(
-    seq: str,
-    scores: np.ndarray,
-    regions: list,
-    label_font: int = 12,
-    tick_font: int = 10,
-) -> Figure:
-    """Single-panel pocket proxy score profile with highlighted regions."""
-    L = len(seq)
-    fig = Figure(figsize=(max(8, L * 0.08), 3.5))
-    ax  = fig.add_subplot(111)
-    positions = np.arange(1, L + 1)
-    ax.plot(positions, scores, color="#7209b7", linewidth=1.2, alpha=0.9)
-    ax.fill_between(positions, scores, alpha=0.2, color="#7209b7")
-    threshold = 0.65
-    ax.axhline(threshold, color="#f72585", linewidth=0.8, linestyle="--", alpha=0.7,
-               label=f"Threshold ({threshold})")
-    for start, end in regions:
-        ax.axvspan(start + 1, end + 1, alpha=0.15, color="#f72585")
-    _pub_style_ax(ax,
-                  title="Binding Pocket Proxy Score",
-                  xlabel="Residue position",
-                  ylabel="Pocket score",
-                  grid=True, despine=True,
-                  title_size=label_font - 1, label_size=label_font,
-                  tick_size=tick_font)
-    ax.set_ylim(0, 1.05)
-    ax.legend(fontsize=tick_font - 1, loc="upper right")
-    _apply_font_sizes(ax, label_font, tick_font)
-    fig.patch.set_facecolor("#f8f9ff")
-    fig.tight_layout(pad=2.0)
-    return fig
-
 
 def create_alphafold_missense_figure(
     am_data: dict,
