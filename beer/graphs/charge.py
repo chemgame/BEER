@@ -133,6 +133,6 @@ def create_charge_decoration_figure(
     ax.set_xlim(0, 0.72)
     ax.set_ylim(0, 0.72)
     ax.legend(fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0",
-              loc="upper left")
+              loc="lower right")
     fig.tight_layout(pad=1.5)
     return fig

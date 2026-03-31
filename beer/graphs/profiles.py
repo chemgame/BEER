@@ -125,7 +125,7 @@ def create_solubility_profile_figure(
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
 
-    ax.plot(x, y, color="#2d3748", linewidth=1.2)
+    ax.plot(x, y, color="#2d3748", linewidth=0.5)
     ax.fill_between(x, 0, y, where=(y >= 0), interpolate=True,
                     color="#43aa8b", alpha=0.45, label="Soluble (>0)")
     ax.fill_between(x, 0, y, where=(y < 0), interpolate=True,

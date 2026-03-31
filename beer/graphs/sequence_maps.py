@@ -130,43 +130,98 @@ def create_domain_architecture_figure(
     ax = fig.add_subplot(111)
     ax.set_facecolor("#fafbff")
 
-    track_ys = list(range(n_tracks - 1, -1, -1))
-    half = 0.32
+    # ------------------------------------------------------------------ #
+    # Lane assignment: greedily pack overlapping items into sub-lanes
+    # so nothing overlaps visually (same approach as genome browsers /
+    # UniProt feature viewer).
+    # ------------------------------------------------------------------ #
+    def _assign_lanes(regions):
+        """Return list of lane indices (0-based) for each region in order."""
+        lane_ends = []   # tracks the rightmost end position used in each lane
+        lanes = []
+        for (s, e) in regions:
+            placed = False
+            for li, end in enumerate(lane_ends):
+                if s > end:          # gap: fits in this lane
+                    lane_ends[li] = e
+                    lanes.append(li)
+                    placed = True
+                    break
+            if not placed:
+                lane_ends.append(e)
+                lanes.append(len(lane_ends) - 1)
+        return lanes
+
+    # Pre-compute lane counts so we can allocate vertical space
+    lane_counts = []
+    for (label, colour, regions, meta) in tracks:
+        if regions:
+            lane_counts.append(max(_assign_lanes(regions)) + 1)
+        else:
+            lane_counts.append(1)
+
+    # Each track occupies `lane_counts[i]` sub-rows, each of height `slot`
+    slot = 0.55    # height per lane
+    gap  = 0.25    # gap between tracks
+
+    # Compute y-centre for each track (bottom-up order: last track at top)
+    track_y0 = []   # bottom y of each track's lane-0 centre line
+    y_cursor = 0.0
+    for lc in reversed(lane_counts):
+        track_y0.insert(0, y_cursor + (lc - 1) * slot / 2.0)
+        y_cursor += lc * slot + gap
+
+    total_height = y_cursor - gap
+    half = slot * 0.42    # rectangle half-height per lane
     legend_patches = []
 
     for tidx, (label, colour, regions, meta) in enumerate(tracks):
-        ty = track_ys[tidx]
-        ax.plot([1, seq_len], [ty, ty], color="#cbd5e0", linewidth=2.5,
-                solid_capstyle="round", zorder=2)
+        ty_base = track_y0[tidx]   # centre of lane 0 for this track
+        lc = lane_counts[tidx]
+
+        # Backbone line spanning the full sequence at lane-0 centre
+        ax.plot([1, seq_len], [ty_base, ty_base], color="#cbd5e0",
+                linewidth=2.5, solid_capstyle="round", zorder=2)
+
         if tidx == 0:
-            ax.text(1, ty + half + 0.06, "N",
+            ax.text(1, ty_base + lc * slot * 0.5 + 0.05, "N",
                     ha="center", fontsize=tick_font - 3, color="#718096")
-            ax.text(seq_len, ty + half + 0.06, "C",
+            ax.text(seq_len, ty_base + lc * slot * 0.5 + 0.05, "C",
                     ha="center", fontsize=tick_font - 3, color="#718096")
 
+        if not regions:
+            continue
+
+        lanes = _assign_lanes(regions)
+
         if meta is not None:
-            for i, (dom, (s, e)) in enumerate(zip(meta, regions)):
+            for i, (dom, (s, e), li) in enumerate(zip(meta, regions, lanes)):
                 col = _PALETTE[i % len(_PALETTE)]
                 w = e - s + 1
+                ty = ty_base + li * slot
                 rect = Rectangle((s, ty - half), w, 2 * half,
                                   color=col, alpha=0.85, zorder=4, linewidth=0)
                 ax.add_patch(rect)
                 mid = (s + e) / 2.0
-                ax.text(mid, ty, dom["name"][:14],
-                        ha="center", va="center",
-                        fontsize=max(5, tick_font - 5), color="white",
-                        fontweight="bold", zorder=5)
+                # Only label if the box is wide enough to hold text
+                if w > seq_len * 0.04:
+                    ax.text(mid, ty, dom["name"][:14],
+                            ha="center", va="center",
+                            fontsize=max(5, tick_font - 5), color="white",
+                            fontweight="bold", zorder=5, clip_on=True)
                 legend_patches.append(Patch(color=col, label=dom["name"]))
         else:
-            for (s, e) in regions:
+            for (s, e), li in zip(regions, lanes):
                 w = e - s + 1
+                ty = ty_base + li * slot
                 rect = Rectangle((s, ty - half), w, 2 * half,
                                   color=colour, alpha=0.80, zorder=4, linewidth=0)
                 ax.add_patch(rect)
             if regions:
                 legend_patches.append(Patch(color=colour, label=label))
 
-    ax.set_yticks(track_ys)
+    # Y-axis: one tick per track at its lane-0 centre
+    ax.set_yticks(track_y0)
     ax.set_yticklabels([t[0] for t in tracks],
                        fontsize=max(6, tick_font - 3), color="#4a5568",
                        fontweight="600")
@@ -178,18 +233,22 @@ def create_domain_architecture_figure(
                   grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(1, seq_len)
-    ax.set_ylim(-0.7, n_tracks - 0.3)
-    ax.set_yticks(track_ys)
-    ax.set_yticklabels([t[0] for t in tracks],
-                       fontsize=max(6, tick_font - 3), color="#4a5568",
-                       fontweight="600")
-    ax.tick_params(axis="y", length=0, pad=6)
+    ax.set_ylim(-half - 0.1, total_height + 0.2)
 
     if legend_patches:
-        ax.legend(handles=legend_patches,
+        # Deduplicate by label (same domain name can appear multiple times)
+        seen, unique = set(), []
+        for p in legend_patches:
+            if p.get_label() not in seen:
+                seen.add(p.get_label())
+                unique.append(p)
+        ncols = max(1, min(len(unique), 4))
+        ax.legend(handles=unique,
                   fontsize=max(6, tick_font - 4), framealpha=0.85,
-                  edgecolor="#d0d4e0", loc="upper right",
-                  ncol=max(1, len(legend_patches) // 6))
+                  edgecolor="#d0d4e0", loc="upper right", ncol=ncols,
+                  handlelength=1.2, borderpad=0.5, labelspacing=0.3)
+
+    fig.set_size_inches(10, max(2.5, 1.0 + total_height * 1.3))
     fig.tight_layout(pad=1.5)
     return fig
 

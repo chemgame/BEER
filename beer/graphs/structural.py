@@ -90,8 +90,9 @@ def create_ramachandran_figure(
     ax.legend(
         list(visible_h) + [helix_patch, sheet_patch, lh_patch],
         list(visible_l) + ["Core α-helix", "Core β-sheet", "LH helix"],
-        fontsize=tick_font - 1, loc="upper right", markerscale=1.5,
+        fontsize=max(6, tick_font - 3), loc="lower right", markerscale=1.2,
         framealpha=0.85, edgecolor="#d0d4e0",
+        handlelength=1.2, borderpad=0.5, labelspacing=0.3,
     )
 
     ax.set_xlim(-180, 180)
