@@ -170,11 +170,13 @@ LIGHT_THEME_CSS = """
  QLabel#status_lbl[status_state="idle"]    { color: #718096; font-style: italic; font-weight: normal; }
  QLabel#status_lbl[status_state="success"] { color: #1a7a4a; font-style: normal; font-weight: 600; }
  QLabel#status_lbl[status_state="error"]   { color: #c0392b; font-style: normal; font-weight: normal; }
- /* --- ESM2 status indicator --- */
+ /* --- Disorder-method status indicator --- */
  QLabel#esm2_lbl { font-size: 10px; font-weight: 600; }
- QLabel#esm2_lbl[esm2_state="ready"]   { color: #4361ee; }
- QLabel#esm2_lbl[esm2_state="active"]  { color: #1a7a4a; }
- QLabel#esm2_lbl[esm2_state="missing"] { color: #718096; }
+ QLabel#esm2_lbl[esm2_state="ready"]        { color: #4361ee; }
+ QLabel#esm2_lbl[esm2_state="active"]       { color: #1a7a4a; }
+ QLabel#esm2_lbl[esm2_state="metapredict"]  { color: #b07d00; }
+ QLabel#esm2_lbl[esm2_state="classical"]    { color: #8b4513; }
+ QLabel#esm2_lbl[esm2_state="missing"]      { color: #718096; }
  /* --- Protein info bar --- */
  QTextBrowser#info_bar {
      background: #f0f4ff;
@@ -384,11 +386,13 @@ DARK_THEME_CSS = """
  QLabel#status_lbl[status_state="idle"]    { color: #5a6787; font-style: italic; font-weight: normal; }
  QLabel#status_lbl[status_state="success"] { color: #43aa8b; font-style: normal; font-weight: 600; }
  QLabel#status_lbl[status_state="error"]   { color: #f72585; font-style: normal; font-weight: normal; }
- /* --- ESM2 status indicator --- */
+ /* --- Disorder-method status indicator --- */
  QLabel#esm2_lbl { font-size: 10px; font-weight: 600; }
- QLabel#esm2_lbl[esm2_state="ready"]   { color: #4cc9f0; }
- QLabel#esm2_lbl[esm2_state="active"]  { color: #43aa8b; }
- QLabel#esm2_lbl[esm2_state="missing"] { color: #5a6787; }
+ QLabel#esm2_lbl[esm2_state="ready"]        { color: #4cc9f0; }
+ QLabel#esm2_lbl[esm2_state="active"]       { color: #43aa8b; }
+ QLabel#esm2_lbl[esm2_state="metapredict"]  { color: #f4a261; }
+ QLabel#esm2_lbl[esm2_state="classical"]    { color: #e9c46a; }
+ QLabel#esm2_lbl[esm2_state="missing"]      { color: #5a6787; }
  /* --- Protein info bar --- */
  QTextBrowser#info_bar {
      background: #16213e;

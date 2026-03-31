@@ -754,31 +754,39 @@ class ProteinAnalyzerGUI(QMainWindow):
             p.end()
             btn.setIcon(QIcon(result))
 
-    def _update_esm2_indicator(self, state: str = "ready") -> None:
-        """Update the permanent ESM2 status label in the status bar.
+    def _update_esm2_indicator(self, state: str = "ready",
+                               disorder_method: str = "") -> None:
+        """Update the permanent disorder-method status label in the status bar.
 
-        state: 'ready'   — available, model not yet run this session
-               'active'  — model was used in the last analysis
-               'missing' — fair-esm / torch not installed
+        state: 'ready'      — ESM2 available, model not yet run this session
+               'active'     — ESM2 was used in the last analysis
+               'metapredict'— ESM2 unavailable; metapredict used
+               'classical'  — ESM2 and metapredict both unavailable
+               'missing'    — fair-esm / torch not installed (no analysis yet)
         """
         from beer.embeddings import ESM2_AVAILABLE
         model = getattr(self._embedder, "model_name", None)
-        short = model.replace("esm2_t", "").split("_")[0] if model else ""
-        # e.g. "6_8M_UR50D" → "8M"
         parts = model.split("_") if model else []
         try:
             size_tag = next(p for p in parts if p.endswith("M") or p.endswith("B"))
         except StopIteration:
-            size_tag = short
+            size_tag = ""
 
         if not ESM2_AVAILABLE or self._embedder is None:
-            text       = "ESM2 · not installed"
-            esm2_state = "missing"
+            if state == "metapredict":
+                text       = "Disorder \u00b7 metapredict"
+                esm2_state = "metapredict"
+            elif state == "classical":
+                text       = "Disorder \u00b7 propensity scale"
+                esm2_state = "classical"
+            else:
+                text       = "ESM2 \u00b7 not installed"
+                esm2_state = "missing"
         elif state == "active":
-            text       = f"ESM2 {size_tag} · active \u2714"
+            text       = f"ESM2 {size_tag} \u00b7 active \u2714"
             esm2_state = "active"
         else:
-            text       = f"ESM2 {size_tag} · ready"
+            text       = f"ESM2 {size_tag} \u00b7 ready"
             esm2_state = "ready"
 
         self._esm2_indicator.setText(text)
@@ -4255,11 +4263,16 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if hasattr(self, "_progress_dlg") and self._progress_dlg:
             self._progress_dlg.close()
             self._progress_dlg = None
-        # Mark ESM2 as active / warn once if missing
+        # Update disorder-method indicator based on what was actually used
         from beer.embeddings import ESM2_AVAILABLE
+        _dmethod = data.get("disorder_method", "")
         if self._embedder is not None and self._embedder.is_available():
             self._update_esm2_indicator("active")
-        elif not ESM2_AVAILABLE and not self._esm2_missing_warned:
+        elif "metapredict" in _dmethod:
+            self._update_esm2_indicator("metapredict")
+        else:
+            self._update_esm2_indicator("classical")
+        if not ESM2_AVAILABLE and not self._esm2_missing_warned:
             self._esm2_missing_warned = True
             self.statusBar.showMessage(
                 "ESM2 not installed \u2014 disorder uses metapredict/classical fallback. "

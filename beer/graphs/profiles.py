@@ -151,8 +151,13 @@ def create_scd_profile_figure(
     tick_font: int = 12,
 ) -> Figure:
     """Sliding-window SCD (Sequence Charge Decoration) profile."""
+    seq_len = len(seq)
     n = len(scd_profile)
-    x = np.arange(1, n + 1, dtype=float)
+    # Centre each window value on the middle residue of its window so that the
+    # x-axis aligns with sequence position rather than window-start position.
+    half = window // 2
+    x_start = half + 1
+    x = np.arange(x_start, x_start + n, dtype=float)
     y = np.asarray(scd_profile, dtype=float)
     x, y = _maybe_downsample(x, y)
 
@@ -171,7 +176,7 @@ def create_scd_profile_figure(
                   xlabel="Residue", ylabel="SCD",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
-    ax.set_xlim(x[0], x[-1])
+    ax.set_xlim(1, seq_len)
     ax.legend(fontsize=tick_font - 2, loc="upper right",
               framealpha=0.85, edgecolor="#d0d4e0")
     fig.tight_layout(pad=1.5)

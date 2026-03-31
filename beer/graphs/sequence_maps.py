@@ -460,6 +460,17 @@ def create_annotation_track_figure(
                      solid_capstyle="round")
 
 
+    # Feature track legend — explains the colour coding
+    _legend_handles = [
+        Patch(color="#2d6a4f", alpha=0.85, label="TM helix"),
+        Patch(color="#7b2d8b", alpha=0.80, label="Signal peptide"),
+        Patch(color="#ff8800", alpha=0.85, label="LARKS"),
+    ]
+    ax_feat.legend(handles=_legend_handles, fontsize=max(6, tick_font - 4),
+                   loc="upper right", framealpha=0.80, edgecolor="#d0d4e0",
+                   handlelength=1.2, handleheight=0.9, borderpad=0.5,
+                   labelspacing=0.3)
+
     _style_track(ax_feat, "Features")
     # hide y spine for feature track
     ax_feat.spines["left"].set_visible(False)
