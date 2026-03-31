@@ -202,13 +202,6 @@ def create_domain_architecture_figure(
                 rect = Rectangle((s, ty - half), w, 2 * half,
                                   color=col, alpha=0.85, zorder=4, linewidth=0)
                 ax.add_patch(rect)
-                mid = (s + e) / 2.0
-                # Only label if the box is wide enough to hold text
-                if w > seq_len * 0.04:
-                    ax.text(mid, ty, dom["name"][:14],
-                            ha="center", va="center",
-                            fontsize=max(5, tick_font - 5), color="white",
-                            fontweight="bold", zorder=5, clip_on=True)
                 legend_patches.append(Patch(color=col, label=dom["name"]))
         else:
             for (s, e), li in zip(regions, lanes):
