@@ -324,7 +324,7 @@ def create_hydrophobic_moment_figure(
 
     y_max = max(np.max(ya), np.max(yb)) * 1.15 + 0.1
     for idx, region in enumerate(amphipathic_regions):
-        start, end = region[0], region[1]
+        start, end = region["start"], region["end"]
         ax.add_patch(Rectangle(
             (start - 0.5, 0), (end - start + 1), y_max,
             linewidth=0, facecolor="#43aa8b", alpha=0.18, zorder=0,
