@@ -190,7 +190,7 @@ class ProteinAnalyzerGUI(QMainWindow):
     def __init__(self, embedder: "SequenceEmbedder | None" = None):
         super().__init__()
         self._embedder = embedder
-        self.setWindowTitle("BEER - Biochemical Estimator & Explorer of Residues")
+        self.setWindowTitle("BEER - Biophysical Evaluation Engine for Residues")
         self.resize(1200, 900)
         self.setStyleSheet(LIGHT_THEME_CSS)
 

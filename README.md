@@ -1,4 +1,4 @@
-# BEER — Biochemical Estimator & Explorer of Residues
+# BEER — Biophysical Evaluation Engine for Residues
 
 **BEER** is a desktop application for integrated biophysical analysis of protein sequences. It accepts a sequence (pasted, imported as FASTA/PDB, or fetched from UniProt/RCSB), runs 19 analysis modules in one click, and gives you interactive publication-quality graphs, a 3D structure viewer, and exportable reports — all from a single GUI.
 

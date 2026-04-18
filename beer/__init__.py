@@ -1,4 +1,4 @@
-"""BEER - Biochemical Estimator & Explorer of Residues."""
+"""BEER - Biophysical Evaluation Engine for Residues."""
 from beer._version import __version__
 
 try:
