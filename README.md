@@ -16,7 +16,7 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 - **Proper Python package** (`beer/`) — modular, installable via `pip`
 - **ESM2 neural predictions** for disorder — pre-trained heads bundled; optional ESM2 probe for β-aggregation (settings-controlled)
 - **3D structure viewer** with multiple representations, colour modes, colour bar, spin, and snapshot export
-- **25 graphs** across 8 categories (up from ~12), including Ramachandran, contact network, pLDDT profile, domain architecture
+- **35 graphs** across 10 categories (up from ~12), including Ramachandran, contact network, pLDDT profile, domain architecture
 - **New analysis modules**: RNA binding, SCD/κ/Ω, LARKS, tandem repeats, TM topology, coiled coil, ELM linear motifs
 - **New utility tabs**: BLAST, Multichain, Compare, Truncation Series, MSA Conservation, Complex Mass
 - **Protein summary bar**: fetches name, gene, organism, and function from UniProt or RCSB automatically after a fetch

@@ -4456,7 +4456,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             if is_pdb:
                 url = f"https://data.rcsb.org/rest/v1/core/entry/{acc.upper()}"
                 req = urllib.request.Request(url, headers={
-                    "Accept": "application/json", "User-Agent": "BEER/1.0"})
+                    "Accept": "application/json", "User-Agent": "BEER/2.0"})
                 with urllib.request.urlopen(req, timeout=8) as resp:
                     data = json.loads(resp.read().decode())
                 title = data.get("struct", {}).get("title", "")
@@ -4467,7 +4467,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             else:
                 url = f"https://rest.uniprot.org/uniprotkb/{acc}.json"
                 req = urllib.request.Request(url, headers={
-                    "Accept": "application/json", "User-Agent": "BEER/1.0"})
+                    "Accept": "application/json", "User-Agent": "BEER/2.0"})
                 with urllib.request.urlopen(req, timeout=8) as resp:
                     data = json.loads(resp.read().decode())
                 # Protein name
@@ -4506,14 +4506,14 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def _fetch_pdb_fasta(self, pdb_id: str) -> str:
         """Fetch FASTA sequence(s) from RCSB PDB for a given 4-char PDB ID."""
         url = f"https://www.rcsb.org/fasta/entry/{pdb_id.upper()}"
-        req = urllib.request.Request(url, headers={"User-Agent": "BEER/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "BEER/2.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             return resp.read().decode()
 
     def _fetch_pdb_structure(self, pdb_id: str) -> str:
         """Download the PDB coordinate file from RCSB for a given 4-char PDB ID."""
         url = f"https://files.rcsb.org/download/{pdb_id.upper()}.pdb"
-        req = urllib.request.Request(url, headers={"User-Agent": "BEER/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "BEER/2.0"})
         with urllib.request.urlopen(req, timeout=30) as resp:
             return resp.read().decode()
 

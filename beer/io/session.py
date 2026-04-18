@@ -5,7 +5,7 @@ import json
 import pathlib
 from typing import Any
 
-SESSION_VERSION = "3.0"
+SESSION_VERSION = "2.0"
 
 
 def save_session(data: dict[str, Any], path: str | pathlib.Path) -> None:

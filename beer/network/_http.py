@@ -6,7 +6,7 @@ import urllib.request
 import urllib.error
 
 _TIMEOUT_SECONDS = 30
-_USER_AGENT = "BEER-biophysics/1.0 (scientific software)"
+_USER_AGENT = "BEER-biophysics/2.0 (scientific software)"
 
 _ELM_BASE_URL = "https://elm.eu.org/instances.json"
 _DISPROT_API_BASE = "https://disprot.org/api"
