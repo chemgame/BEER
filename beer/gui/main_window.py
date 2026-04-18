@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import importlib.resources
 import math, os, base64, json, csv, re, difflib, subprocess, sys
 import urllib.request, urllib.error
 import warnings
@@ -67,7 +68,7 @@ from PySide6.QtWidgets import (
     QInputDialog, QApplication, QDoubleSpinBox, QGroupBox, QMenu, QSlider,
     QColorDialog,
 )
-from PySide6.QtGui import QFont, QKeySequence, QAction, QShortcut, QImage
+from PySide6.QtGui import QFont, QKeySequence, QAction, QShortcut, QImage, QIcon, QPixmap
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtPrintSupport import QPrinter
 try:
@@ -127,7 +128,7 @@ from beer.graphs import (
     create_msa_covariance_figure,
 )
 from beer.graphs.variant_map import create_alphafold_missense_figure
-from beer.reports.css import REPORT_CSS
+from beer.reports.css import REPORT_CSS, REPORT_CSS_DARK, get_report_css
 from beer.reports.sections import (
     format_aggregation_report, format_signal_report,
     format_amphipathic_report, format_scd_report, format_rbp_report,
@@ -186,13 +187,23 @@ _REPORT_SECTION_GROUPS: list = [
 
 # ---------------------------------------------------------------------------
 
+def _make_hsep() -> "QFrame":
+    sep = QFrame()
+    sep.setFrameShape(QFrame.Shape.HLine)
+    sep.setFrameShadow(QFrame.Shadow.Sunken)
+    return sep
+
+# ---------------------------------------------------------------------------
+
 class ProteinAnalyzerGUI(QMainWindow):
     def __init__(self, embedder: "SequenceEmbedder | None" = None):
         super().__init__()
         self._embedder = embedder
         self.setWindowTitle("BEER - Biophysical Evaluation Engine for Residues")
         self.resize(1200, 900)
+        self._is_dark = False
         self.setStyleSheet(LIGHT_THEME_CSS)
+
 
         self.statusBar = QStatusBar()
         self.setStatusBar(self.statusBar)
@@ -2929,6 +2940,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 """),
         ]
 
+        self._help_browsers: list[tuple["QTextBrowser", str]] = []
+
         for section_name, html_body in _HELP_SECTIONS:
             help_nav.addItem(QListWidgetItem(section_name))
             page   = QWidget()
@@ -2943,6 +2956,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             browser.setHtml(full_html)
             page_v.addWidget(browser)
             help_stack.addWidget(page)
+            self._help_browsers.append((browser, html_body))
 
         help_nav.currentRowChanged.connect(help_stack.setCurrentIndex)
         help_nav.setCurrentRow(0)
@@ -2962,8 +2976,81 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         methods_btn.clicked.connect(self._generate_methods)
         cite_bar.addWidget(methods_btn)
 
+        about_btn = QPushButton("About BEER")
+        about_btn.setMinimumHeight(32)
+        about_btn.setToolTip("Version, author, and citation information")
+        about_btn.clicked.connect(self._show_about)
+        cite_bar.addWidget(about_btn)
+
         cite_bar.addStretch()
         outer_v.addLayout(cite_bar)
+
+    def _show_about(self):
+        import beer as _beer
+        dlg = QDialog(self)
+        dlg.setWindowTitle("About BEER")
+        dlg.setMinimumWidth(420)
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(12)
+        layout.setContentsMargins(28, 24, 28, 24)
+
+        _logo_path = str(importlib.resources.files("beer").joinpath("beer.png"))
+        if os.path.exists(_logo_path):
+            logo_lbl = QLabel()
+            pix = QPixmap(_logo_path).scaledToHeight(140, Qt.TransformationMode.SmoothTransformation)
+            logo_lbl.setPixmap(pix)
+            logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(logo_lbl)
+
+        title_lbl = QLabel("<b style='font-size:16pt;'>BEER</b>")
+        title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_lbl)
+
+        sub_lbl = QLabel("Biophysical Evaluation Engine for Residues")
+        sub_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(sub_lbl)
+
+        ver_lbl = QLabel(f"Version {_beer.__version__}")
+        ver_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(ver_lbl)
+
+        layout.addWidget(_make_hsep())
+
+        info_lbl = QLabel(
+            "<p style='text-align:center;'>"
+            "Saumyak Mukherjee<br>"
+            "Theoretical Biophysics<br>"
+            "Max Planck Institute of Biophysics, Frankfurt am Main, Germany"
+            "</p>"
+        )
+        info_lbl.setWordWrap(True)
+        info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(info_lbl)
+
+        layout.addWidget(_make_hsep())
+
+        cite_lbl = QLabel(
+            "<p style='text-align:center;font-size:8pt;'>"
+            "If you use BEER in your research, please cite:<br>"
+            "Mukherjee, S. <i>arXiv</i>:2504.20561<br>"
+            "<a href='https://doi.org/10.48550/arXiv.2504.20561'>https://doi.org/10.48550/arXiv.2504.20561</a>"
+            "</p>"
+        )
+        cite_lbl.setOpenExternalLinks(True)
+        cite_lbl.setWordWrap(True)
+        cite_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(cite_lbl)
+
+        license_lbl = QLabel("<p style='text-align:center;font-size:8pt;color:gray;'>GNU General Public License v2</p>")
+        license_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(license_lbl)
+
+        close_btn = QPushButton("Close")
+        close_btn.setMinimumHeight(32)
+        close_btn.clicked.connect(dlg.accept)
+        layout.addWidget(close_btn)
+
+        dlg.exec()
 
     def _copy_beer_citation(self):
         bibtex = """@article{mukherjee2025beer,
@@ -3118,7 +3205,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             items.sort(key=lambda x: KYTE_DOOLITTLE[x[0]], reverse=True)
 
         html = (
-            f"<style>{REPORT_CSS}</style>"
+            f"<style>{get_report_css(self._is_dark)}</style>"
             "<h2>Composition</h2>"
             "<table>"
             "<tr><th>Amino Acid</th><th>Count</th><th>Frequency (%)</th></tr>"
@@ -3258,6 +3345,20 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._analysis_worker.finished.connect(self._on_worker_finished)
         self._analysis_worker.error.connect(self._on_worker_error)
         self._analysis_worker.start()
+
+    def _refresh_report_sections(self):
+        """Re-render all report section browsers with the current theme CSS."""
+        if not self.analysis_data:
+            return
+        old_css = REPORT_CSS_DARK if not self._is_dark else REPORT_CSS
+        new_css = get_report_css(self._is_dark)
+        sections = self.analysis_data.get("report_sections", {})
+        for sec, browser in self.report_section_tabs.items():
+            html = sections.get(sec, "")
+            if not html:
+                continue
+            html = html.replace(old_css, new_css)
+            browser.setHtml(html)
 
     def _update_seq_viewer(self, highlight_pattern: str = ""):
         """Refresh the sequence viewer panel with colour-coded residues (UniProt style)."""
@@ -3875,6 +3976,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def toggle_theme(self):
         is_dark = self.theme_toggle.isChecked()
+        self._is_dark = is_dark
         if is_dark:
             self.setStyleSheet(DARK_THEME_CSS)
             plt.style.use("dark_background")
@@ -3932,6 +4034,17 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         # Re-render sequence viewer with updated colors
         if self.analysis_data:
             self._update_seq_viewer()
+
+        # Re-render help tab browsers with theme-correct CSS
+        report_css = get_report_css(is_dark)
+        for browser, html_body in getattr(self, "_help_browsers", []):
+            browser.setHtml(
+                f"<style>{report_css} body{{padding:12px;}}</style>" + html_body
+            )
+
+        # Re-render report section browsers if analysis is loaded
+        if self.analysis_data:
+            self._refresh_report_sections()
 
         label = "Dark" if is_dark else "Light"
         self.statusBar.showMessage(f"{label} theme activated", 2000)

@@ -53,4 +53,4 @@ where = ["."]
 include = ["beer*"]
 
 [tool.setuptools.package-data]
-beer = ["models/*.npz"]
+beer = ["models/*.npz", "beer.png"]

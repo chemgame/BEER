@@ -73,12 +73,19 @@ def main() -> None:
     matplotlib.use("QtAgg")
 
     from PySide6.QtWidgets import QApplication
+    from PySide6.QtGui import QIcon
+    import importlib.resources
     from beer.embeddings import ESM2_AVAILABLE, get_embedder
     from beer.gui.main_window import ProteinAnalyzerGUI
     import beer
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("BEER")
+    app.setApplicationVersion(beer.__version__)
+
+    _logo_path = str(importlib.resources.files("beer").joinpath("beer.png"))
+    if Path(_logo_path).exists():
+        app.setWindowIcon(QIcon(_logo_path))
 
     _install_exception_hook(app)
 
