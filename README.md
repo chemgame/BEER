@@ -297,4 +297,4 @@ GNU General Public License v2. See `LICENSE`.
 ## Author
 
 Saumyak Mukherjee
-Department of Theoretical Biophysics, Max Planck Institute of Biophysics, Frankfurt am Main, Germany
+Theoretical Biophysics, Max Planck Institute of Biophysics, Frankfurt am Main, Germany

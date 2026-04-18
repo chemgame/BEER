@@ -9,7 +9,7 @@ description = "Biophysical Evaluation Engine for Residues — desktop GUI for pr
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [
-    {name = "Saumyak Mukherjee", email = "chemgame@users.noreply.github.com"}
+    {name = "Saumyak Mukherjee", email = "mukherjee.saumyak50@gmail.com"}
 ]
 keywords = ["biophysics", "protein", "sequence", "IDP", "phase-separation", "bioinformatics"]
 classifiers = [

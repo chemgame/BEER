@@ -2992,7 +2992,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
         paragraph = (
             f"Biophysical sequence analysis was performed using BEER "
-            f"(Biophysics Estimation and Evaluation Resource), a Python desktop "
+            f"(Biophysical Evaluation Engine for Residues), a Python desktop "
             f"application developed for comprehensive protein characterisation. "
             f"The sequence ({n_aa} amino acids) was analysed to compute "
             f"molecular weight, isoelectric point (pI), net charge, GRAVY score, "
