@@ -1,3 +1,4 @@
+# Non-Python files to bundle in the source distribution (BEER v2.0)
 include README.md
 include LICENSE
 include *.pdb

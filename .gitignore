@@ -36,7 +36,7 @@ data/
 venv/
 env/
 
-# Claude Code project data
+# Claude Code project data (BEER v2.0)
 .claude/
 
 # Stray PDB files at project root
