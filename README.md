@@ -1,5 +1,7 @@
 # BEER — Biophysical Evaluation Engine for Residues
 
+**Website:** [https://www.saumyakmukherjee.com/beer](https://www.saumyakmukherjee.com/beer)
+
 **BEER** is a desktop application for integrated biophysical analysis of protein sequences. It accepts a sequence (pasted, imported as FASTA/PDB, or fetched from UniProt/RCSB), runs 19 analysis modules in one click, and gives you interactive publication-quality graphs, a 3D structure viewer, and exportable reports — all from a single GUI.
 
 I built BEER because I wanted a single tool that handles everything from basic physicochemical properties to disorder prediction, aggregation hotspots, RNA-binding propensity, and phase separation metrics, without jumping between half a dozen web servers.

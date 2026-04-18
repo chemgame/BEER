@@ -41,7 +41,8 @@ tmhmm = ["pybiolib>=0.1.9"]
 dev  = ["pytest>=7.0", "pytest-cov>=4.0"]
 
 [project.urls]
-Homepage = "https://github.com/chemgame/BEER"
+Homepage = "https://www.saumyakmukherjee.com/beer"
+Source = "https://github.com/chemgame/BEER"
 "Bug Tracker" = "https://github.com/chemgame/BEER/issues"
 Documentation = "https://github.com/chemgame/BEER/blob/main/README.md"
 
