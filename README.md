@@ -23,6 +23,7 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 - **New utility tabs**: BLAST, Multichain, Compare, Truncation Series, MSA Conservation, Complex Mass
 - **Protein summary bar**: fetches name, gene, organism, and function from UniProt or RCSB automatically after a fetch
 - **Session-only history**: the last 10 analysed sequences are available in a dropdown during the session and cleared when you close the app
+- **Official logo** and About dialog — logo displayed in the taskbar/Dock and accessible via the Help tab
 - Persistent settings, drag-and-drop FASTA, session save/load, keyboard shortcuts overlay, right-click figure menu
 - Structure export in PDB, mmCIF, GRO, XYZ, and FASTA formats
 - Removed unreliable metrics (Instability Index, LLPS composite score, Chou-Fasman)
