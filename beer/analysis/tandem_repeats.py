@@ -90,7 +90,8 @@ def find_tandem_repeats(
         s0 = cand['start_1based'] - 1  # 0-based
         e0 = cand['end_1based']        # 0-based exclusive
         pos_set = set(range(s0, e0))
-        # keep if it doesn't overlap >50% with already-kept intervals
+        # keep only if it has zero positional overlap with already-kept intervals
+        # (strict non-overlapping interval selection)
         if not pos_set.intersection(used_positions):
             kept.append(cand)
             used_positions.update(pos_set)
@@ -448,13 +449,23 @@ def format_repeats_report(seq: str, style_tag: str) -> str:
             "</table>"
             "<p class='note'>"
             "Heuristic: window = 10 aa, step = 5; flagged when the three most "
-            "frequent residues account for &gt;70% of the window."
+            "frequent residues account for &gt;70% of the window. "
+            "Low-complexity detection uses a compositional heuristic "
+            "(top-3 residue frequency &gt; 70% in a 10-residue window). "
+            "For rigorous LC analysis use Shannon entropy or SEG "
+            "(Wootton &amp; Federhen 1993)."
             "</p>"
         )
     else:
         lc_html = (
             "<h2>Low-Complexity Windows</h2>"
             "<p>No low-complexity windows detected.</p>"
+            "<p class='note'>"
+            "Low-complexity detection uses a compositional heuristic "
+            "(top-3 residue frequency &gt; 70% in a 10-residue window). "
+            "For rigorous LC analysis use Shannon entropy or SEG "
+            "(Wootton &amp; Federhen 1993)."
+            "</p>"
         )
 
     return _s + summary_html + tandem_html + direct_html + lc_html

@@ -28,21 +28,22 @@ def _find_best_hydrophobic_window(
     end: int,
     min_win: int = 10,
     max_win: int = 15,
-    kd_threshold: float = 1.4,
 ) -> tuple[int, int, float]:
     """Return (h_start, h_end, mean_kd) for the best hydrophobic window.
 
     Searches all windows of length *min_win* to *max_win* within seq[start:end]
-    for the one with the highest mean KD score that also exceeds *kd_threshold*.
-    If no window exceeds the threshold the best window is still returned, but
-    the caller can check the score to determine if it qualifies.
+    for the one with the highest mean KD score.  The mean KD is returned as a
+    continuous value; no hard threshold is applied here.
+
+    von Heijne (1986) defined the h-region as typically 6–12 residues with
+    clearly positive mean hydrophobicity (KD > 0).  No specific numerical
+    threshold for mean KD was given in that paper.
 
     Returns
     -------
     tuple (h_start, h_end, mean_kd)
         All indices are into the *original* seq (not the sub-slice).
     """
-    n = end - start
     best_score = -999.0
     best_start = start
     best_end = start + min_win
@@ -70,8 +71,11 @@ def predict_signal_peptide(seq: str) -> dict:
 
     * **n-region** (positions 1-5): basic residues (K, R) provide a positive
       charge that targets the ribosome-translocon.
-    * **h-region** (within the first 30 aa): the longest, most hydrophobic
-      stretch (7-15 aa with mean KD > 1.4).
+    * **h-region** (within the first 30 aa): the most hydrophobic stretch of
+      7–15 residues.  von Heijne (1986) described the h-region as having
+      clearly positive mean hydrophobicity (KD > 0); no hard numerical cutoff
+      is applied here.  The mean KD of the best window is reported as a
+      continuous value.
     * **c-region** (3-7 aa after h-region): ends with AXA or SXA (-3/-1 rule).
     * **Cleavage site**: immediately C-terminal to the c-region.
 
@@ -83,8 +87,8 @@ def predict_signal_peptide(seq: str) -> dict:
     Returns
     -------
     dict
-        Keys: ``score``, ``verdict``, ``n_end``, ``h_start``, ``h_end``,
-        ``c_start``, ``cleavage_site``, ``h_region_seq``, ``h_region_score``,
+        Keys: ``n_end``, ``h_start``, ``h_end``, ``h_length``, ``c_start``,
+        ``c_has_axa``, ``cleavage_site``, ``h_region_seq``, ``h_region_score``,
         ``n_score``.
 
     References
@@ -97,17 +101,15 @@ def predict_signal_peptide(seq: str) -> dict:
     # ---- n-region: count K/R in first 5 positions ----
     n_end = min(5, n)
     n_score_raw = sum(1 for aa in region[:n_end] if aa in 'KR')
-    n_score_norm = min(n_score_raw, 3) / 3.0  # normalise to [0,1] with max 3
 
     # ---- h-region: best hydrophobic window within first 30 aa ----
+    # Mean KD is reported as a continuous value; no hard threshold applied.
     h_search_end = min(30, n)
     h_start, h_end, h_kd = _find_best_hydrophobic_window(
-        region, 0, h_search_end, min_win=7, max_win=15, kd_threshold=1.4
+        region, 0, h_search_end, min_win=7, max_win=15
     )
     h_length = h_end - h_start
     h_region_seq = region[h_start:h_end]
-    # Normalise h-region KD score (typical range 1.4 - 3.0)
-    h_score_norm = min(max(h_kd / 3.0, 0.0), 1.0)
 
     # ---- c-region: 3-7 aa after h-region, look for AXA motif ----
     c_start = h_end
@@ -128,8 +130,6 @@ def predict_signal_peptide(seq: str) -> dict:
     # If no AXA found, default cleavage site estimate is end of c-region
     if cleavage_site == -1:
         cleavage_site = min(c_start + 4, n)
-
-    c_region_score = 1.0 if c_has_axa else 0.0
 
     return {
         'n_end': n_end,
@@ -154,9 +154,12 @@ def predict_gpi_anchor(seq: str) -> dict:
 
     Analyses only the last 50 residues.  A GPI anchor requires three elements:
 
-    * **omega (omega) site**: small neutral amino acid at C-terminal -8 to -11.
-    * **Spacer**: 5-10 aa of moderate hydrophilicity after omega.
-    * **Hydrophobic tail**: last 8-15 aa with mean KD > 1.6.
+    * **omega site**: small neutral amino acid at C-terminal -8 to -11.
+    * **Spacer**: 5-10 aa after omega.
+    * **Hydrophobic tail**: last 8-15 aa (Eisenhaber et al. 1999 defined this
+      as the last 11-20 residues; positional logic is used here).
+      The mean KD of the C-terminal region is reported as a continuous value;
+      no hard KD threshold is applied.
 
     Parameters
     ----------
@@ -166,8 +169,9 @@ def predict_gpi_anchor(seq: str) -> dict:
     Returns
     -------
     dict
-        Keys: ``score``, ``verdict``, ``omega_position``, ``omega_aa``,
-        ``tail_start``, ``tail_seq``, ``tail_kd_mean``.
+        Keys: ``omega_found``, ``omega_position``, ``omega_aa``,
+        ``spacer_length``, ``spacer_ok``, ``tail_start``, ``tail_seq``,
+        ``tail_kd_mean``.
 
     References
     ----------
@@ -180,11 +184,11 @@ def predict_gpi_anchor(seq: str) -> dict:
     tn = len(tail_region)
 
     # ---- Hydrophobic tail: last 8-15 aa ----
+    # Mean KD reported as continuous value; no threshold applied.
     tail_len = min(15, tn)
     tail_start_local = tn - tail_len
     tail_seq = tail_region[tail_start_local:]
     tail_kd = _kd_mean(tail_seq)
-    tail_ok = tail_kd > 1.6
 
     # ---- omega-site: small neutral at positions -8 to -11 from the C-terminus ----
     # In tail_region coordinates: positions tn-11 to tn-8
@@ -214,7 +218,6 @@ def predict_gpi_anchor(seq: str) -> dict:
         'omega_aa': omega_aa,
         'spacer_length': spacer_len,
         'spacer_ok': spacer_ok,
-        'tail_ok': tail_ok,
         'tail_start': tail_start_global,
         'tail_seq': tail_seq,
         'tail_kd_mean': round(tail_kd, 4),
@@ -285,15 +288,14 @@ def format_signal_report(seq: str, style_tag: str) -> str:
         f"Position {gpi['omega_position']} ({gpi['omega_aa']})"
         if gpi['omega_found'] else "Not found"
     )
-    spacer_ok_str = f"{gpi['spacer_length']} aa ({'within' if gpi['spacer_ok'] else 'outside'} 5–10 aa range)"
-    tail_ok_str = f"{gpi['tail_kd_mean']:.3f} ({'≥' if gpi['tail_ok'] else '<'} 1.6 threshold)"
+    spacer_ok_str = f"{gpi['spacer_length']} aa ({'within' if gpi['spacer_ok'] else 'outside'} 5&ndash;10 aa range)"
 
     gpi_rows = (
         f"<tr><td>&omega;-site (small neutral at &minus;8 to &minus;11)</td><td>{omega_str}</td></tr>"
         f"<tr><td>Spacer length</td><td>{spacer_ok_str}</td></tr>"
         f"<tr><td>Hydrophobic tail start</td><td>{gpi['tail_start']}</td></tr>"
         f"<tr><td>Hydrophobic tail sequence</td><td><code>{gpi['tail_seq']}</code></td></tr>"
-        f"<tr><td>Tail mean KD hydrophobicity</td><td>{tail_ok_str}</td></tr>"
+        f"<tr><td>Tail mean KD hydrophobicity</td><td>{gpi['tail_kd_mean']:.3f}</td></tr>"
     )
 
     gpi_html = (
@@ -304,8 +306,10 @@ def format_signal_report(seq: str, style_tag: str) -> str:
         "</table>"
         "<p class='note'>"
         "Eisenhaber, B., Bork, P. &amp; Eisenhaber, F. (1999) J. Mol. Biol. 292:741. "
-        "Reports structural features only (&omega;-site, spacer, hydrophobic tail). "
-        "All three criteria must be satisfied for a canonical GPI anchor signal."
+        "Reports structural features only (&omega;-site, spacer, hydrophobic tail mean KD). "
+        "The mean KD of the C-terminal region is reported as a continuous value; "
+        "no binary hydrophobicity threshold is applied. "
+        "For high-confidence GPI anchor prediction use GPI-SOM or PredGPI."
         "</p>"
     )
 

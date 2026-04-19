@@ -128,7 +128,10 @@ class AnalysisTools:
         entropy      = calc_shannon_entropy(seq)
         entropy_norm = entropy / math.log2(20)
         unique_aa    = sum(1 for v in aa_counts.values() if v > 0)
-        prion_score  = sum(aa_counts.get(k, 0) for k in PRION_LIKE) / seq_length
+        # Q/N-rich fraction: fraction of residues in {N,Q,S,G,Y} — amino acids
+        # enriched in yeast prion domains (Alberti et al. 2009, Cell 137:146-158).
+        # This is a compositional proxy, not the PLAAC score.
+        qn_rich_fraction = sum(aa_counts.get(k, 0) for k in PRION_LIKE) / seq_length
         lc_frac      = fraction_low_complexity(seq, window_size=12, threshold=2.0)
 
         # --- Disorder features ---
@@ -254,12 +257,6 @@ class AnalysisTools:
         # --- PLAAC score ---
         _plaac = calc_plaac_score(seq)
         _plaac_max  = _plaac["max_score"]
-        _plaac_regions = _plaac["prion_like_regions"]
-        _plaac_region_txt = (
-            ", ".join(f"{r['start_1based']}–{r['end_1based']} ({r['length']} aa)"
-                      for r in _plaac_regions)
-            if _plaac_regions else "None detected"
-        )
 
         lc_html = _style + f"""
         <h2>Low Complexity</h2>
@@ -268,32 +265,55 @@ class AnalysisTools:
           <tr><td>Shannon entropy</td><td>{entropy:.3f} bits (max 4.32)</td></tr>
           <tr><td>Normalized entropy</td><td>{entropy_norm:.3f}</td></tr>
           <tr><td>Unique amino acids</td><td>{unique_aa} / 20</td></tr>
-          <tr><td>Prion-like score (N,Q,S,G,Y)</td><td>{prion_score:.3f}</td></tr>
+          <tr><td>Q/N-rich fraction (N,Q,S,G,Y)</td><td>{qn_rich_fraction:.3f}</td></tr>
           <tr><td>LC fraction (w=12, H&lt;2.0 bits)</td><td>{lc_frac:.3f}</td></tr>
           <tr><td>PLAAC max log-odds score</td><td>{_plaac_max:.3f}</td></tr>
-          <tr><td>PLAAC prion-like regions (&ge;60 aa, score&gt;0)</td><td>{_plaac_region_txt}</td></tr>
         </table>
-        <p class="note">Prion-like score: fraction of N,Q,S,G,Y. PLAAC: log-odds of yeast prion-like composition vs. SwissProt background, smoothed w=41 (Lancaster et al. 2014 Cell).</p>
+        <p class="note">Q/N-rich fraction: fraction of {{N,Q,S,G,Y}}, amino acids enriched in yeast prion domains (Alberti et al. 2009, Cell 137:146). This is a compositional proxy, not the PLAAC score. PLAAC: log-odds of yeast prion-like composition vs. SwissProt background, smoothed w=41 (Lancaster et al. 2014 Cell Reports). Regions with consistently positive PLAAC scores are candidate prion-like domains; refer to Lancaster et al. (2014) for interpretation.</p>
         """
 
         # --- Disorder profile (ESM2-aware) ---
         _disorder_head = load_disorder_head()
         disorder_scores = calc_disorder_profile(seq, window=window_size, embedder=embedder, head=_disorder_head)
         mean_disorder   = sum(disorder_scores) / seq_length
-        # 0.5 is the natural midpoint of the logistic/probability output for all
-        # three methods (ESM2 probe, metapredict, classical propensity).
-        disordered_frac = sum(1 for v in disorder_scores if v > 0.5) / seq_length
 
         # Determine which disorder method was actually used (for report transparency)
         _disorder_method: str
         if embedder is not None and embedder.is_available() and _disorder_head is not None:
             _disorder_method = "ESM2 logistic probe (AUC 0.874, DisProt 2024)"
+            _is_calibrated_prob = True
         else:
             try:
                 import metapredict  # noqa: F401
                 _disorder_method = "metapredict (Emenecker et al. 2021, Cell Syst.)"
+                _is_calibrated_prob = True
             except ImportError:
                 _disorder_method = "classical sliding-window propensity scale"
+                _is_calibrated_prob = False
+
+        # 0.5 threshold is valid only for calibrated probability outputs (ESM2 probe,
+        # metapredict). The classical propensity scale has a different distribution and
+        # range and does not support a 0.5 decision boundary.
+        # Threshold of 0.5 on calibrated disorder probability, as used in DisProt
+        # benchmark (Necci et al. 2021, Nucleic Acids Res.).
+        if _is_calibrated_prob:
+            disordered_frac = sum(1 for v in disorder_scores if v > 0.5) / seq_length
+            _disordered_frac_html = (
+                f"<tr><td>Disordered fraction (score &gt; 0.5)</td>"
+                f"<td>{disordered_frac:.3f} ({disordered_frac*100:.1f}%)</td></tr>"
+            )
+            _disorder_note_thresh = (
+                "Threshold of 0.5 on calibrated disorder probability, as used in DisProt "
+                "benchmark (Necci et al. 2021, Nucleic Acids Res.)."
+            )
+        else:
+            disordered_frac = None
+            _disordered_frac_html = ""
+            _disorder_note_thresh = (
+                "Classical propensity scale does not produce calibrated probabilities; "
+                "no 0.5 decision boundary is applied. The per-residue profile is reported "
+                "as a continuous propensity value only."
+            )
 
         disorder_html = _style + f"""
         <h2>Disorder &amp; Flexibility</h2>
@@ -303,9 +323,9 @@ class AnalysisTools:
           <tr><td>Order-promoting fraction (C,F,H,I,L,M,V,W,Y)</td><td>{order_f:.3f}</td></tr>
           <tr><td>Omega (&Omega;)</td><td>{omega:.3f}</td></tr>
           <tr><td>Mean per-residue disorder score</td><td>{mean_disorder:.3f}</td></tr>
-          <tr><td>Disordered fraction (score &gt; 0.5)</td><td>{disordered_frac:.3f} ({disordered_frac*100:.1f}%)</td></tr>
+          {_disordered_frac_html}
         </table>
-        <p class="note">Disorder/order fractions: Uversky 2003. &Omega;: sticker patterning, 0 = evenly distributed, 1 = clustered (Das et al. 2015). Per-residue disorder method used: <em>{_disorder_method}</em>. Threshold for disordered fraction: score &gt; 0.5 (natural midpoint of all three methods).</p>
+        <p class="note">Disorder/order fractions: Uversky 2003. &Omega;: sticker patterning, 0 = evenly distributed, 1 = clustered (Das et al. 2015). Per-residue disorder method used: <em>{_disorder_method}</em>. {_disorder_note_thresh}</p>
         """
 
         repeats_html = _style + f"""
@@ -379,24 +399,11 @@ class AnalysisTools:
 
         # --- Coiled-coil prediction ---
         cc_profile  = predict_coiled_coil(seq)
-        # 0.50 threshold on the normalised COILS score: typical coiled-coil
-        # regions in known structures score 0.7–1.0; 0.50 is a conservative
-        # lower bound consistent with Lupas et al. (1991) Fig. 2 score ranges.
-        cc_threshold = 0.50
-        cc_regions  = []
-        i = 0
-        while i < seq_length:
-            if cc_profile[i] >= cc_threshold:
-                j = i
-                while j < seq_length and cc_profile[j] >= cc_threshold:
-                    j += 1
-                if j - i >= 7:
-                    cc_regions.append((i + 1, j))
-                i = j
-            else:
-                i += 1
-        n_cc_res = sum(e - s + 1 for s, e in cc_regions)
-        cc_frac  = n_cc_res / seq_length if seq_length > 0 else 0.0
+        # Report only the continuous per-residue coiled-coil propensity score.
+        # No hard threshold is applied: the normalisation and any fixed cutoff
+        # are not from Lupas et al. (1991) or Berger et al. (1995).
+        # Higher scores indicate stronger coiled-coil character; no universal
+        # threshold applies (Lupas et al. 1991; Berger et al. 1995).
 
         # --- Linear motif scan ---
         motifs = scan_linear_motifs(seq)
@@ -525,7 +532,7 @@ class AnalysisTools:
             "fcr":             fcr,
             "ncpr":            ncpr,
             "arom_f":          arom_f,
-            "prion_score":     prion_score,
+            "qn_rich_fraction": qn_rich_fraction,
             "kappa":           kappa,
             "omega":           omega,
             "disorder_f":      disorder_f,

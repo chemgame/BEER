@@ -138,8 +138,6 @@ def format_rbp_report(seq: str, style_tag: str) -> str:
     w_n = sum(1 for aa in seq if aa == 'W')
 
     summary_rows = (
-        f"<tr><td>Mean per-residue propensity</td>"
-        f"<td>{result['mean_propensity']:.4f}</td></tr>"
         f"<tr><td>Fraction K+R+Y+F+W residues</td>"
         f"<td>{result['fraction_rbp_residues']:.3f} "
         f"({result['fraction_rbp_residues']*100:.1f}%)</td></tr>"
@@ -161,9 +159,9 @@ def format_rbp_report(seq: str, style_tag: str) -> str:
         f"{summary_rows}"
         "</table>"
         "<p class='note'>"
-        "Per-residue propensity: Jeong et al. (2012) Nucleic Acids Res. "
-        "Motif scanning against consensus RBP patterns (RGG, RRM, KH, SR, Zinc finger, DEAD-box). "
-        "All hits require experimental validation."
+        "Per-residue propensity scores are from Jeong et al. (2012) Nucleic Acids Res. "
+        "Motif annotations are based on consensus sequences from published literature. "
+        "No validated composite RBP score is computed."
         "</p>"
     )
 

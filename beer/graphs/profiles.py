@@ -267,7 +267,6 @@ def create_plaac_profile_figure(
 ) -> Figure:
     """Per-residue PLAAC log-odds profile (Lancaster et al. 2014)."""
     profile = plaac_data.get("profile", [])
-    regions = plaac_data.get("prion_like_regions", [])
     n = len(profile)
     if n == 0:
         fig = Figure(figsize=(9, 3), dpi=120)
@@ -283,14 +282,12 @@ def create_plaac_profile_figure(
 
     pos = [v if v > 0 else 0 for v in profile]
     neg = [v if v < 0 else 0 for v in profile]
-    ax.fill_between(xs, pos, 0, alpha=0.45, color="#e63946", label="Prion-like (>0)")
-    ax.fill_between(xs, neg, 0, alpha=0.35, color="#4361ee", label="Background (<0)")
+    # Positive scores indicate prion-like composition; no hard threshold shading.
+    # Lancaster et al. (2014) recommend consulting the continuous profile directly.
+    ax.fill_between(xs, pos, 0, alpha=0.45, color="#e63946", label="Score > 0 (prion-like composition)")
+    ax.fill_between(xs, neg, 0, alpha=0.35, color="#4361ee", label="Score < 0 (background)")
     ax.plot(xs, profile, color="#2d3748", linewidth=0.8, alpha=0.7)
     ax.axhline(0, color="#aaa", linewidth=0.8, linestyle="--")
-
-    for r in regions:
-        ax.axvspan(r["start_1based"], r["end_1based"],
-                   alpha=0.12, color="#e63946", zorder=0)
 
     _pub_style_ax(ax, title="PLAAC Prion-like Profile",
                   xlabel="Residue", ylabel="Log-odds",

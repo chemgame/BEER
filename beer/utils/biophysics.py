@@ -208,8 +208,13 @@ def calc_plaac_score(seq: str, window: int = 41) -> dict:
     """Per-residue PLAAC log-odds score (Lancaster et al. 2014).
 
     Uses yeast prion-like domain (FG domain) frequencies vs SwissProt background.
-    Returns {profile, max_score, mean_score, prion_like_regions}.
-    Prion-like regions: runs where smoothed score > 0 and length >= 60 aa.
+    Returns {profile, max_score, mean_score}.
+
+    Interpretation: regions with consistently positive scores are candidate
+    prion-like domains; refer to Lancaster et al. (2014) for interpretation.
+    No hard threshold is applied here — binary classification of prion-like
+    regions is not performed because the appropriate threshold depends on
+    context (see Lancaster et al. 2014 Cell Reports).
     """
     import math as _math
 
@@ -245,27 +250,8 @@ def calc_plaac_score(seq: str, window: int = 41) -> dict:
         scores = [log_odds.get(seq[j], 0.0) for j in range(lo, hi)]
         profile.append(sum(scores) / len(scores))
 
-    # Identify prion-like regions: contiguous windows with score > 0, length >= 60
-    regions: list[dict] = []
-    in_region = False
-    start = 0
-    for i, s in enumerate(profile):
-        if s > 0 and not in_region:
-            in_region = True
-            start = i
-        elif s <= 0 and in_region:
-            in_region = False
-            length = i - start
-            if length >= 60:
-                regions.append({"start_1based": start + 1, "end_1based": i, "length": length})
-    if in_region:
-        length = n - start
-        if length >= 60:
-            regions.append({"start_1based": start + 1, "end_1based": n, "length": length})
-
     return {
         "profile": profile,
         "max_score": max(profile) if profile else 0.0,
         "mean_score": sum(profile) / len(profile) if profile else 0.0,
-        "prion_like_regions": regions,
     }

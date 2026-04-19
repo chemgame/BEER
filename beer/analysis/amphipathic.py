@@ -159,10 +159,6 @@ def predict_amphipathic_helices(
             Mean muH over the region.
         ``mean_hydrophobicity``
             Mean Eisenberg hydrophobicity over the region.
-        ``type``
-            ``"membrane-binding"`` if mean hydrophobicity > 0.2,
-            else ``"amphipathic"``.
-
     References
     ----------
     Eisenberg, D., Weiss, R.M. & Terwilliger, T.C. (1984)
@@ -187,14 +183,12 @@ def predict_amphipathic_helices(
             sub = seq[i:j]
             mean_mu = sum(moment_profile[i:j]) / length
             mean_h = sum(hydro_vals[i:j]) / length
-            helix_type = "membrane-binding" if mean_h > 0.2 else "amphipathic"
             helices.append({
                 'start': i,
                 'end': j,
                 'seq': sub,
                 'mean_moment': round(mean_mu, 4),
                 'mean_hydrophobicity': round(mean_h, 4),
-                'type': helix_type,
             })
             i = j
         else:
@@ -272,17 +266,17 @@ def format_amphipathic_report(seq: str, style_tag: str) -> str:
 
     if helices:
         helix_header = (
-            "<tr><th>Start</th><th>End</th><th>Sequence</th>"
-            "<th>Mean &mu;H</th><th>Mean H</th><th>Type</th></tr>"
+            "<tr><th>Start</th><th>End</th><th>Length</th><th>Sequence</th>"
+            "<th>Mean &mu;H</th><th>Mean H</th></tr>"
         )
         helix_rows = "".join(
             f"<tr>"
             f"<td>{h['start'] + 1}</td>"
             f"<td>{h['end']}</td>"
+            f"<td>{h['end'] - h['start']}</td>"
             f"<td><code>{h['seq']}</code></td>"
             f"<td>{h['mean_moment']:.4f}</td>"
             f"<td>{h['mean_hydrophobicity']:.4f}</td>"
-            f"<td>{h['type']}</td>"
             f"</tr>"
             for h in helices
         )
@@ -291,12 +285,22 @@ def format_amphipathic_report(seq: str, style_tag: str) -> str:
             "<table>"
             f"{helix_header}{helix_rows}"
             "</table>"
+            "<p class='note'>"
+            "Eisenberg et al. (1984) defined amphipathic helices by hydrophobic moment "
+            "&mu;H &ge; 0.35 (&alpha;-helix). Distinction between membrane-active and "
+            "non-membrane-active helices requires experimental validation."
+            "</p>"
         )
     else:
         helix_html = (
             "<h2>Predicted Amphipathic Regions</h2>"
             "<p>No amphipathic regions detected "
             "(&mu;H &ge; 0.35, 11-residue window, &delta;=100&deg;).</p>"
+            "<p class='note'>"
+            "Eisenberg et al. (1984) defined amphipathic helices by hydrophobic moment "
+            "&mu;H &ge; 0.35 (&alpha;-helix). Distinction between membrane-active and "
+            "non-membrane-active helices requires experimental validation."
+            "</p>"
         )
 
     return _s + summary_html + helix_html
