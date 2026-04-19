@@ -13,14 +13,11 @@ from beer.graphs._style import (
 )
 from beer.constants import HYDROPHOBICITY_SCALES
 
-# Hotspot threshold calibrated for our per-residue sliding-window implementation
-# of the ZYGGREGATOR propensity scale (Tartaglia & Vendruscolo 2008, Chem. Biol.
-# 15:1008). The original paper's threshold (1.0) applies to their full algorithm
-# (propensity + hydrophobicity + charge + SS tendency); our simplified mean-
-# propensity window has a maximum achievable value of ~0.6 for real sequences.
-# 0.3 correctly flags the α-synuclein NAC core (residues 73-78, 89-94) and
-# the Aβ42 KLVFF region — both experimentally validated aggregation hotspots.
-AGGREGATION_THRESHOLD = 0.3
+# ZYGGREGATOR Z_agg^i threshold: one standard deviation above the random-sequence
+# mean, as published in Tartaglia et al. (2008) J. Mol. Biol. 380:425 and
+# Tartaglia & Vendruscolo (2008) Chem. Soc. Rev. 37:1395.  calc_aggregation_profile()
+# now returns fully normalised Z-scores, so this threshold is the original Z > 1.
+AGGREGATION_THRESHOLD = 1.0
 SOLUBILITY_NEUTRAL = 0.0
 # Eisenberg et al. (1984) PNAS 81:140 — µH ≥ 0.35 defines amphipathic helix
 HM_THRESHOLD = 0.35
@@ -93,20 +90,22 @@ def create_aggregation_profile_figure(
     ax.plot(x, y, color="#4682b4", linewidth=1.4, label="Aggregation")
     ax.fill_between(x, AGGREGATION_THRESHOLD, y, where=(y > AGGREGATION_THRESHOLD),
                     interpolate=True, color="#f3722c", alpha=0.50,
-                    label=f"Hotspot (>{AGGREGATION_THRESHOLD})")
+                    label=f"Hotspot (Z>{AGGREGATION_THRESHOLD})")
     ax.axhline(AGGREGATION_THRESHOLD, color="#374151", linestyle="--",
-               linewidth=0.9, label=f"Threshold ({AGGREGATION_THRESHOLD})")
+               linewidth=0.9, label=f"Z=1 threshold")
 
     y_min, y_max = float(y.min()), float(y.max()) * 1.1 + 0.2
     for idx, hs in enumerate(hotspots):
-        start, end = hs[0], hs[1]
+        # hs is a dict with 0-based 'start'/'end'; x-axis is 1-based
+        start = hs['start'] + 1
+        end = hs['end']
         rect = Rectangle((start - 0.5, y_min), (end - start + 1), y_max - y_min,
                           linewidth=0, facecolor="#f72585", alpha=0.18, zorder=0,
-                          label="Hotspot" if idx == 0 else "_nolegend_")
+                          label="Hotspot region" if idx == 0 else "_nolegend_")
         ax.add_patch(rect)
 
-    _pub_style_ax(ax, title="β-Aggregation Propensity",
-                  xlabel="Residue", ylabel="Aggregation",
+    _pub_style_ax(ax, title="β-Aggregation Propensity (ZYGGREGATOR Z-score)",
+                  xlabel="Residue", ylabel="Z_agg",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(x[0], x[-1])

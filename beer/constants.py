@@ -12,7 +12,26 @@ ZYGGREGATOR_PROPENSITY: dict[str, float] = {
     'M':  0.64, 'F':  1.26, 'P': -1.44, 'S': -0.39,
     'T': -0.09, 'W':  0.96, 'Y':  0.74, 'V':  1.04,
 }
-"""Per-residue β-aggregation propensity scores (Tartaglia & Vendruscolo 2008)."""
+"""Per-residue β-aggregation propensity p_agg^i (eq. 1, Tartaglia et al. 2008 J. Mol. Biol. 380:425)."""
+
+# Amino acid net charge at physiological pH (pH 7.4) for ZYGGREGATOR gatekeeper term.
+# H is assigned +0.1 (fractional protonation at pH 7.4; pKa ~6.0).
+# Used in I_gk^i = Σ_{j=-10}^{+10} c_{i+j} (eq. 3, Tartaglia et al. 2008 J. Mol. Biol.).
+AA_CHARGE_PH7: dict[str, float] = {
+    'R': 1.0, 'K': 1.0, 'H': 0.1,
+    'D': -1.0, 'E': -1.0,
+}
+
+# SwissProt amino acid background frequencies used to generate random sequences
+# for ZYGGREGATOR Z-score normalization (Tartaglia et al. 2008 J. Mol. Biol. 380:425,
+# citing UniProt/Swiss-Prot release 51).
+SWISSPROT_AA_FREQ: dict[str, float] = {
+    'A': 0.0825, 'R': 0.0553, 'N': 0.0406, 'D': 0.0545,
+    'C': 0.0137, 'Q': 0.0393, 'E': 0.0675, 'G': 0.0707,
+    'H': 0.0227, 'I': 0.0596, 'L': 0.0966, 'K': 0.0584,
+    'M': 0.0241, 'F': 0.0386, 'P': 0.0470, 'S': 0.0657,
+    'T': 0.0534, 'W': 0.0108, 'Y': 0.0292, 'V': 0.0687,
+}
 
 PASTA_ENERGY: dict[str, float] = {
     'A': -0.22, 'R':  0.66, 'N':  0.14, 'D':  0.81,

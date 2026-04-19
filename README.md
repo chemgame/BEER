@@ -286,7 +286,7 @@ If ESM2 is not installed, BEER falls back automatically: disorder uses **metapre
 | PLAAC score | Per-residue log-odds of yeast prion-like FG vs SwissProt background, window = 41 (Lancaster et al. 2014) |
 | PolyX stretch | Run of ≥4 identical consecutive residues |
 | Prion-like score | Fraction of N, Q, S, G, Y residues |
-| ZYGGREGATOR | β-aggregation propensity per residue (Tartaglia & Vendruscolo 2008) |
+| ZYGGREGATOR | Per-residue β-aggregation Z-score (Z_agg^i): 7-residue window average of intrinsic propensity p_agg^i with 21-residue gatekeeper charge correction, normalised to a SwissProt random-sequence baseline. Hotspots where Z_agg ≥ 1.0 over ≥ 4 consecutive residues. (Tartaglia et al. 2008 J. Mol. Biol.; Tartaglia & Vendruscolo 2008 Chem. Soc. Rev.) |
 | CamSol | Intrinsic solubility scale (Sormanni et al. 2015) |
 
 ---
