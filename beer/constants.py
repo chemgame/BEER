@@ -142,6 +142,14 @@ VALID_AMINO_ACIDS: set[str] = set("ACDEFGHIKLMNPQRSTVWY")
 # pKa values
 # ---------------------------------------------------------------------------
 
+# Classic free amino-acid pKa values from:
+# Dawson, R.M.C. et al. (1986) Data for Biochemical Research, 3rd ed.
+# Oxford: Clarendon Press. Table of pKa values.
+# These are the same values used by Biopython ProteinAnalysis and the
+# ExPASy ProtParam server. NTERM and CTERM refer to the alpha-amino and
+# alpha-carboxyl groups of free amino acids; protein-context terminal pKa
+# values differ (typically N-term ~8.0, C-term ~3.1) but these standard
+# values are the accepted bioinformatics approximation.
 DEFAULT_PKA: dict[str, float] = {
     'NTERM': 9.69, 'CTERM': 2.34,
     'D': 3.90, 'E': 4.07, 'C': 8.18, 'Y': 10.46,
@@ -219,6 +227,8 @@ LARKS_LC: set[str] = set("GASTNQ")  # low-complexity residues for LARKS windows
 
 # ---------------------------------------------------------------------------
 # Coiled-coil heptad periodicity (Lupas/Berger matrix — simplified mean propensity)
+# Position-specific heptad weighting (a/d > e/g > b/c/f) is applied in
+# beer/analysis/structure.py:_score_coiled_coil_window(), not stored here.
 # ---------------------------------------------------------------------------
 
 COILED_COIL_PROPENSITY: dict[str, float] = {
@@ -268,7 +278,13 @@ CHOU_FASMAN_SHEET: dict[str, float] = {
 }
 
 # ---------------------------------------------------------------------------
-# IUPred-inspired per-residue disorder propensity
+# Per-residue disorder propensity (classical fallback scale)
+# These values are a classical physicochemical composite derived from
+# amino-acid flexibility, hydrophobicity, and secondary-structure tendencies
+# as a fallback when ESM2/metapredict is unavailable. They do not reproduce
+# IUPred2A (Mészáros et al. 2018) or any single published scale exactly;
+# they are used only for qualitative profile visualisation. When ESM2 or
+# metapredict is available those predictions take precedence.
 # ---------------------------------------------------------------------------
 
 DISORDER_PROPENSITY: dict[str, float] = {

@@ -250,12 +250,12 @@ def calc_plaac_score(seq: str, window: int = 41) -> dict:
         "S": 0.072, "T": 0.057, "V": 0.064, "W": 0.013, "Y": 0.032,
     }
 
-    # Per-residue log-odds
+    # Per-residue log-odds: natural logarithm (base e), matching Lancaster et al. 2014
     log_odds: dict[str, float] = {}
     for aa in "ACDEFGHIKLMNPQRSTVWY":
         fg = FG_FREQ.get(aa, 1e-6)
         bg = BG_FREQ.get(aa, 1e-6)
-        log_odds[aa] = _math.log(fg / bg)
+        log_odds[aa] = _math.log(fg / bg)  # ln(fg/bg)
 
     n = len(seq)
     # Sliding window average (half-window padding at edges)

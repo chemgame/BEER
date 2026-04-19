@@ -96,7 +96,7 @@ class AnalysisTools:
         aa_counts   = pa.count_amino_acids()
         seq_length  = len(seq)
         aa_freq     = {aa: count / seq_length * 100 for aa, count in aa_counts.items()}
-        mol_weight  = pa.molecular_weight()
+        mol_weight  = pa.molecular_weight()  # average masses (Biopython; NIST average atomic weights)
         iso_point   = pa.isoelectric_point()
         gravy       = pa.gravy()
         aromaticity = pa.aromaticity()
