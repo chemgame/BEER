@@ -75,10 +75,15 @@ def sliding_window_entropy(seq: str, window_size: int = 9) -> list:
 
 def calc_kappa(seq: str) -> float:
     """Charge patterning parameter (Das & Pappu 2013). Range [0, 1].
-    0 = well-mixed charges, 1 = fully segregated."""
+    0 = well-mixed charges, 1 = fully segregated.
+
+    Blob size of 5 residues follows Das & Pappu (2013) Proc. Natl. Acad.
+    Sci. USA 110:13392, where delta is computed over non-overlapping blobs
+    of 5 residues.
+    """
     pos_aa = set("KR")
     neg_aa = set("DE")
-    blob_sz = 5
+    blob_sz = 5  # Das & Pappu (2013) PNAS 110:13392
     pos_n = sum(1 for aa in seq if aa in pos_aa)
     neg_n = sum(1 for aa in seq if aa in neg_aa)
     if pos_n == 0 or neg_n == 0:
@@ -111,8 +116,13 @@ def calc_kappa(seq: str) -> float:
 
 def calc_omega(seq: str) -> float:
     """Patterning of sticker residues (FWYKRDE) vs spacers (Das et al. 2015).
-    Range [0, 1]. 0 = evenly distributed, 1 = fully clustered."""
-    blob_sz = 5
+    Range [0, 1]. 0 = evenly distributed, 1 = fully clustered.
+
+    Blob size of 5 residues follows the same blob-based delta formalism as
+    Das & Pappu (2013) PNAS 110:13392, applied here to sticker residues
+    as defined in Das et al. (2015) Proc. Natl. Acad. Sci. USA 112:8183.
+    """
+    blob_sz = 5  # blob-based delta formalism: Das & Pappu (2013) PNAS 110:13392
     sticker_n = sum(1 for aa in seq if aa in STICKER_ALL)
     if sticker_n == 0 or sticker_n == len(seq):
         return 0.0
@@ -154,7 +164,14 @@ def count_pairs(seq: str, set_a: set, set_b: set, window: int = 4) -> int:
 
 def fraction_low_complexity(seq: str, window_size: int = 12,
                             threshold: float = 2.0) -> float:
-    """Fraction of residues covered by at least one window with entropy < threshold."""
+    """Fraction of residues covered by at least one window with Shannon entropy < threshold.
+
+    The default threshold of 2.0 bits and window of 12 residues are heuristic
+    choices not from a specific publication. They are used here only as a
+    summary statistic complementing the Shannon entropy value reported directly.
+    For rigorous low-complexity analysis use SEG (Wootton & Federhen 1993,
+    Comput. Chem. 17:149) or the Shannon entropy profile.
+    """
     if len(seq) < window_size:
         return 1.0 if calc_shannon_entropy(seq) < threshold else 0.0
     covered = [False] * len(seq)

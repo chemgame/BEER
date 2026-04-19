@@ -278,8 +278,10 @@ def format_signal_report(seq: str, style_tag: str) -> str:
         "</table>"
         "<p class='note'>"
         "Three-region (n/h/c) model: von Heijne, G. (1986) Nucleic Acids Res. 14:4683. "
-        "Reports structural features only (n/h/c regions and AXA cleavage motif). "
-        "For high-confidence signal peptide prediction use SignalP 6.0 or DeepSig."
+        "BEER reports continuous structural features (n/h/c regions, mean KD, AXA cleavage motif) "
+        "without a binary confidence score. "
+        "For validated probabilistic signal peptide prediction use SignalP 6.0 "
+        "(Teufel et al. 2022, Nat. Biotechnol. 40:1023) or DeepSig."
         "</p>"
     )
 

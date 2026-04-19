@@ -393,7 +393,7 @@ class AnalysisTools:
           {larks_rows}
         </table>
         <p class="note">LARKS: 7-residue windows with &ge;1 aromatic (F/W/Y), &ge;50% low-complexity residues (G/A/S/T/N/Q),
-        and Shannon entropy &lt;1.8 bits. Criteria from Hughes et al. (2018) eLife.
+        and Shannon entropy &lt;1.8 bits. Criteria from Hughes et al. (2018) eLife 7:e41464.
         LARKS form cross-&beta; spines in amyloid-like fibrils of low-complexity domains.</p>
         """
 
@@ -419,9 +419,22 @@ class AnalysisTools:
           <tr><th>Motif</th><th>Position</th><th>Match</th><th>Description</th></tr>
           {motif_rows}
         </table>
-        <p class="note">Pattern library includes NLS, NES, PxxP, 14-3-3, RGG, FG, KFERQ, KDEL,
-        N-glycosylation, SUMOylation, CK2 phosphorylation, caspase cleavage, WW-domain, SxIP, PKA sites.
-        Matches are regex-based and require experimental validation.</p>
+        <p class="note">Pattern sources: NLS — Kalderon et al. (1984) Cell 39:499;
+        NES — Fornerod et al. (1997) Cell 90:1051;
+        PxxP/SH3 — Ren et al. (1993) Science 259:1157;
+        14-3-3 — Yaffe et al. (1997) Cell 91:961;
+        RGG — Thandapani et al. (2013) Mol. Cell 50:613;
+        FG repeats — Rout et al. (2000) J. Cell Biol. 148:635;
+        KFERQ — Dice (1990) Trends Biochem. Sci. 15:305;
+        KDEL — Munro &amp; Pelham (1987) Cell 48:899;
+        PKA (RxxS/T) — Kemp et al. (1977) Biochem. J. 165:163;
+        SxIP/EB1 — Honnappa et al. (2009) Cell 138:366;
+        PPxY/WW — Sudol (1994) Oncogene 9:2145;
+        Caspase-3 — Nicholson et al. (1995) Nature 376:37;
+        N-glycosylation — Marshall (1974) Biochem. Soc. Symp. 40:17;
+        SUMOylation (&Psi;KxE) — Sampson et al. (2001) J. Cell Biol. 154:341;
+        CK2 — Meggio &amp; Pinna (2003) FASEB J. 17:349.
+        All matches are regex-based and require experimental validation.</p>
         """
 
         # --- Aggregation & solubility ---

@@ -335,8 +335,8 @@ def format_aggregation_report(seq: str, style_tag: str) -> str:
         f"{summary_rows}"
         "</table>"
         "<p class='note'>"
-        "CamSol: Sormanni et al. 2015 J Mol Biol 427:478. "
-        "ZYGGREGATOR: Tartaglia &amp; Vendruscolo 2008 Chem Biol 15:1008."
+        "CamSol: Sormanni et al. (2015) J. Mol. Biol. 427(2):478-490. "
+        "ZYGGREGATOR: Tartaglia &amp; Vendruscolo (2008) Chem. Biol. 15:1008-1018."
         "</p>"
     )
 

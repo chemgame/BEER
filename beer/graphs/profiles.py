@@ -13,10 +13,11 @@ from beer.graphs._style import (
 )
 from beer.constants import HYDROPHOBICITY_SCALES
 
+# Tartaglia & Vendruscolo (2008) Chem. Biol. 15:1008 — hotspot threshold
 AGGREGATION_THRESHOLD = 1.0
 SOLUBILITY_NEUTRAL = 0.0
+# Eisenberg et al. (1984) PNAS 81:140 — µH ≥ 0.35 defines amphipathic helix
 HM_THRESHOLD = 0.35
-RBP_THRESHOLD = 0.3
 
 
 def _maybe_downsample(x_arr, y_arr, max_pts: int = 800):

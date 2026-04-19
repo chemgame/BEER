@@ -195,6 +195,13 @@ def find_compositional_repeats(
     A window is flagged as low-complexity (LC) if the fraction contributed by
     the top-*n_top* most frequent amino acids exceeds 0.70.
 
+    .. note::
+        The 0.70 fraction threshold, window size of 10, step of 5, and use of
+        the top-3 amino acids are heuristic choices with no specific published
+        source. This function is a compositional screen only. For rigorous LC
+        analysis use Shannon entropy (reported separately) or SEG
+        (Wootton & Federhen 1993, Comput. Chem. 17:149).
+
     Parameters
     ----------
     seq:

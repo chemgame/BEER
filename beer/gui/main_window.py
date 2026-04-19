@@ -499,30 +499,21 @@ class ProteinAnalyzerGUI(QMainWindow):
             "Values > 1.0 (threshold) are aggregation-prone.\n\n"
             "Reference: Tartaglia et al., J. Mol. Biol. 380:425, 2008."
         ),
-        "TANGO Aggregation": (
-            "\u03b2-aggregation prediction via a statistical-thermodynamic competing-states model.\n\n"
-            "Partition function balances four states per hexapeptide window:\n"
-            "  1. \u03b2-aggregation  (\u0394G_agg: Ile/Leu/Val/Phe/Trp favoured)\n"
-            "  2. \u03b1-helix        (Chou\u2013Fasman propensity)\n"
-            "  3. \u03b2-turn\n"
-            "  4. Unstructured\n\n"
-            "Score (0\u2013100%) = P_agg = exp(\u2212\u0394G_agg/RT) / Z,  RT = 0.616 kcal/mol at 298 K.\n"
-            "Pro, Glu, Asp, Lys, Arg strongly break aggregation.\n\n"
-            "Reference: Fernandez-Escamilla et al., Nat. Biotechnol. 22:1302, 2004."
-        ),
         "Solubility Profile": (
             "CamSol intrinsic solubility score per residue.\n\n"
             "Sliding-window sum of per-residue solubility parameters combining hydrophobicity, "
-            "charge, and backbone flexibility. Negative values indicate low solubility / aggregation risk.\n\n"
-            "Reference: Sormanni et al., J. Mol. Biol. 427:478, 2015."
+            "charge, and backbone flexibility. Negative values indicate lower intrinsic solubility "
+            "(Sormanni et al. 2015); interpretation requires experimental validation.\n\n"
+            "Reference: Sormanni et al., J. Mol. Biol. 427(2):478-490, 2015."
         ),
         "Hydrophobic Moment": (
             "Eisenberg hydrophobic moment \u03bcH \u2014 a measure of amphipathicity.\n\n"
             "\u03bcH = \u221a[(\u03a3 h\u1d62 sin(\u03b4i))\u00b2 + (\u03a3 h\u1d62 cos(\u03b4i))\u00b2] / n\n"
             "\u03b4 = 100\u00b0/residue (\u03b1-helix) or 160\u00b0/residue (\u03b2-strand); "
             "h\u1d62 = Eisenberg consensus hydrophobicity.\n\n"
-            "High \u03bcH > 0.4 indicates amphipathic helices (membrane insertion or AMP activity).\n"
-            "Reference: Eisenberg et al., PNAS 79:4969, 1982."
+            "\u03bcH \u2265 0.35 identifies candidate amphipathic helices (\u03b1-helix, \u03b4=100\u00b0/residue). "
+            "Membrane activity requires experimental validation.\n"
+            "Reference: Eisenberg et al., PNAS 81:140, 1984."
         ),
         "Annotation Track": (
             "Five-track integrated overview.\n\n"
@@ -556,7 +547,8 @@ class ProteinAnalyzerGUI(QMainWindow):
             "  \u2022 RRM (RNA recognition motif)\n"
             "  \u2022 KH domain\n"
             "  \u2022 SR repeats\n\n"
-            "High scores (> 0.6) + motif presence strongly suggest RNA-binding activity."
+            "Motif presence (RGG, RRM, KH, SR) indicates candidate RNA-binding regions; "
+            "experimental validation is required. No validated composite score threshold is applied."
         ),
         "SCD Profile": (
             "Sequence Charge Decoration (SCD) per-residue contribution.\n\n"
