@@ -62,7 +62,7 @@ def calc_aggregation_profile(seq: str, window: int = 6) -> list[float]:
 def predict_aggregation_hotspots(
     seq: str,
     window: int = 6,
-    threshold: float = 1.0,
+    threshold: float = 0.3,
 ) -> list[dict]:
     """Identify contiguous aggregation-prone regions using ZYGGREGATOR profile.
 
@@ -324,7 +324,7 @@ def format_aggregation_report(seq: str, style_tag: str) -> str:
         f"<td>{stats['fraction_soluble']:.1%}</td></tr>"
         f"<tr><td>Mean ZYGGREGATOR propensity</td>"
         f"<td>{agg_mean:.3f}</td></tr>"
-        f"<tr><td>Aggregation hotspots (&ge;4 aa, propensity &ge;1.0)</td>"
+        f"<tr><td>Aggregation hotspots (&ge;4 aa, propensity &ge;0.3)</td>"
         f"<td>{stats['n_hotspots']}</td></tr>"
     )
 
@@ -371,7 +371,7 @@ def format_aggregation_report(seq: str, style_tag: str) -> str:
         hotspot_html = (
             "<h2>Aggregation Hotspots</h2>"
             "<p>No aggregation hotspots detected "
-            "(threshold: mean ZYGGREGATOR &ge; 1.0 over &ge; 4 residues).</p>"
+            "(threshold: mean ZYGGREGATOR &ge; 0.3 over &ge; 4 residues).</p>"
         )
 
     return _s + summary_html + hotspot_html

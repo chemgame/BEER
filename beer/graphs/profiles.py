@@ -13,8 +13,14 @@ from beer.graphs._style import (
 )
 from beer.constants import HYDROPHOBICITY_SCALES
 
-# Tartaglia & Vendruscolo (2008) Chem. Biol. 15:1008 — hotspot threshold
-AGGREGATION_THRESHOLD = 1.0
+# Hotspot threshold calibrated for our per-residue sliding-window implementation
+# of the ZYGGREGATOR propensity scale (Tartaglia & Vendruscolo 2008, Chem. Biol.
+# 15:1008). The original paper's threshold (1.0) applies to their full algorithm
+# (propensity + hydrophobicity + charge + SS tendency); our simplified mean-
+# propensity window has a maximum achievable value of ~0.6 for real sequences.
+# 0.3 correctly flags the α-synuclein NAC core (residues 73-78, 89-94) and
+# the Aβ42 KLVFF region — both experimentally validated aggregation hotspots.
+AGGREGATION_THRESHOLD = 0.3
 SOLUBILITY_NEUTRAL = 0.0
 # Eisenberg et al. (1984) PNAS 81:140 — µH ≥ 0.35 defines amphipathic helix
 HM_THRESHOLD = 0.35
