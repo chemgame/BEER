@@ -386,13 +386,19 @@ def create_annotation_track_figure(
     height_ratios = [2, 2, 2, 1.6, 0.6]
     axs = fig.subplots(n_tracks, 1, sharex=True,
                        gridspec_kw={"height_ratios": height_ratios})
-    fig.subplots_adjust(hspace=0.35, left=0.11, right=0.97, top=0.92, bottom=0.07)
+    fig.subplots_adjust(hspace=0.30, left=0.05, right=0.97, top=0.92, bottom=0.07)
     fig.suptitle("Feature Annotation Track", fontsize=label_font + 1,
                  fontweight="bold", color="#1a1a2e")
 
-    def _style_track(ax, ylabel_txt, hide_xticks=True):
-        ax.set_ylabel(ylabel_txt, fontsize=max(7, tick_font - 1), color="#4a5568",
-                      labelpad=4, rotation=90, va="center")
+    def _style_track(ax, label_txt, hide_xticks=True):
+        # Track name as a small text badge in the upper-left corner of the panel
+        ax.text(0.01, 0.97, label_txt,
+                transform=ax.transAxes,
+                fontsize=max(7, tick_font - 1), color="#4a5568",
+                fontweight="600", va="top", ha="left",
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
+                          edgecolor="none", alpha=0.75))
+        ax.set_ylabel("")
         ax.yaxis.set_major_locator(MaxNLocator(nbins=3, prune="both"))
         ax.tick_params(labelsize=tick_font - 2, length=3, width=0.7,
                        colors="#4a5568")
@@ -511,6 +517,9 @@ def create_annotation_track_figure(
                      color="#ff8800", linewidth=1.4, zorder=4,
                      solid_capstyle="round")
 
+    _style_track(ax_feat, "Features")
+    ax_feat.spines["left"].set_visible(False)
+
     ax_feat.legend(handles=[
         Patch(color="#2d6a4f", alpha=0.85, label="TM helix"),
         Patch(color="#7b2d8b", alpha=0.80, label="Signal peptide"),
@@ -518,9 +527,6 @@ def create_annotation_track_figure(
     ], fontsize=max(6, tick_font - 3), loc="upper right",
        framealpha=0.90, edgecolor="#d0d4e0",
        handlelength=1.2, handleheight=0.9, borderpad=0.5, labelspacing=0.3)
-
-    _style_track(ax_feat, "Features")
-    ax_feat.spines["left"].set_visible(False)
 
     # Track 5 – Ruler
     ax_rul = axs[4]
