@@ -46,7 +46,7 @@ def create_hydrophobicity_figure(
 ) -> Figure:
     """Sliding-window hydrophobicity plot."""
     n = len(hydro_profile)
-    fig = Figure(figsize=(_adaptive_width(n), 4), dpi=120)
+    fig = Figure(figsize=(_adaptive_width(n), 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     xs = np.arange(1, n + 1, dtype=float)
@@ -83,7 +83,7 @@ def create_aggregation_profile_figure(
     y = np.asarray(aggregation_profile, dtype=float)
     x, y = _maybe_downsample(x, y)
 
-    fig = Figure(figsize=(_adaptive_width(n), 4), dpi=120)
+    fig = Figure(figsize=(_adaptive_width(n), 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
 
@@ -127,7 +127,7 @@ def create_solubility_profile_figure(
     y = np.asarray(camsolmt_profile, dtype=float)
     x, y = _maybe_downsample(x, y)
 
-    fig = Figure(figsize=(_adaptive_width(n), 4), dpi=120)
+    fig = Figure(figsize=(_adaptive_width(n), 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
 
@@ -167,7 +167,7 @@ def create_scd_profile_figure(
     y = np.asarray(scd_profile, dtype=float)
     x, y = _maybe_downsample(x, y)
 
-    fig = Figure(figsize=(_adaptive_width(n), 4), dpi=120)
+    fig = Figure(figsize=(_adaptive_width(n), 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
 
@@ -204,7 +204,7 @@ def create_rbp_profile_figure(
         x = x[:len(y)]
     x, y = _maybe_downsample(x, y)
 
-    fig = Figure(figsize=(_adaptive_width(n), 4), dpi=120)
+    fig = Figure(figsize=(_adaptive_width(n), 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
 
@@ -241,7 +241,7 @@ def create_disorder_profile_figure(
     """IUPred-style per-residue disorder score plot."""
     n = len(disorder_scores)
     xs = list(range(1, n + 1))
-    fig = Figure(figsize=(_adaptive_width(n), 4), dpi=120)
+    fig = Figure(figsize=(_adaptive_width(n), 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     ax.fill_between(xs, disorder_scores, 0.5,
@@ -261,7 +261,7 @@ def create_disorder_profile_figure(
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_ylim(-0.02, 1.05)
-    ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")
+    ax.legend(fontsize=tick_font - 2, loc="upper right", framealpha=0.90, edgecolor="#d0d4e0", borderpad=0.6)
     fig.tight_layout(pad=1.5)
     return fig
 
@@ -300,6 +300,6 @@ def create_plaac_profile_figure(
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(1, n)
-    ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")
+    ax.legend(fontsize=tick_font - 2, loc="upper right", framealpha=0.90, edgecolor="#d0d4e0", borderpad=0.6)
     fig.tight_layout(pad=1.5)
     return fig

@@ -63,7 +63,7 @@ def create_isoelectric_focus_figure(
     ax.set_xlim(0, 14)
     ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0",
               loc="upper right")
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -76,7 +76,7 @@ def create_local_charge_figure(
     """Sliding-window NCPR (local charge) profile."""
     n = len(ncpr_profile)
     w = max(9, min(16, 9 + n * 0.015))
-    fig = Figure(figsize=(w, 4), dpi=120)
+    fig = Figure(figsize=(w, 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     xs = list(range(1, n + 1))
@@ -91,7 +91,7 @@ def create_local_charge_figure(
                   xlabel="Residue", ylabel="NCPR",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -134,5 +134,5 @@ def create_charge_decoration_figure(
     ax.set_ylim(0, 0.72)
     ax.legend(fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0",
               loc="lower right")
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig

@@ -31,10 +31,9 @@ def create_linear_sequence_map_figure(
     xs_win = list(range(1, len(hydro_profile) + 1))
     xs_all = list(range(1, n + 1))
     w = max(10, min(18, 10 + n * 0.015))
-    fig = Figure(figsize=(w, 6), dpi=120)
+    fig = Figure(figsize=(w, 7), dpi=120, layout="constrained")
     fig.set_facecolor("#ffffff")
     axs = fig.subplots(3, 1, sharex=False)
-    fig.subplots_adjust(hspace=0.55, left=0.10, right=0.97, top=0.93, bottom=0.08)
     fig.suptitle("Linear Sequence Map", fontsize=label_font + 1,
                  fontweight="bold", color="#1a1a2e")
 
@@ -49,9 +48,9 @@ def create_linear_sequence_map_figure(
                             alpha=0.28, color="#f72585", interpolate=True)
         ax.plot(xs, ys, color=col, linewidth=1.3)
         ax.axhline(zero, color="#aaa", linewidth=0.6, linestyle="--")
-        ax.set_ylabel(ylabel_txt, fontsize=tick_font - 2, color="#4a5568")
+        ax.set_ylabel(ylabel_txt, fontsize=tick_font - 1, color="#4a5568")
         ax.yaxis.set_major_locator(MaxNLocator(nbins=3, prune="both"))
-        ax.tick_params(labelsize=tick_font - 3, length=3)
+        ax.tick_params(labelsize=tick_font - 2, length=3)
         for sp in ["top", "right"]:
             ax.spines[sp].set_visible(False)
         ax.set_facecolor("#fafbff")
@@ -64,7 +63,6 @@ def create_linear_sequence_map_figure(
            fill_above=True, fill_below=False)
     axs[2].set_xlabel("Residue", fontsize=tick_font - 1, color="#4a5568")
     return fig
-
 
 
 def create_domain_architecture_figure(
@@ -126,25 +124,14 @@ def create_domain_architecture_figure(
         tracks.append(("Sequence", "#94a3b8", [], None))
 
     n_tracks = len(tracks)
-    fig_h = max(2.5, 1.2 + n_tracks * 1.0)
-    fig = Figure(figsize=(10, fig_h), dpi=120)
-    fig.set_facecolor("#ffffff")
-    ax = fig.add_subplot(111)
-    ax.set_facecolor("#fafbff")
 
-    # ------------------------------------------------------------------ #
-    # Lane assignment: greedily pack overlapping items into sub-lanes
-    # so nothing overlaps visually (same approach as genome browsers /
-    # UniProt feature viewer).
-    # ------------------------------------------------------------------ #
     def _assign_lanes(regions):
-        """Return list of lane indices (0-based) for each region in order."""
-        lane_ends = []   # tracks the rightmost end position used in each lane
+        lane_ends = []
         lanes = []
         for (s, e) in regions:
             placed = False
             for li, end in enumerate(lane_ends):
-                if s > end:          # gap: fits in this lane
+                if s > end:
                     lane_ends[li] = e
                     lanes.append(li)
                     placed = True
@@ -154,7 +141,6 @@ def create_domain_architecture_figure(
                 lanes.append(len(lane_ends) - 1)
         return lanes
 
-    # Pre-compute lane counts so we can allocate vertical space
     lane_counts = []
     for (label, colour, regions, meta) in tracks:
         if regions:
@@ -162,26 +148,73 @@ def create_domain_architecture_figure(
         else:
             lane_counts.append(1)
 
-    # Each track occupies `lane_counts[i]` sub-rows, each of height `slot`
-    slot = 0.55    # height per lane
-    gap  = 0.25    # gap between tracks
+    slot = 0.55
+    gap  = 0.30
 
-    # Compute y-centre for each track (bottom-up order: last track at top)
-    track_y0 = []   # bottom y of each track's lane-0 centre line
+    track_y0 = []
     y_cursor = 0.0
     for lc in reversed(lane_counts):
         track_y0.insert(0, y_cursor + (lc - 1) * slot / 2.0)
         y_cursor += lc * slot + gap
 
     total_height = y_cursor - gap
-    half = slot * 0.42    # rectangle half-height per lane
+    half = slot * 0.42
     legend_patches = []
 
     for tidx, (label, colour, regions, meta) in enumerate(tracks):
-        ty_base = track_y0[tidx]   # centre of lane 0 for this track
+        ty_base = track_y0[tidx]
         lc = lane_counts[tidx]
 
-        # Backbone line spanning the full sequence at lane-0 centre
+        ax_ref = None  # assigned below after fig/ax creation
+
+        if tidx == 0:
+            _ty_first = ty_base
+            _lc_first = lc
+
+        if not regions:
+            continue
+
+        lanes = _assign_lanes(regions)
+
+        if meta is not None:
+            for i, (dom, (s, e), li) in enumerate(zip(meta, regions, lanes)):
+                col = _PALETTE[i % len(_PALETTE)]
+                legend_patches.append((col, dom["name"], ty_base, li))
+        else:
+            legend_patches.append((colour, label, None, None))
+
+    # Build legend entries
+    seen, unique_leg = set(), []
+    raw_patches = []
+    for item in legend_patches:
+        col, lbl = item[0], item[1]
+        if lbl not in seen:
+            seen.add(lbl)
+            raw_patches.append(Patch(color=col, label=lbl))
+    legend_patches = raw_patches
+
+    # Decide figure height based on legend size
+    _MAX_LEGEND = 12
+    n_extra = 0
+    if len(legend_patches) > _MAX_LEGEND:
+        n_extra = len(legend_patches) - _MAX_LEGEND
+        legend_patches = legend_patches[:_MAX_LEGEND]
+        legend_patches.append(Patch(color="none", label=f"(+{n_extra} more)"))
+
+    many_legend = len(legend_patches) > 8
+    leg_rows = math.ceil(len(legend_patches) / 5) if many_legend else 0
+    extra_bottom = 0.06 + leg_rows * 0.06 if many_legend else 0.0
+
+    fig_h = max(3.0, 1.5 + total_height * 1.4 + extra_bottom * 6)
+    fig = Figure(figsize=(10, fig_h), dpi=120)
+    fig.set_facecolor("#ffffff")
+    ax = fig.add_subplot(111)
+    ax.set_facecolor("#fafbff")
+
+    for tidx, (label, colour, regions, meta) in enumerate(tracks):
+        ty_base = track_y0[tidx]
+        lc = lane_counts[tidx]
+
         ax.plot([1, seq_len], [ty_base, ty_base], color="#cbd5e0",
                 linewidth=2.5, solid_capstyle="round", zorder=2)
 
@@ -199,26 +232,22 @@ def create_domain_architecture_figure(
         if meta is not None:
             for i, (dom, (s, e), li) in enumerate(zip(meta, regions, lanes)):
                 col = _PALETTE[i % len(_PALETTE)]
-                w = e - s + 1
+                w_rect = e - s + 1
                 ty = ty_base + li * slot
-                rect = Rectangle((s, ty - half), w, 2 * half,
+                rect = Rectangle((s, ty - half), w_rect, 2 * half,
                                   color=col, alpha=0.85, zorder=4, linewidth=0)
                 ax.add_patch(rect)
-                legend_patches.append(Patch(color=col, label=dom["name"]))
         else:
             for (s, e), li in zip(regions, lanes):
-                w = e - s + 1
+                w_rect = e - s + 1
                 ty = ty_base + li * slot
-                rect = Rectangle((s, ty - half), w, 2 * half,
+                rect = Rectangle((s, ty - half), w_rect, 2 * half,
                                   color=colour, alpha=0.80, zorder=4, linewidth=0)
                 ax.add_patch(rect)
-            if regions:
-                legend_patches.append(Patch(color=colour, label=label))
 
-    # Y-axis: one tick per track at its lane-0 centre
     ax.set_yticks(track_y0)
     ax.set_yticklabels([t[0] for t in tracks],
-                       fontsize=max(6, tick_font - 3), color="#4a5568",
+                       fontsize=max(6, tick_font - 2), color="#4a5568",
                        fontweight="600")
     ax.tick_params(axis="y", length=0, pad=6)
 
@@ -228,47 +257,29 @@ def create_domain_architecture_figure(
                   grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(1, seq_len)
-    ax.set_ylim(-half - 0.1, total_height + 0.2)
+    ax.set_ylim(-half - 0.15, total_height + 0.25)
 
     if legend_patches:
-        # Deduplicate by label
-        seen, unique = set(), []
-        for p in legend_patches:
-            if p.get_label() not in seen:
-                seen.add(p.get_label())
-                unique.append(p)
-
-        _MAX_LEGEND = 12
-        if len(unique) > _MAX_LEGEND:
-            n_extra = len(unique) - _MAX_LEGEND
-            unique = unique[:_MAX_LEGEND]
-            unique.append(Patch(color="none", label=f"(+{n_extra} more)"))
-
-        ncols = max(1, min(len(unique), 5))
-        leg_font = max(6, tick_font - 4)
-
-        if len(unique) > 8:
-            # Many entries: place legend below the axes so it doesn't overlap
-            ax.legend(handles=unique,
+        ncols = max(1, min(len(legend_patches), 5))
+        leg_font = max(6, tick_font - 3)
+        if many_legend:
+            ax.legend(handles=legend_patches,
                       fontsize=leg_font, framealpha=0.85,
                       edgecolor="#d0d4e0",
                       loc="upper center",
-                      bbox_to_anchor=(0.5, -0.22),
+                      bbox_to_anchor=(0.5, -0.18),
                       ncol=ncols,
                       handlelength=1.2, borderpad=0.5, labelspacing=0.3)
-            fig.set_size_inches(10, max(3.0, 1.5 + total_height * 1.3))
-            fig.subplots_adjust(bottom=0.28)
+            fig.subplots_adjust(bottom=max(0.20, extra_bottom + 0.08))
         else:
-            ncols = max(1, min(len(unique), 4))
-            ax.legend(handles=unique,
+            ncols = max(1, min(len(legend_patches), 4))
+            ax.legend(handles=legend_patches,
                       fontsize=leg_font, framealpha=0.85,
                       edgecolor="#d0d4e0", loc="upper right", ncol=ncols,
                       handlelength=1.2, borderpad=0.5, labelspacing=0.3)
-            fig.set_size_inches(10, max(2.5, 1.0 + total_height * 1.3))
-            fig.tight_layout(pad=1.5)
+            fig.tight_layout(pad=1.8)
     else:
-        fig.set_size_inches(10, max(2.5, 1.0 + total_height * 1.3))
-        fig.tight_layout(pad=1.5)
+        fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -293,24 +304,24 @@ def create_cation_pi_map_figure(
                     if is_cp:
                         mat[i, j] = 1.0 / abs(i - j)
     dim = max(5.5, min(9.0, 5.0 + n * 0.025))
-    fig = Figure(figsize=(dim + 1.0, dim), dpi=120)
+    fig = Figure(figsize=(dim + 1.2, dim + 0.4), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     ax.set_facecolor("#fafbff")
     im = ax.imshow(mat, cmap=cmap, aspect="auto", origin="upper",
                    interpolation="nearest")
-    cbar = fig.colorbar(im, ax=ax, shrink=0.85, aspect=20, pad=0.02)
-    cbar.set_label("Proximity (1/d)", fontsize=tick_font - 1, color="#4a5568")
+    cbar = fig.colorbar(im, ax=ax, shrink=0.80, aspect=22, pad=0.03)
+    cbar.set_label("Proximity (1/|i−j|)", fontsize=tick_font - 1, color="#4a5568")
     cbar.ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
     _pub_style_ax(ax,
-                  title="Cation\u2013\u03c0 Proximity Map",
+                  title="Cation–π Proximity Map",
                   xlabel="Residue",
                   ylabel="Residue",
                   grid=False,
                   title_size=label_font - 1,
                   label_size=label_font - 1,
                   tick_size=tick_font - 1)
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -323,29 +334,30 @@ def create_local_complexity_figure(
     """Shannon entropy sliding-window local complexity profile."""
     n = len(entropy_profile)
     w = max(9, min(16, 9 + n * 0.015))
-    fig = Figure(figsize=(w, 4), dpi=120)
+    fig = Figure(figsize=(w, 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     xs = list(range(1, len(entropy_profile) + 1))
     ax.fill_between(xs, entropy_profile, 2.0,
                     where=[v < 2.0 for v in entropy_profile],
                     alpha=0.18, color=_NEG_COL, interpolate=True,
-                    label="Low complexity region")
-    ax.plot(xs, entropy_profile, color=_ACCENT, linewidth=1.8,
-            marker="o", markersize=3.5, markeredgewidth=0, zorder=4,
+                    label="Low complexity")
+    ax.plot(xs, entropy_profile, color=_ACCENT, linewidth=1.6,
+            marker="o", markersize=3.0, markeredgewidth=0, zorder=4,
             label="Entropy")
     ax.axhline(2.0, color="#f72585", linewidth=1.2, linestyle="--",
                zorder=3, label="LC threshold (2.0 bits)")
     _pub_style_ax(ax,
-                  title=f"Local Complexity  (w={window_size})",
+                  title=f"Local Complexity  (w = {window_size})",
                   xlabel="Residue",
                   ylabel="Entropy (bits)",
                   grid=True,
                   title_size=label_font - 1,
                   label_size=label_font - 1,
                   tick_size=tick_font - 1)
-    ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0")
-    fig.tight_layout(pad=1.5)
+    ax.legend(fontsize=tick_font - 2, framealpha=0.90,
+              edgecolor="#d0d4e0", loc="lower right", borderpad=0.6)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -360,45 +372,29 @@ def create_annotation_track_figure(
     label_font: int = 14,
     tick_font: int = 12,
 ) -> Figure:
-    """Genome-browser-style multi-track annotation overview figure.
-
-    Five stacked horizontal tracks share the same x-axis (residue position):
-      1. Disorder score filled-area plot.
-      2. Hydrophobicity sliding-window filled-area plot.
-      3. Aggregation propensity filled-area plot.
-      4. Categorical features: TM helices, signal peptide n/h-region, LARKS.
-      5. Sequence ruler (x-axis only).
-    """
+    """Genome-browser-style multi-track annotation overview figure."""
     n = len(seq)
-    xs_all = np.arange(1, n + 1, dtype=float)
 
-    # Decide which continuous tracks are present
     has_disorder = bool(disorder_scores)
     has_hydro    = bool(hydro_profile)
     has_aggr     = bool(aggr_profile)
 
-    n_tracks = 5  # fixed layout: disorder / hydro / aggr / features / ruler
+    n_tracks = 5
 
-    fig = Figure(figsize=(12, 8), dpi=120)
+    fig = Figure(figsize=(12, 9), dpi=120)
     fig.set_facecolor("#ffffff")
-    # height_ratios: continuous tracks get more space; features track medium; ruler minimal
-    height_ratios = [2, 2, 2, 1.4, 0.5]
+    height_ratios = [2, 2, 2, 1.6, 0.6]
     axs = fig.subplots(n_tracks, 1, sharex=True,
                        gridspec_kw={"height_ratios": height_ratios})
-    fig.subplots_adjust(hspace=0.15, left=0.11, right=0.97, top=0.93, bottom=0.07)
+    fig.subplots_adjust(hspace=0.35, left=0.11, right=0.97, top=0.92, bottom=0.07)
     fig.suptitle("Feature Annotation Track", fontsize=label_font + 1,
                  fontweight="bold", color="#1a1a2e")
 
-    # ------------------------------------------------------------------ #
-    # Shared spine / tick helper
-    # ------------------------------------------------------------------ #
     def _style_track(ax, ylabel_txt, hide_xticks=True):
-        ax.set_ylabel(ylabel_txt, fontsize=max(6, tick_font - 2), color="#4a5568",
+        ax.set_ylabel(ylabel_txt, fontsize=max(7, tick_font - 1), color="#4a5568",
                       labelpad=4, rotation=90, va="center")
-        # Limit y-ticks and prune the outermost values to prevent
-        # tick labels from adjacent panels overlapping each other.
         ax.yaxis.set_major_locator(MaxNLocator(nbins=3, prune="both"))
-        ax.tick_params(labelsize=tick_font - 3, length=3, width=0.7,
+        ax.tick_params(labelsize=tick_font - 2, length=3, width=0.7,
                        colors="#4a5568")
         for sp in ("top", "right"):
             ax.spines[sp].set_visible(False)
@@ -414,121 +410,96 @@ def create_annotation_track_figure(
             ax.tick_params(axis="x", which="both", bottom=False,
                            labelbottom=False)
 
-    # ------------------------------------------------------------------ #
     # Track 1 – Disorder
-    # ------------------------------------------------------------------ #
     ax_dis = axs[0]
     if has_disorder:
         dis = np.asarray(disorder_scores, dtype=float)
         xs_dis = np.arange(1, len(dis) + 1, dtype=float)
-        above = np.where(dis > 0.5, dis, np.nan)
-        below = np.where(dis <= 0.5, dis, np.nan)
-        ax_dis.fill_between(xs_dis, above, 0, color="#e63946",
-                            alpha=0.35, interpolate=True)
-        ax_dis.fill_between(xs_dis, below, 0, color="#4361ee",
-                            alpha=0.35, interpolate=True)
+        ax_dis.fill_between(xs_dis, np.where(dis > 0.5, dis, np.nan), 0,
+                            color="#e63946", alpha=0.35, interpolate=True)
+        ax_dis.fill_between(xs_dis, np.where(dis <= 0.5, dis, np.nan), 0,
+                            color="#4361ee", alpha=0.35, interpolate=True)
         ax_dis.plot(xs_dis, dis, color="#333333", linewidth=0.8, zorder=3)
         ax_dis.axhline(0.5, color="#666666", linewidth=0.9,
                        linestyle=":", zorder=4)
         ax_dis.set_ylim(0, 1.05)
     else:
         ax_dis.text(0.5, 0.5, "No disorder data", transform=ax_dis.transAxes,
-                    ha="center", va="center", fontsize=tick_font - 2,
-                    color="#aaa")
+                    ha="center", va="center", fontsize=tick_font - 2, color="#aaa")
         ax_dis.set_ylim(0, 1)
     _style_track(ax_dis, "Disorder")
 
-    # ------------------------------------------------------------------ #
     # Track 2 – Hydrophobicity
-    # ------------------------------------------------------------------ #
     ax_hyd = axs[1]
     if has_hydro:
         hyd = np.asarray(hydro_profile, dtype=float)
         offset = (n - len(hyd)) // 2
         xs_hyd = np.arange(offset + 1, offset + len(hyd) + 1, dtype=float)
-        ax_hyd.fill_between(xs_hyd, hyd, 0,
-                            where=(hyd >= 0), color="#ff8800",
-                            alpha=0.35, interpolate=True)
-        ax_hyd.fill_between(xs_hyd, hyd, 0,
-                            where=(hyd < 0), color="#4361ee",
-                            alpha=0.35, interpolate=True)
+        ax_hyd.fill_between(xs_hyd, hyd, 0, where=(hyd >= 0),
+                            color="#ff8800", alpha=0.35, interpolate=True)
+        ax_hyd.fill_between(xs_hyd, hyd, 0, where=(hyd < 0),
+                            color="#4361ee", alpha=0.35, interpolate=True)
         ax_hyd.plot(xs_hyd, hyd, color="#333333", linewidth=0.8, zorder=3)
-        ax_hyd.axhline(0, color="#888888", linewidth=0.7,
-                       linestyle="--", zorder=4)
+        ax_hyd.axhline(0, color="#888888", linewidth=0.7, linestyle="--", zorder=4)
     else:
         ax_hyd.text(0.5, 0.5, "No hydrophobicity data",
                     transform=ax_hyd.transAxes,
-                    ha="center", va="center", fontsize=tick_font - 2,
-                    color="#aaa")
+                    ha="center", va="center", fontsize=tick_font - 2, color="#aaa")
     _style_track(ax_hyd, "Hydrophob.")
 
-    # ------------------------------------------------------------------ #
     # Track 3 – Aggregation
-    # ------------------------------------------------------------------ #
     ax_agg = axs[2]
     if has_aggr:
         agg = np.asarray(aggr_profile, dtype=float)
         xs_agg = np.arange(1, len(agg) + 1, dtype=float)
-        hot  = np.where(agg > 1.0, agg, np.nan)
-        norm = np.where(agg <= 1.0, agg, np.nan)
-        ax_agg.fill_between(xs_agg, norm, 0, color="#4682b4",
-                            alpha=0.35, interpolate=True)
-        ax_agg.fill_between(xs_agg, hot, 0, color="#e63946",
-                            alpha=0.40, interpolate=True)
+        ax_agg.fill_between(xs_agg, np.where(agg <= 1.0, agg, np.nan), 0,
+                            color="#4682b4", alpha=0.35, interpolate=True)
+        ax_agg.fill_between(xs_agg, np.where(agg > 1.0, agg, np.nan), 0,
+                            color="#e63946", alpha=0.40, interpolate=True)
         ax_agg.plot(xs_agg, agg, color="#333333", linewidth=0.8, zorder=3)
-        ax_agg.axhline(1.0, color="#888888", linewidth=0.7,
-                       linestyle=":", zorder=4)
+        ax_agg.axhline(1.0, color="#888888", linewidth=0.7, linestyle=":", zorder=4)
     else:
         ax_agg.text(0.5, 0.5, "No aggregation data",
                     transform=ax_agg.transAxes,
-                    ha="center", va="center", fontsize=tick_font - 2,
-                    color="#aaa")
+                    ha="center", va="center", fontsize=tick_font - 2, color="#aaa")
     _style_track(ax_agg, "Aggregation")
 
-    # ------------------------------------------------------------------ #
     # Track 4 – Categorical features
-    # ------------------------------------------------------------------ #
     ax_feat = axs[3]
     ax_feat.set_ylim(0, 1)
     ax_feat.set_yticks([])
 
-    # TM helices – dark green rectangles
     for helix in (tm_helices or []):
         h_s = helix.get("start", 0)
         h_e = helix.get("end", h_s)
-        # tolerate 0-based or 1-based; normalise to 1-based width
         h_s_1 = h_s + 1 if h_s == 0 or h_s < h_e else h_s
         h_e_1 = h_e + 1 if h_s == 0 or h_s < h_e else h_e
         w = max(1, h_e_1 - h_s_1 + 1)
-        rect = Rectangle((h_s_1, 0.3), w, 0.4,
-                          color="#2d6a4f", alpha=0.85, zorder=4,
-                          linewidth=0)
-        ax_feat.add_patch(rect)
+        ax_feat.add_patch(Rectangle((h_s_1, 0.3), w, 0.4,
+                                     color="#2d6a4f", alpha=0.85, zorder=4,
+                                     linewidth=0))
         mid = h_s_1 + w / 2.0
         ax_feat.text(mid, 0.50, "TM", ha="center", va="center",
                      fontsize=max(5, tick_font - 5), color="white",
                      fontweight="bold", zorder=5)
 
-    # Signal peptide – violet rectangle
     sp = sp_result or {}
-    sp_start = sp.get("h_start", None)
-    sp_end   = sp.get("h_end",   None)
+    sp_start = sp.get("h_start")
+    sp_end   = sp.get("h_end")
     if sp_start is None:
-        clv = sp.get("cleavage_site", None)
+        clv = sp.get("cleavage_site")
         if clv is not None:
             sp_start, sp_end = 1, int(clv)
     if sp_start is not None and sp_end is not None:
         sp_w = max(1, int(sp_end) - int(sp_start) + 1)
-        rect_sp = Rectangle((int(sp_start), 0.55), sp_w, 0.35,
-                             color="#7b2d8b", alpha=0.80, zorder=3,
-                             linewidth=0)
-        ax_feat.add_patch(rect_sp)
+        ax_feat.add_patch(Rectangle((int(sp_start), 0.55), sp_w, 0.35,
+                                     color="#7b2d8b", alpha=0.80, zorder=3,
+                                     linewidth=0))
         ax_feat.text(int(sp_start) + sp_w / 2.0, 0.725, "SP",
                      ha="center", va="center",
                      fontsize=max(5, tick_font - 5), color="white",
                      fontweight="bold", zorder=5)
 
-    # LARKS – orange vertical tick marks at center position
     for lark in (larks or []):
         if isinstance(lark, dict):
             lk_s = lark.get("start", lark.get("position", 1))
@@ -540,25 +511,18 @@ def create_annotation_track_figure(
                      color="#ff8800", linewidth=1.4, zorder=4,
                      solid_capstyle="round")
 
-
-    # Feature track legend — explains the colour coding
-    _legend_handles = [
+    ax_feat.legend(handles=[
         Patch(color="#2d6a4f", alpha=0.85, label="TM helix"),
         Patch(color="#7b2d8b", alpha=0.80, label="Signal peptide"),
         Patch(color="#ff8800", alpha=0.85, label="LARKS"),
-    ]
-    ax_feat.legend(handles=_legend_handles, fontsize=max(6, tick_font - 4),
-                   loc="upper right", framealpha=0.80, edgecolor="#d0d4e0",
-                   handlelength=1.2, handleheight=0.9, borderpad=0.5,
-                   labelspacing=0.3)
+    ], fontsize=max(6, tick_font - 3), loc="upper right",
+       framealpha=0.90, edgecolor="#d0d4e0",
+       handlelength=1.2, handleheight=0.9, borderpad=0.5, labelspacing=0.3)
 
     _style_track(ax_feat, "Features")
-    # hide y spine for feature track
     ax_feat.spines["left"].set_visible(False)
 
-    # ------------------------------------------------------------------ #
-    # Track 5 – Ruler (x-axis only)
-    # ------------------------------------------------------------------ #
+    # Track 5 – Ruler
     ax_rul = axs[4]
     ax_rul.set_ylim(0, 1)
     ax_rul.set_yticks([])
@@ -567,18 +531,15 @@ def create_annotation_track_figure(
     ax_rul.spines["bottom"].set_linewidth(0.7)
     ax_rul.spines["bottom"].set_color("#c0c4d0")
     ax_rul.set_facecolor("#ffffff")
-    ax_rul.tick_params(axis="x", labelsize=tick_font - 3, length=4,
+    ax_rul.tick_params(axis="x", labelsize=tick_font - 2, length=4,
                        width=0.7, colors="#4a5568")
-    ax_rul.set_xlabel("Residue", fontsize=tick_font - 1,
-                      color="#4a5568", labelpad=3)
-    # tick every 50 residues
-    tick_step = 50
+    ax_rul.set_xlabel("Residue", fontsize=tick_font - 1, color="#4a5568", labelpad=3)
+    tick_step = max(50, (n // 10 // 50) * 50) if n > 100 else 10
     major_ticks = list(range(1, n + 1, tick_step))
     if n not in major_ticks:
         major_ticks.append(n)
     ax_rul.set_xticks(major_ticks)
 
-    # Shared x limits
     for ax in axs:
         ax.set_xlim(1, n)
 
@@ -591,11 +552,7 @@ def create_cleavage_map_figure(
     label_font: int = 14,
     tick_font: int = 12,
 ) -> Figure:
-    """Proteolytic cleavage site map — one horizontal track per enzyme.
-
-    cleavage_data: dict of enzyme_name -> list of 1-based cut positions,
-    as returned by calc_proteolytic_sites(seq).
-    """
+    """Proteolytic cleavage site map — one horizontal track per enzyme."""
     _CLEAVAGE_PALETTE = [
         "#4361ee", "#e63946", "#2a9d8f", "#e9c46a",
         "#f4a261", "#6d6875", "#264653", "#023047",
@@ -617,14 +574,14 @@ def create_cleavage_map_figure(
     enzymes   = list(cleavage_data.keys())
     n_enzymes = len(enzymes)
 
-    fig_h = max(4.0, 1.2 * n_enzymes)
+    # Extra bottom space for the trypsin summary line
+    fig_h = max(4.5, 1.3 * n_enzymes + 1.0)
     fig = Figure(figsize=(12, fig_h), dpi=120)
     fig.set_facecolor("#ffffff")
     fig.suptitle("Proteolytic Cleavage Map", fontsize=label_font + 1,
                  fontweight="bold", color="#1a1a2e", y=0.98)
 
-    # Reserve bottom space for the trypsin summary annotation
-    fig.subplots_adjust(left=0.14, right=0.88, top=0.90, bottom=0.14,
+    fig.subplots_adjust(left=0.14, right=0.88, top=0.88, bottom=0.18,
                         hspace=0.0)
     ax = fig.add_subplot(111)
     ax.set_facecolor("#fafbff")
@@ -634,34 +591,28 @@ def create_cleavage_map_figure(
     for idx, enzyme in enumerate(enzymes):
         cuts  = cleavage_data[enzyme] or []
         color = _CLEAVAGE_PALETTE[idx % len(_CLEAVAGE_PALETTE)]
-        y     = idx  # one integer y level per enzyme
+        y     = idx
 
-        # Gray backbone line
         ax.plot([0, n], [y, y], color="#cccccc", linewidth=1.5,
                 solid_capstyle="round", zorder=2)
 
-        # Vertical tick marks at each cut position
         tick_h = 0.30
         for pos in cuts:
             ax.plot([pos, pos], [y - tick_h, y + tick_h],
                     color=color, linewidth=1.1, zorder=4,
                     solid_capstyle="round")
 
-        # Cut count label on the right
         n_cuts = len(cuts)
         ax.text(n + n * 0.01, y, f"{n_cuts}",
                 va="center", ha="left",
                 fontsize=tick_font - 2, color=color, fontweight="600")
 
-    # y-axis: enzyme names
     ax.set_yticks(list(range(n_enzymes)))
     ax.set_yticklabels(enzymes, fontsize=tick_font - 1, color="#4a5568")
     ax.tick_params(axis="y", length=0, pad=5)
 
-    # x-axis styling
-    ax.set_xlabel("Residue", fontsize=label_font - 1,
-                  color="#2d3748", labelpad=5)
-    tick_step = 50
+    ax.set_xlabel("Residue", fontsize=label_font - 1, color="#2d3748", labelpad=5)
+    tick_step = max(50, (n // 10 // 50) * 50) if n > 100 else 10
     major_ticks = list(range(0, n + 1, tick_step))
     if n not in major_ticks:
         major_ticks.append(n)
@@ -669,7 +620,6 @@ def create_cleavage_map_figure(
     ax.tick_params(axis="x", labelsize=tick_font - 2, length=3,
                    width=0.7, colors="#4a5568")
 
-    # Spine cleanup
     for sp_name in ("top", "right"):
         ax.spines[sp_name].set_visible(False)
     ax.spines["left"].set_linewidth(0.7)
@@ -677,20 +627,16 @@ def create_cleavage_map_figure(
     ax.spines["bottom"].set_linewidth(0.7)
     ax.spines["bottom"].set_color("#c0c4d0")
 
-    # Subtle vertical grid
     ax.grid(True, axis="x", linestyle="--", linewidth=0.3,
             alpha=0.45, color="#c8cdd8")
     ax.set_axisbelow(True)
 
-    # Right-edge label header
     ax.text(n + n * 0.01, n_enzymes - 0.5 + 0.1, "cuts",
             va="bottom", ha="left",
             fontsize=tick_font - 3, color="#888888")
 
-    # Bottom summary for trypsin (most commonly used enzyme)
-    trypsin_key = next(
-        (k for k in enzymes if "trypsin" in k.lower()), None
-    )
+    # Trypsin summary — placed inside the figure at axes fraction
+    trypsin_key = next((k for k in enzymes if "trypsin" in k.lower()), None)
     if trypsin_key is not None:
         t_cuts = cleavage_data[trypsin_key] or []
         n_cuts = len(t_cuts)
@@ -698,11 +644,12 @@ def create_cleavage_map_figure(
         avg_len = round(n / n_peptides, 1) if n_peptides > 0 else 0
         summary = (
             f"Trypsin: {n_cuts} cut{'s' if n_cuts != 1 else ''}  "
-            f"\u2192  {n_peptides} peptide{'s' if n_peptides != 1 else ''}"
+            f"→  {n_peptides} peptide{'s' if n_peptides != 1 else ''}"
             f"  (avg {avg_len} aa)"
         )
-        fig.text(0.50, 0.03, summary, ha="center", va="bottom",
-                 fontsize=tick_font - 1, color="#2d3748",
-                 style="italic")
+        ax.annotate(summary,
+                    xy=(0.5, -0.14), xycoords="axes fraction",
+                    fontsize=tick_font - 1, color="#2d3748",
+                    style="italic", ha="center", va="top")
 
     return fig

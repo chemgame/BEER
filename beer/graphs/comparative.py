@@ -103,7 +103,7 @@ def create_msa_conservation_figure(
     ax.set_ylim(0, 1.15)
     ax.legend(fontsize=tick_font - 2, loc="upper right",
               framealpha=0.85, edgecolor="#d0d4e0")
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -182,7 +182,7 @@ def create_complex_mw_figure(
                   label_size=label_font - 1, tick_size=tick_font - 1)
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -210,12 +210,12 @@ def create_truncation_series_figure(
             [d.get(key, 0) for d in data_list],
         )
 
-    fig = Figure(figsize=(14, 8), dpi=120)
+    fig = Figure(figsize=(14, 9), dpi=120)
     fig.set_facecolor("#ffffff")
     fig.suptitle("Truncation Series", fontsize=label_font,
                  fontweight="bold", color="#1a1a2e")
-    fig.subplots_adjust(hspace=0.45, wspace=0.38,
-                        left=0.08, right=0.97, top=0.91, bottom=0.09)
+    fig.subplots_adjust(hspace=0.55, wspace=0.40,
+                        left=0.09, right=0.97, top=0.90, bottom=0.10)
 
     for panel_idx, (key, ylabel) in enumerate(panels):
         ax = fig.add_subplot(2, 3, panel_idx + 1)
@@ -295,7 +295,7 @@ def create_pI_MW_gel_figure(
     ax.set_xlim(0, 14)
     ax.legend(fontsize=tick_font - 2, framealpha=0.85, edgecolor="#d0d4e0",
               loc="upper right")
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -363,7 +363,7 @@ def create_saturation_mutagenesis_figure(
     ax.set_title("Single-Residue Perturbation Map",
                  fontsize=label_font, fontweight="bold", color="#1a1a2e", pad=8)
     ax.tick_params(axis="x", labelsize=tick_font - 2)
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -425,7 +425,7 @@ def create_uversky_phase_plot(
     ax.set_ylim(0, 1.0)
     ax.legend(fontsize=tick_font - 3, framealpha=0.85,
               edgecolor="#d0d4e0", loc="upper right")
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -475,5 +475,5 @@ def create_msa_covariance_figure(
                   grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 2)
     ax.tick_params(colors="#4a5568")
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig

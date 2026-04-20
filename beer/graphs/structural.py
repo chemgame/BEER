@@ -104,7 +104,7 @@ def create_ramachandran_figure(
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xticks(range(-180, 181, 60))
     ax.set_yticks(range(-180, 181, 60))
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -195,7 +195,7 @@ def create_contact_network_figure(
         f"Contact Network  (Cα ≤ {cutoff_angstrom} Å){subtitle}",
         fontsize=label_font - 1, fontweight="bold", color="#1a1a2e", pad=8,
     )
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -210,7 +210,7 @@ def create_plddt_figure(
     n = len(plddt)
     xs = list(range(1, n + 1))
     w = max(9, min(16, 9 + n * 0.015))
-    fig = Figure(figsize=(w, 4), dpi=120)
+    fig = Figure(figsize=(w, 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     ax.axhspan(90, 100, alpha=0.07, color="#0053D6")
@@ -238,7 +238,7 @@ def create_plddt_figure(
         Patch(color="#FF7D45", alpha=0.5, label="<50  Very low"),
     ], fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0",
        loc="lower right")
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -268,5 +268,5 @@ def create_distance_map_figure(
                   xlabel="Residue", ylabel="Residue",
                   grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig

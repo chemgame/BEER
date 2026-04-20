@@ -30,7 +30,7 @@ def create_amino_acid_composition_figure(
                   title_size=label_font - 1,
                   label_size=label_font - 1,
                   tick_size=tick_font - 1)
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -58,5 +58,5 @@ def create_amino_acid_composition_pie_figure(
         t.set_color("#2d3748")
     ax.set_title("Amino Acid Composition", fontsize=label_font - 1,
                  fontweight="bold", color="#1a1a2e", pad=12)
-    fig.tight_layout(pad=1.5)
+    fig.tight_layout(pad=1.8)
     return fig
