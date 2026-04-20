@@ -722,16 +722,22 @@ class ProteinAnalyzerGUI(QMainWindow):
 
             info_btn.clicked.connect(_show_info)
             vb.addWidget(info_btn, alignment=Qt.AlignmentFlag.AlignRight)
-        _btn_row = QHBoxLayout()
+        _btn_bar = QWidget()
+        _btn_row = QHBoxLayout(_btn_bar)
+        _btn_row.setContentsMargins(0, 2, 0, 2)
         _btn_row.addStretch()
         btn = QPushButton("Save Graph")
         btn.clicked.connect(lambda _, t=title: self.save_graph(t))
         _export_btn = QPushButton("Export Data")
         _export_btn.setToolTip("Export the underlying data as CSV or JSON")
         _export_btn.clicked.connect(lambda _, t=title: self.export_graph_data(t))
+        _copy_btn = QPushButton("Copy to Clipboard")
+        _copy_btn.setToolTip("Copy figure to clipboard as PNG")
+        _copy_btn.clicked.connect(lambda _, t=title: self._copy_graph_to_clipboard(t))
         _btn_row.addWidget(btn)
         _btn_row.addWidget(_export_btn)
-        vb.addLayout(_btn_row)
+        _btn_row.addWidget(_copy_btn)
+        vb.addWidget(_btn_bar)
 
     @staticmethod
     def _tint_toolbar_icons_dark(toolbar):
@@ -1390,18 +1396,20 @@ class ProteinAnalyzerGUI(QMainWindow):
                 ph.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 ph.setObjectName("placeholder_lbl")
                 vb.addWidget(ph)
-                _ph_btn_row = QHBoxLayout()
+                _ph_btn_bar = QWidget()
+                _ph_btn_row = QHBoxLayout(_ph_btn_bar)
+                _ph_btn_row.setContentsMargins(0, 2, 0, 2)
                 _ph_btn_row.addStretch()
                 save_btn = QPushButton("Save Graph")
-                save_btn.setMaximumWidth(120)
-                save_btn.clicked.connect(lambda _, t=title: self.save_graph(t))
+                save_btn.setEnabled(False)
                 export_btn = QPushButton("Export Data")
-                export_btn.setMaximumWidth(110)
-                export_btn.setToolTip("Export the underlying data as CSV or JSON")
-                export_btn.clicked.connect(lambda _, t=title: self.export_graph_data(t))
+                export_btn.setEnabled(False)
+                copy_btn = QPushButton("Copy to Clipboard")
+                copy_btn.setEnabled(False)
                 _ph_btn_row.addWidget(save_btn)
                 _ph_btn_row.addWidget(export_btn)
-                vb.addLayout(_ph_btn_row)
+                _ph_btn_row.addWidget(copy_btn)
+                vb.addWidget(_ph_btn_bar)
 
                 idx = self.graph_stack.addWidget(panel)
                 self.graph_tabs[title] = (panel, vb)
@@ -3923,6 +3931,17 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 transparent=use_transparent
             )
             QMessageBox.information(self, "Saved", f"{title} → {fn}")
+
+    def _copy_graph_to_clipboard(self, title: str):
+        _, vb = self.graph_tabs[title]
+        canvas = self._find_canvas(vb)
+        if not canvas:
+            return
+        buf = BytesIO()
+        canvas.figure.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+        buf.seek(0)
+        QApplication.clipboard().setImage(QImage.fromData(buf.getvalue()))
+        self.statusBar.showMessage("Figure copied to clipboard.", 2000)
 
     def export_graph_data(self, title: str):
         if not self.analysis_data:
