@@ -722,9 +722,16 @@ class ProteinAnalyzerGUI(QMainWindow):
 
             info_btn.clicked.connect(_show_info)
             vb.addWidget(info_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        _btn_row = QHBoxLayout()
+        _btn_row.addStretch()
         btn = QPushButton("Save Graph")
         btn.clicked.connect(lambda _, t=title: self.save_graph(t))
-        vb.addWidget(btn, alignment=Qt.AlignmentFlag.AlignRight)
+        _export_btn = QPushButton("Export Data")
+        _export_btn.setToolTip("Export the underlying data as CSV or JSON")
+        _export_btn.clicked.connect(lambda _, t=title: self.export_graph_data(t))
+        _btn_row.addWidget(btn)
+        _btn_row.addWidget(_export_btn)
+        vb.addLayout(_btn_row)
 
     @staticmethod
     def _tint_toolbar_icons_dark(toolbar):
@@ -830,7 +837,6 @@ class ProteinAnalyzerGUI(QMainWindow):
         menu = QMenu(self)
         copy_act = menu.addAction("Copy Figure to Clipboard")
         save_act = menu.addAction("Save Figure As\u2026")
-        data_act = menu.addAction("Export Graph Data\u2026")
         action = menu.exec(canvas.mapToGlobal(pos))
         if action == copy_act:
             buf = BytesIO()
@@ -850,32 +856,6 @@ class ProteinAnalyzerGUI(QMainWindow):
                     fn += f".{ext}"
                 canvas.figure.savefig(fn, format=ext, dpi=200, bbox_inches="tight")
                 self.statusBar.showMessage(f"Saved to {os.path.basename(fn)}", 2000)
-        elif action == data_act:
-            title = self._title_from_canvas(canvas)
-            if not title or not self.analysis_data:
-                self.statusBar.showMessage("No analysis data available for export.", 3000)
-                return
-            afd = self.alphafold_data or {}
-            extra = {
-                "pfam_domains":       self.pfam_domains,
-                "plddt":              afd.get("plddt", []),
-                "alphafold_missense": getattr(self, "_alphafold_missense_data", None) or {},
-                "msa_sequences":      self._msa_sequences,
-            }
-            result = get_graph_data(title, self.analysis_data, extra)
-            if result is None:
-                self.statusBar.showMessage(f"No exportable data for '{title}'.", 3000)
-                return
-            stem, content, ext = result
-            ext_filter = "CSV Files (*.csv)" if ext == "csv" else "JSON Files (*.json)"
-            fn, _ = QFileDialog.getSaveFileName(
-                self, "Export Graph Data", f"{stem}.{ext}", ext_filter)
-            if fn:
-                if not fn.lower().endswith(f".{ext}"):
-                    fn += f".{ext}"
-                with open(fn, "w", encoding="utf-8") as fh:
-                    fh.write(content)
-                self.statusBar.showMessage(f"Data exported to {os.path.basename(fn)}", 2000)
 
     def _find_canvas(self, vb) -> FigureCanvas | None:
         for i in range(vb.count()):
@@ -1410,10 +1390,18 @@ class ProteinAnalyzerGUI(QMainWindow):
                 ph.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 ph.setObjectName("placeholder_lbl")
                 vb.addWidget(ph)
+                _ph_btn_row = QHBoxLayout()
+                _ph_btn_row.addStretch()
                 save_btn = QPushButton("Save Graph")
                 save_btn.setMaximumWidth(120)
                 save_btn.clicked.connect(lambda _, t=title: self.save_graph(t))
-                vb.addWidget(save_btn, alignment=Qt.AlignmentFlag.AlignRight)
+                export_btn = QPushButton("Export Data")
+                export_btn.setMaximumWidth(110)
+                export_btn.setToolTip("Export the underlying data as CSV or JSON")
+                export_btn.clicked.connect(lambda _, t=title: self.export_graph_data(t))
+                _ph_btn_row.addWidget(save_btn)
+                _ph_btn_row.addWidget(export_btn)
+                vb.addLayout(_ph_btn_row)
 
                 idx = self.graph_stack.addWidget(panel)
                 self.graph_tabs[title] = (panel, vb)
@@ -3935,6 +3923,33 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 transparent=use_transparent
             )
             QMessageBox.information(self, "Saved", f"{title} → {fn}")
+
+    def export_graph_data(self, title: str):
+        if not self.analysis_data:
+            QMessageBox.warning(self, "No Data", "Run analysis first.")
+            return
+        afd = self.alphafold_data or {}
+        extra = {
+            "pfam_domains":       self.pfam_domains,
+            "plddt":              afd.get("plddt", []),
+            "alphafold_missense": getattr(self, "_alphafold_missense_data", None) or {},
+            "msa_sequences":      self._msa_sequences,
+        }
+        result = get_graph_data(title, self.analysis_data, extra)
+        if result is None:
+            QMessageBox.information(self, "Not Available",
+                                    f"No exportable data for '{title}'.")
+            return
+        stem, content, ext = result
+        ext_filter = "CSV Files (*.csv)" if ext == "csv" else "JSON Files (*.json)"
+        fn, _ = QFileDialog.getSaveFileName(
+            self, "Export Graph Data", f"{stem}.{ext}", ext_filter)
+        if fn:
+            if not fn.lower().endswith(f".{ext}"):
+                fn += f".{ext}"
+            with open(fn, "w", encoding="utf-8") as fh:
+                fh.write(content)
+            self.statusBar.showMessage(f"Data exported to {os.path.basename(fn)}", 2000)
 
     def save_all_graphs(self):
         d = QFileDialog.getExistingDirectory(self, "Select Directory")
