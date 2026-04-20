@@ -381,12 +381,12 @@ def create_annotation_track_figure(
 
     n_tracks = 5
 
-    fig = Figure(figsize=(12, 9), dpi=120)
+    fig = Figure(figsize=(12, 12), dpi=120)
     fig.set_facecolor("#ffffff")
     height_ratios = [2, 2, 2, 1.6, 0.6]
     axs = fig.subplots(n_tracks, 1, sharex=True,
                        gridspec_kw={"height_ratios": height_ratios})
-    fig.subplots_adjust(hspace=0.30, left=0.05, right=0.97, top=0.92, bottom=0.07)
+    fig.subplots_adjust(hspace=0.35, left=0.05, right=0.97, top=0.93, bottom=0.06)
     fig.suptitle("Feature Annotation Track", fontsize=label_font + 1,
                  fontweight="bold", color="#1a1a2e")
 
