@@ -984,6 +984,14 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.fetch_pfam_btn.setToolTip("Fetch Pfam domain annotations from InterPro")
         self.fetch_pfam_btn.clicked.connect(self.fetch_pfam)
         tb2.addWidget(self.fetch_pfam_btn)
+        self.fetch_deeptmhmm_btn = QPushButton("DeepTMHMM")
+        self.fetch_deeptmhmm_btn.setObjectName("chip_btn")
+        self.fetch_deeptmhmm_btn.setProperty("chip_state", "normal")
+        self.fetch_deeptmhmm_btn.setEnabled(False)
+        self.fetch_deeptmhmm_btn.setToolTip(
+            "Run DeepTMHMM transmembrane topology prediction (requires internet + pybiolib)")
+        self.fetch_deeptmhmm_btn.clicked.connect(self._run_deeptmlhmm)
+        tb2.addWidget(self.fetch_deeptmhmm_btn)
 
         tb2.addSpacing(4)
         tb2.addWidget(_sep())
@@ -1026,8 +1034,8 @@ class ProteinAnalyzerGUI(QMainWindow):
         tb2.addWidget(_sep())
         tb2.addSpacing(4)
 
-        # — Interactions —
-        grp_lbl3 = QLabel("Interactions")
+        # — Variants & Interactions —
+        grp_lbl3 = QLabel("Variants & Interactions")
         grp_lbl3.setObjectName("group_lbl")
         tb2.addWidget(grp_lbl3)
         self.fetch_variants_btn = QPushButton("Variants")
@@ -1037,13 +1045,6 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.fetch_variants_btn.setToolTip("Fetch natural variants and mutagenesis data from UniProt")
         self.fetch_variants_btn.clicked.connect(self.fetch_variants)
         tb2.addWidget(self.fetch_variants_btn)
-        self.fetch_intact_btn = QPushButton("IntAct")
-        self.fetch_intact_btn.setObjectName("chip_btn")
-        self.fetch_intact_btn.setProperty("chip_state", "normal")
-        self.fetch_intact_btn.setEnabled(False)
-        self.fetch_intact_btn.setToolTip("Fetch curated binary interactions from IntAct / EBI (UniProt only)")
-        self.fetch_intact_btn.clicked.connect(self.fetch_intact)
-        tb2.addWidget(self.fetch_intact_btn)
         self.fetch_alphafold_missense_btn = QPushButton("AlphaMissense")
         self.fetch_alphafold_missense_btn.setObjectName("chip_btn")
         self.fetch_alphafold_missense_btn.setProperty("chip_state", "normal")
@@ -1053,14 +1054,13 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.fetch_alphafold_missense_btn.clicked.connect(
             lambda: self._run_alphafold_missense(self.current_accession))
         tb2.addWidget(self.fetch_alphafold_missense_btn)
-        self.fetch_deeptmhmm_btn = QPushButton("DeepTMHMM")
-        self.fetch_deeptmhmm_btn.setObjectName("chip_btn")
-        self.fetch_deeptmhmm_btn.setProperty("chip_state", "normal")
-        self.fetch_deeptmhmm_btn.setEnabled(False)
-        self.fetch_deeptmhmm_btn.setToolTip(
-            "Run DeepTMHMM transmembrane topology prediction (requires internet + pybiolib)")
-        self.fetch_deeptmhmm_btn.clicked.connect(self._run_deeptmlhmm)
-        tb2.addWidget(self.fetch_deeptmhmm_btn)
+        self.fetch_intact_btn = QPushButton("IntAct")
+        self.fetch_intact_btn.setObjectName("chip_btn")
+        self.fetch_intact_btn.setProperty("chip_state", "normal")
+        self.fetch_intact_btn.setEnabled(False)
+        self.fetch_intact_btn.setToolTip("Fetch curated binary interactions from IntAct / EBI (UniProt only)")
+        self.fetch_intact_btn.clicked.connect(self.fetch_intact)
+        tb2.addWidget(self.fetch_intact_btn)
 
         # Convenience list for bulk enable/disable
         self._db_fetch_btns = [
@@ -4169,22 +4169,44 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def _run_deeptmlhmm(self):
         if not self.analysis_data:
             return
-        from beer.network.workers import DeepTMHMMWorker
         seq = self.analysis_data.get("seq", "")
         if not seq:
             return
+
+        # Inform user about the BioLib authentication requirement before submitting.
+        msg = (
+            "<b>BioLib authentication required</b><br><br>"
+            "DeepTMHMM runs on BioLib's cloud servers. You must be logged in "
+            "before submitting a job, otherwise the result will be empty.<br><br>"
+            "To authenticate, run once in a terminal:<br>"
+            "<code>&nbsp;&nbsp;python -m biolib login</code><br><br>"
+            "The local TMHMM&nbsp;2.0 result (already shown) will be kept if "
+            "DeepTMHMM fails."
+        )
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle("DeepTMHMM — BioLib login")
+        dlg.setIcon(QMessageBox.Icon.Information)
+        dlg.setText(msg)
+        dlg.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        dlg.button(QMessageBox.StandardButton.Ok).setText("I am logged in — Continue")
+        if dlg.exec() != QMessageBox.StandardButton.Ok:
+            return
+
+        from beer.network.workers import DeepTMHMMWorker
         self.fetch_deeptmhmm_btn.setEnabled(False)
         self._mark_chip_loading(self.fetch_deeptmhmm_btn)
         self._deeptmlhmm_worker = DeepTMHMMWorker(seq, self)
         self._deeptmlhmm_worker.finished.connect(self._on_deeptmlhmm_done)
-        self._deeptmlhmm_worker.warning.connect(
-            lambda msg: self.statusBar.showMessage(msg, 6000))
         self._deeptmlhmm_worker.error.connect(self._on_deeptmlhmm_error)
         self._deeptmlhmm_worker.start()
 
     def _on_deeptmlhmm_done(self, helices):
         self.fetch_deeptmhmm_btn.setEnabled(True)
         self._mark_chip_fetched(self.fetch_deeptmhmm_btn)
+        n = len(helices)
+        self.statusBar.showMessage(
+            f"DeepTMHMM: {n} TM {'helix' if n == 1 else 'helices'} detected.", 5000)
         if self.analysis_data:
             self.analysis_data["tm_helices"] = helices
             self._generated_graphs.discard("TM Topology")
@@ -4195,7 +4217,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def _on_deeptmlhmm_error(self, msg: str):
         self.fetch_deeptmhmm_btn.setEnabled(True)
         self._mark_chip_normal(self.fetch_deeptmhmm_btn)
-        QMessageBox.warning(self, "TM Predictor Error", msg)
+        QMessageBox.warning(
+            self, "DeepTMHMM Error",
+            f"{msg}\n\nThe local TMHMM\u00a02.0 result is preserved."
+        )
 
     def _run_alphafold_missense(self, uniprot_id: str):
         if not uniprot_id:

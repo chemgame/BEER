@@ -360,43 +360,54 @@ REPORT_SECTIONS: list[str] = [
 ]
 
 GRAPH_TITLES: list[str] = [
+    # Composition
     "Amino Acid Composition (Bar)",
     "Amino Acid Composition (Pie)",
+    # Sequence Profiles
     "Hydrophobicity Profile",
-    "Bead Model (Hydrophobicity)",
-    "Bead Model (Charge)",
-    "Sticker Map",
     "Local Charge Profile",
     "Local Complexity",
-    "Cation\u2013\u03c0 Map",
-    "Isoelectric Focus",
-    "Helical Wheel",
-    "Charge Decoration",
-    "Linear Sequence Map",
     "Disorder Profile",
-    "TM Topology",
-    "pLDDT Profile",
-    "Distance Map",
-    "Domain Architecture",
-    "Uversky Phase Plot",
     "Coiled-Coil Profile",
-    "Single-Residue Perturbation Map",
-    # --- New graphs ---
+    "SCD Profile",
+    # Charge & π-Interactions
+    "Isoelectric Focus",
+    "Charge Decoration",
+    "Cation\u2013\u03c0 Map",
+    # Membrane & Amphipathicity
+    "TM Topology",
+    "Hydrophobic Moment",
+    "Helical Wheel",
+    # Aggregation & Solubility
     "\u03b2-Aggregation Profile",
     "Solubility Profile",
-    "Hydrophobic Moment",
-    "AlphaMissense",
+    # Phase Separation & IDP
+    "Uversky Phase Plot",
+    "Single-Residue Perturbation Map",
+    "Sticker Map",
+    "PLAAC Profile",
     "RNA-Binding Profile",
-    "SCD Profile",
-    "Truncation Series",
-    "Ramachandran Plot",
+    # Sequence Maps & Annotation
+    "Linear Sequence Map",
+    "Annotation Track",
+    "Domain Architecture",
+    "Cleavage Map",
+    # Bead Models
+    "Bead Model (Hydrophobicity)",
+    "Bead Model (Charge)",
+    # AlphaFold & Structure
+    "pLDDT Profile",
+    "Distance Map",
     "Residue Contact Network",
+    "Ramachandran Plot",
+    # Variant Effects
+    "Variant Effect Map",
+    "AlphaMissense",
+    # Evolutionary & Comparative
     "MSA Conservation",
     "MSA Covariance",
+    "Truncation Series",
     "Complex Mass",
-    "Annotation Track",
-    "Cleavage Map",
-    "PLAAC Profile",
 ]
 
 # Graph categories for the tree browser (order matters; every GRAPH_TITLES entry must appear here)
@@ -405,60 +416,60 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
         "Amino Acid Composition (Bar)",
         "Amino Acid Composition (Pie)",
     ]),
-    ("Profiles", [
+    ("Sequence Profiles", [
         "Hydrophobicity Profile",
         "Local Charge Profile",
         "Local Complexity",
         "Disorder Profile",
         "Coiled-Coil Profile",
-        "Linear Sequence Map",
+        "SCD Profile",
     ]),
     ("Charge & \u03c0-Interactions", [
         "Isoelectric Focus",
         "Charge Decoration",
         "Cation\u2013\u03c0 Map",
     ]),
-    ("Structure & Folding", [
-        "Bead Model (Hydrophobicity)",
-        "Bead Model (Charge)",
-        "Sticker Map",
-        "Helical Wheel",
+    ("Membrane & Amphipathicity", [
         "TM Topology",
-    ]),
-    ("Phase Separation / IDP", [
-        "Uversky Phase Plot",
-        "Single-Residue Perturbation Map",
-        "SCD Profile",
-    ]),
-    ("AlphaFold / Structural", [
-        "pLDDT Profile",
-        "Distance Map",
-        "Domain Architecture",
-        "Ramachandran Plot",
-        "Residue Contact Network",
+        "Hydrophobic Moment",
+        "Helical Wheel",
     ]),
     ("Aggregation & Solubility", [
         "\u03b2-Aggregation Profile",
         "Solubility Profile",
-        "Hydrophobic Moment",
-        "AlphaMissense",
     ]),
-    ("Post-Translational & Binding", [
+    ("Phase Separation & IDP", [
+        "Uversky Phase Plot",
+        "Single-Residue Perturbation Map",
+        "Sticker Map",
+        "PLAAC Profile",
         "RNA-Binding Profile",
+    ]),
+    ("Sequence Maps & Annotation", [
+        "Linear Sequence Map",
+        "Annotation Track",
+        "Domain Architecture",
+        "Cleavage Map",
+    ]),
+    ("Bead Models", [
+        "Bead Model (Hydrophobicity)",
+        "Bead Model (Charge)",
+    ]),
+    ("AlphaFold & Structure", [
+        "pLDDT Profile",
+        "Distance Map",
+        "Residue Contact Network",
+        "Ramachandran Plot",
     ]),
     ("Variant Effects", [
         "Variant Effect Map",
+        "AlphaMissense",
     ]),
     ("Evolutionary & Comparative", [
-        "Truncation Series",
         "MSA Conservation",
         "MSA Covariance",
+        "Truncation Series",
         "Complex Mass",
-    ]),
-    ("Sequence Analysis", [
-        "Annotation Track",
-        "Cleavage Map",
-        "PLAAC Profile",
     ]),
 ]
 

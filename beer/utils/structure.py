@@ -92,25 +92,25 @@ def calc_disorder_profile(
 
 def predict_tm_helices(seq: str, window: int = 19, threshold: float = 1.6,
                        min_len: int = 17, max_len: int = 25) -> list:
-    """Predict TM helices via Kyte-Doolittle sliding window.
+    """Predict TM helices using TMHMM 2.0 (primary) or KD sliding-window (fallback).
 
-    Algorithm:
-    1. Compute per-window KD average (only full-length windows; no partial edges).
-    2. Mark every residue covered by at least one above-threshold window as TM.
-    3. Collect contiguous marked regions; keep those within [min_len, max_len].
-       Overlong regions are split by finding the single highest-scoring window.
-    4. Assign topology using the inside-positive rule (von Heijne):
-       the side flanking with more K/R is cytoplasmic.
+    Primary: TMHMM 2.0 Viterbi HMM (Krogh et al. 2001), bundled locally — no
+    internet required.  Accurately handles charged functional residues in TM
+    helices (proton pumps, GPCRs).
 
-    Returns list of dicts: {start (0-based), end (0-based inclusive), score, orientation}.
+    Fallback: Kyte-Doolittle sliding-window (Kyte & Doolittle 1982) used only
+    if the TMHMM model file cannot be loaded.
 
-    References
-    ----------
-    Kyte, J. & Doolittle, R.F. (1982) J. Mol. Biol. 157:105-132.
-        Window size 19 and threshold 1.6 for TM helix detection.
-    von Heijne, G. (1986) EMBO J. 5:3021-3027.
-        Inside-positive rule: the cytoplasmic flanking region is enriched in K/R.
+    Returns list of dicts: {start (0-based), end (0-based inclusive), score,
+    orientation, source}.
     """
+    try:
+        from beer.analysis.tmhmm_local import predict_tm_helices as _tmhmm
+        return _tmhmm(seq)
+    except Exception:
+        pass  # fall through to KD-window
+
+    # KD sliding-window fallback
     n = len(seq)
     if n < window:
         return []

@@ -31,14 +31,14 @@ dependencies = [
     "mplcursors>=0.5",
     "numpy>=1.24,<2",
     "metapredict>=2.6",
-    "pybiolib>=0.1.9",
 ]
 
 [project.optional-dependencies]
 # torch>=2.0 CPU builds require numpy<2 (already enforced above).
 # scipy is needed by fair-esm's inverse-folding module on some systems.
-esm2 = ["fair-esm>=2.0.0", "torch>=2.0", "scipy>=1.9"]
-dev  = ["pytest>=7.0", "pytest-cov>=4.0"]
+esm2      = ["fair-esm>=2.0.0", "torch>=2.0", "scipy>=1.9"]
+deeptmhmm = ["pybiolib>=0.1.9"]
+dev       = ["pytest>=7.0", "pytest-cov>=4.0"]
 
 [project.urls]
 Homepage = "https://www.saumyakmukherjee.com/beer"
@@ -54,4 +54,4 @@ where = ["."]
 include = ["beer*"]
 
 [tool.setuptools.package-data]
-beer = ["models/*.npz", "beer.png"]
+beer = ["models/*.npz", "models/TMHMM2.0.model", "beer.png"]
