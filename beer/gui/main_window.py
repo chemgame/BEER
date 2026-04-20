@@ -82,6 +82,7 @@ from beer import config as _config
 from beer.gui.nav_widget import NavTabWidget
 from beer.gui.dialogs import MutationDialog, _FigureComposerDialog, FormatChooserDialog
 from beer.io.structure_formats import pdb_to_mmcif, pdb_to_gro, pdb_to_xyz
+from beer.io.graph_data_export import get_graph_data
 from beer.constants import (
     NAMED_COLORS, NAMED_COLORMAPS, GRAPH_TITLES, GRAPH_CATEGORIES,
     REPORT_SECTIONS, VALID_AMINO_ACIDS, _AA_COLOURS,
@@ -816,10 +817,20 @@ class ProteinAnalyzerGUI(QMainWindow):
         btn.style().unpolish(btn)
         btn.style().polish(btn)
 
+    def _title_from_canvas(self, canvas) -> str | None:
+        """Reverse-look-up the graph title for a given FigureCanvas."""
+        for title, (_, vb) in self.graph_tabs.items():
+            for i in range(vb.count()):
+                item = vb.itemAt(i)
+                if item and item.widget() is canvas:
+                    return title
+        return None
+
     def _graph_context_menu(self, canvas, pos):
         menu = QMenu(self)
         copy_act = menu.addAction("Copy Figure to Clipboard")
         save_act = menu.addAction("Save Figure As\u2026")
+        data_act = menu.addAction("Export Graph Data\u2026")
         action = menu.exec(canvas.mapToGlobal(pos))
         if action == copy_act:
             buf = BytesIO()
@@ -839,6 +850,32 @@ class ProteinAnalyzerGUI(QMainWindow):
                     fn += f".{ext}"
                 canvas.figure.savefig(fn, format=ext, dpi=200, bbox_inches="tight")
                 self.statusBar.showMessage(f"Saved to {os.path.basename(fn)}", 2000)
+        elif action == data_act:
+            title = self._title_from_canvas(canvas)
+            if not title or not self.analysis_data:
+                self.statusBar.showMessage("No analysis data available for export.", 3000)
+                return
+            afd = self.alphafold_data or {}
+            extra = {
+                "pfam_domains":       self.pfam_domains,
+                "plddt":              afd.get("plddt", []),
+                "alphafold_missense": getattr(self, "_alphafold_missense_data", None) or {},
+                "msa_sequences":      self._msa_sequences,
+            }
+            result = get_graph_data(title, self.analysis_data, extra)
+            if result is None:
+                self.statusBar.showMessage(f"No exportable data for '{title}'.", 3000)
+                return
+            stem, content, ext = result
+            ext_filter = "CSV Files (*.csv)" if ext == "csv" else "JSON Files (*.json)"
+            fn, _ = QFileDialog.getSaveFileName(
+                self, "Export Graph Data", f"{stem}.{ext}", ext_filter)
+            if fn:
+                if not fn.lower().endswith(f".{ext}"):
+                    fn += f".{ext}"
+                with open(fn, "w", encoding="utf-8") as fh:
+                    fh.write(content)
+                self.statusBar.showMessage(f"Data exported to {os.path.basename(fn)}", 2000)
 
     def _find_canvas(self, vb) -> FigureCanvas | None:
         for i in range(vb.count()):
