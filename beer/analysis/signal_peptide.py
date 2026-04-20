@@ -1,6 +1,8 @@
 """Signal peptide and GPI anchor prediction."""
 from __future__ import annotations
 
+import math
+
 from beer.constants import KYTE_DOOLITTLE
 from beer.reports.css import make_style_tag
 
@@ -131,6 +133,8 @@ def predict_signal_peptide(seq: str) -> dict:
     if cleavage_site == -1:
         cleavage_site = min(c_start + 4, n)
 
+    d_score = _d_score(h_kd, n_score_raw, c_has_axa)
+
     return {
         'n_end': n_end,
         'h_start': h_start,
@@ -142,7 +146,28 @@ def predict_signal_peptide(seq: str) -> dict:
         'h_region_seq': h_region_seq,
         'h_region_score': round(h_kd, 4),
         'n_score': n_score_raw,
+        'd_score': d_score,
     }
+
+
+def _d_score(h_kd: float, n_basic: int, has_axa: bool) -> float:
+    """SignalP-inspired discriminant score P(SP) in [0, 1].
+
+    Combines h-region hydrophobicity (dominant term), n-region basicity, and
+    presence of the AXA cleavage motif into a single confidence value via a
+    calibrated logistic function.
+
+    Calibration anchors:
+      * Strong SP (h_kd=3.0, n_basic=2, AXA): P ≈ 0.91
+      * Typical SP (h_kd=2.3, n_basic=1, AXA): P ≈ 0.79
+      * Non-SP  (h_kd=0.3, n_basic=0, no AXA): P ≈ 0.10
+
+    References: Nielsen et al. 1997 (SignalP 1.0); Bendtsen et al. 2004
+    (SignalP 2.0 D-score weighting scheme).
+    """
+    h_norm = min(max(h_kd, 0.0), 3.5) / 3.5
+    logit = 4.0 * h_norm + 0.3 * n_basic + 0.8 * int(has_axa) - 2.5
+    return round(1.0 / (1.0 + math.exp(-logit)), 3)
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +284,11 @@ def format_signal_report(seq: str, style_tag: str) -> str:
 
     axa_str = "Yes" if sp['c_has_axa'] else "No"
 
+    d = sp['d_score']
+    d_label = "likely SP" if d >= 0.5 else "unlikely SP"
     sp_rows = (
+        f"<tr><td><b>D-score P(SP)</b></td>"
+        f"<td><b>{d:.3f}</b> &mdash; {d_label}</td></tr>"
         f"<tr><td>n-region basic residues (K,R in pos 1&ndash;5)</td><td>{sp['n_score']}</td></tr>"
         f"<tr><td>h-region position</td>"
         f"<td>{sp['h_start']+1}&ndash;{sp['h_end']} ({sp['h_length']} aa)</td></tr>"
@@ -271,17 +300,17 @@ def format_signal_report(seq: str, style_tag: str) -> str:
     )
 
     sp_html = (
-        "<h2>Signal Peptide Features (von Heijne 1986)</h2>"
+        "<h2>Signal Peptide Features (von Heijne 1986 / SignalP D-score)</h2>"
         "<table>"
         "<tr><th>Parameter</th><th>Value</th></tr>"
         f"{sp_rows}"
         "</table>"
         "<p class='note'>"
         "Three-region (n/h/c) model: von Heijne, G. (1986) Nucleic Acids Res. 14:4683. "
-        "BEER reports continuous structural features (n/h/c regions, mean KD, AXA cleavage motif) "
-        "without a binary confidence score. "
-        "For validated probabilistic signal peptide prediction use SignalP 6.0 "
-        "(Teufel et al. 2022, Nat. Biotechnol. 40:1023) or DeepSig."
+        "D-score: logistic discriminant combining h-region KD, n-region basicity, and AXA motif "
+        "(inspired by Nielsen et al. 1997 SignalP; Bendtsen et al. 2004 D-score). "
+        "Threshold: D &ge; 0.50. For deep-learning signal-peptide prediction use SignalP 6.0 "
+        "(Teufel et al. 2022, Nat. Biotechnol. 40:1023)."
         "</p>"
     )
 

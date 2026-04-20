@@ -18,8 +18,8 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 - **Proper Python package** (`beer/`) — modular, installable via `pip`
 - **ESM2 neural predictions** for disorder — pre-trained heads bundled; optional ESM2 probe for β-aggregation (settings-controlled)
 - **3D structure viewer** with multiple representations, colour modes, colour bar, spin, and snapshot export
-- **35 graphs** across 10 categories (up from ~12), including Ramachandran, contact network, pLDDT profile, domain architecture
-- **New analysis modules**: RNA binding, SCD/κ/Ω, LARKS, tandem repeats, TM topology, coiled coil, ELM linear motifs
+- **37 graphs** across 11 categories (up from ~12), including Ramachandran, contact network, pLDDT profile, domain architecture
+- **New analysis modules**: RNA binding (catRAPID), SCD/κ/Ω, LARKS, tandem repeats, TM topology (TMHMM 2.0 local), coiled coil (COILS), ELM linear motifs, phosphorylation PWMs (NetPhos-style), catGRANULE phase-separation, SignalP D-score
 - **New utility tabs**: BLAST, Multichain, Compare, Truncation Series, MSA Conservation, Complex Mass
 - **Protein summary bar**: fetches name, gene, organism, and function from UniProt or RCSB automatically after a fetch
 - **Session-only history**: the last 10 analysed sequences are available in a dropdown during the session and cleared when you close the app
@@ -131,16 +131,18 @@ Residues in the sequence viewer are colour-coded by type. Use the **Search** / *
 | **Low Complexity** | Shannon entropy, prion-like score, LC fraction, PLAAC score (Lancaster et al. 2014), PolyX stretches |
 | **Disorder** | ESM2 logistic probe (DisProt 2024, AUC 0.83); falls back to metapredict (Emenecker et al. 2021) or classical propensity scale |
 | **Aggregation** | ZYGGREGATOR hotspots (Tartaglia & Vendruscolo 2008); CamSol solubility; optional ESM2 probe (Settings) |
-| **Signal Peptide** | Von Heijne (1986) three-region (n/h/c) model; AXA cleavage motif; GPI anchor (Eisenhaber et al. 1999) |
-| **RNA Binding** | Per-residue propensity; RGG, RRM, KH, SR, DEAD-box, Zinc finger motif hits |
+| **Signal Peptide** | Von Heijne (1986) n/h/c model; SignalP-style D-score P(SP) discriminant; AXA cleavage motif; GPI anchor (Eisenhaber et al. 1999). Optional deep-learning upgrade via **SignalP 6.0** button (BioLib, requires pybiolib + login) |
+| **RNA Binding** | catRAPID-style composite score ω̄ (Bellucci et al. 2011 Nat Methods); per-residue catRAPID profile; RGG/RRM/KH/SR/DEAD-box motif scan |
 | **Amphipathic Helices** | Regions with μH ≥ 0.35 (Eisenberg 1984); hydrophobic moment profile for α-helix (δ=100°) and β-strand (δ=160°) |
 | **SCD / κ / Ω** | Sequence charge decoration profile |
 | **LARKS** | Low-complexity Aromatic-Rich Kinked Segments (Hughes et al. 2018) |
 | **Tandem Repeats** | Direct, tandem, and compositional repeats |
-| **TM Topology** | KD sliding-window TM helix prediction; inside-positive topology |
-| **Coiled Coil** | Heptad-periodicity score profile (MTIDK propensities; Lupas et al. 1991, Berger et al. 1995) |
+| **TM Topology** | TMHMM 2.0 (Krogh et al. 2001) bundled locally — 395-state profile HMM, NumPy Viterbi, no internet needed; KD window fallback. Optional cloud upgrade via **DeepTMHMM** button (BioLib) |
+| **Coiled Coil** | Full COILS algorithm (Lupas et al. 1991 Science 252:1162): MTIDK 20×7 position-weight matrix, all 7 heptad registers swept, log-odds converted to P(CC) via calibrated sigmoid |
 | **Linear Motifs** | Regex scan: NLS, NES, PxxP, 14-3-3, KFERQ, KDEL, SxIP, NxS/T, … |
 | **Proteolytic Map** | Predicted cleavage sites for 9 enzymes (Trypsin, Chymotrypsin, Lys-C, Asp-N, Glu-C, CNBr, Arg-C); peptide masses in Da |
+| **Phosphorylation** | NetPhos-style PWM scan (Blom et al. 1999) for PKA (R[R/K]x[S/T]), PKC ([S/T]x[R/K]), CK2 ([S/T]xxE/D), and Src/Tyr kinase (YxxΦ) sites |
+| **Sticker & Spacer** | Sticker count/spacing, **catGRANULE score** (Bolognesi et al. 2016 Cell Reports 14:2535): linear combination of catRAPID, disorder, and inverse hydrophobicity; score > 0 predicts condensate formation |
 | **Comparison** | Side-by-side disorder / hydrophobicity / aggregation overlays |
 
 ---

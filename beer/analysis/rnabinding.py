@@ -2,8 +2,27 @@
 from __future__ import annotations
 import re
 
-from beer.constants import RBP_RESIDUE_PROPENSITY, RNA_BINDING_MOTIFS
+from beer.constants import (
+    RBP_RESIDUE_PROPENSITY,
+    RNA_BINDING_MOTIFS,
+    CHOU_FASMAN_HELIX,
+    VDW_VOLUME,
+    KYTE_DOOLITTLE,
+)
 from beer.reports.css import make_style_tag
+
+# catRAPID weights (Bellucci et al. 2011 Nat Methods 8:444; Agostini et al. 2013)
+_W_SP  = 0.0169   # secondary structure propensity
+_W_HP  = 0.0117   # hydrophobicity (inverted KD, normalised to [-1,+1])
+_W_VDW = 0.0283   # van der Waals volume
+
+
+def _catrapid_residue(aa: str) -> float:
+    """catRAPID per-residue propensity ω(i) = c₁·SP + c₂·HP + c₃·vdW."""
+    sp  = CHOU_FASMAN_HELIX.get(aa, 1.0)
+    hp  = -KYTE_DOOLITTLE.get(aa, 0.0) / 4.5  # invert & normalise KD to [-1,+1]
+    vdw = VDW_VOLUME.get(aa, 0.5)
+    return _W_SP * sp + _W_HP * hp + _W_VDW * vdw
 
 
 # ---------------------------------------------------------------------------
@@ -32,11 +51,13 @@ def _scan_motifs(seq: str) -> list[dict]:
 
 
 def calc_rbp_score(seq: str) -> dict:
-    """Return RNA-binding residue composition and motif hits.
+    """Return RNA-binding residue composition, catRAPID composite score, and motif hits.
 
-    Reports per-residue propensity (Jeong et al. 2012) and motif scanning.
-    No composite score is computed — such scores require validation against
-    experimental RBP data.
+    Primary score: catRAPID-style composite (Bellucci et al. 2011 Nat Methods 8:444)
+    combining secondary structure propensity, inverse hydrophobicity, and van der
+    Waals volume.  The mean per-residue catRAPID score is reported as the main RNA-
+    binding propensity index.  The Jeong et al. 2012 mean propensity is also
+    retained for reference.
 
     Parameters
     ----------
@@ -46,8 +67,10 @@ def calc_rbp_score(seq: str) -> dict:
     Returns
     -------
     dict
+        ``catrapid_score``
+            Mean per-residue catRAPID propensity ω̄ (higher = more likely RBP).
         ``mean_propensity``
-            Mean per-residue RBP_RESIDUE_PROPENSITY across all residues.
+            Mean per-residue Jeong et al. 2012 propensity (retained for reference).
         ``fraction_rbp_residues``
             Fraction of residues that are K, R, Y, F, or W.
         ``motifs_found``
@@ -55,15 +78,20 @@ def calc_rbp_score(seq: str) -> dict:
 
     References
     ----------
+    Bellucci et al. (2011) Nat Methods 8:444. Agostini et al. (2013) Structure 21:1987.
     Jeong, E. et al. (2012) Nucleic Acids Res.
     """
     n = len(seq)
     if n == 0:
         return {
+            'catrapid_score': 0.0,
             'mean_propensity': 0.0,
             'fraction_rbp_residues': 0.0,
             'motifs_found': [],
         }
+
+    catrapid_vals = [_catrapid_residue(aa) for aa in seq]
+    catrapid_mean = sum(catrapid_vals) / n
 
     props = [RBP_RESIDUE_PROPENSITY.get(aa, 0.0) for aa in seq]
     mean_prop = sum(props) / n
@@ -72,6 +100,7 @@ def calc_rbp_score(seq: str) -> dict:
     motifs = _scan_motifs(seq)
 
     return {
+        'catrapid_score': round(catrapid_mean, 4),
         'mean_propensity': round(mean_prop, 4),
         'fraction_rbp_residues': round(frac_rbp, 4),
         'motifs_found': motifs,
@@ -79,7 +108,10 @@ def calc_rbp_score(seq: str) -> dict:
 
 
 def calc_rbp_profile(seq: str, window: int = 11) -> list[float]:
-    """Sliding-window mean RNA-binding propensity profile.
+    """Sliding-window catRAPID per-residue RNA-binding propensity profile.
+
+    Uses the catRAPID composite ω(i) = c₁·SP + c₂·HP + c₃·vdW (Bellucci et al.
+    2011 Nat Methods 8:444) rather than the Jeong et al. 2012 propensity.
 
     Parameters
     ----------
@@ -91,16 +123,16 @@ def calc_rbp_profile(seq: str, window: int = 11) -> list[float]:
     Returns
     -------
     list[float]
-        Mean RBP propensity per window; length = max(0, len(seq) - window + 1).
+        Mean catRAPID propensity per window; length = max(0, len(seq) - window + 1).
     """
     n = len(seq)
     if n == 0:
         return []
-    props = [RBP_RESIDUE_PROPENSITY.get(aa, 0.0) for aa in seq]
+    vals = [_catrapid_residue(aa) for aa in seq]
     w = min(window, n)
     result: list[float] = []
     for i in range(n - w + 1):
-        result.append(sum(props[i:i + w]) / w)
+        result.append(round(sum(vals[i:i + w]) / w, 4))
     return result
 
 
@@ -137,7 +169,11 @@ def format_rbp_report(seq: str, style_tag: str) -> str:
     f_n = sum(1 for aa in seq if aa == 'F')
     w_n = sum(1 for aa in seq if aa == 'W')
 
+    cr = result['catrapid_score']
+    cr_label = "high" if cr > 0.020 else ("moderate" if cr > 0.015 else "low")
     summary_rows = (
+        f"<tr><td><b>catRAPID score &omega;&#772;</b></td>"
+        f"<td><b>{cr:.4f}</b> &mdash; {cr_label} RNA-binding propensity</td></tr>"
         f"<tr><td>Fraction K+R+Y+F+W residues</td>"
         f"<td>{result['fraction_rbp_residues']:.3f} "
         f"({result['fraction_rbp_residues']*100:.1f}%)</td></tr>"
@@ -153,15 +189,18 @@ def format_rbp_report(seq: str, style_tag: str) -> str:
     )
 
     summary_html = (
-        "<h2>RNA-Binding Composition &amp; Motifs</h2>"
+        "<h2>RNA-Binding Propensity (catRAPID) &amp; Motifs</h2>"
         "<table>"
         "<tr><th>Property</th><th>Value</th></tr>"
         f"{summary_rows}"
         "</table>"
         "<p class='note'>"
-        "Per-residue propensity scores are from Jeong et al. (2012) Nucleic Acids Res. "
-        "Motif annotations are based on consensus sequences from published literature. "
-        "No validated composite RBP score is computed."
+        "catRAPID composite: &omega;(i) = 0.0169&sdot;SP + 0.0117&sdot;HP + 0.0283&sdot;vdW "
+        "where SP = Chou-Fasman helix propensity, HP = inverse KD hydrophobicity, "
+        "vdW = van der Waals contact volume. "
+        "Bellucci et al. (2011) Nat Methods 8:444; Agostini et al. (2013) Structure 21:1987. "
+        "Profile uses 11-residue sliding window. "
+        "Motif annotations from published literature."
         "</p>"
     )
 

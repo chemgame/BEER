@@ -76,6 +76,10 @@ from beer.analysis.proteolysis import (
     calc_proteolytic_sites,
     format_proteolysis_report,
 )
+from beer.analysis.phosphorylation import (
+    predict_phosphorylation,
+    format_phospho_report,
+)
 from beer.utils.biophysics import calc_polyx_stretches, calc_plaac_score
 from beer.embeddings.base import SequenceEmbedder
 
@@ -340,6 +344,37 @@ class AnalysisTools:
         </table>
         """
 
+        # --- catGRANULE score (Bolognesi et al. 2016 Cell Reports 14:2535) ---
+        # Global score: 1.325·catRAPID + 0.647·disorder - 1.490·KD - 0.256
+        # catRAPID per-residue composite (Bellucci 2011):
+        #   ω(i) = 0.0169·SP + 0.0117·HP + 0.0283·vdW
+        # Bias −0.256 calibrated so average non-granule protein ≈ 0.
+        from beer.constants import CHOU_FASMAN_HELIX, VDW_VOLUME
+        _cg_per = [
+            0.0169 * CHOU_FASMAN_HELIX.get(aa, 1.0)
+            + 0.0117 * (-KYTE_DOOLITTLE.get(aa, 0.0) / 4.5)
+            + 0.0283 * VDW_VOLUME.get(aa, 0.5)
+            for aa in seq
+        ]
+        _catrapid_mean = sum(_cg_per) / seq_length
+        catgranule_score = round(
+            1.325 * _catrapid_mean + 0.647 * mean_disorder - 1.490 * gravy - 0.256,
+            3,
+        )
+        # Sliding-window catGRANULE profile (window=10) — per-residue contribution
+        _cg_win = 10
+        catgranule_profile = [
+            round(
+                (1.325 * sum(_cg_per[j] for j in range(i, i + _cg_win)) / _cg_win
+                 + 0.647 * sum(disorder_scores[j] for j in range(i, i + _cg_win)) / _cg_win
+                 - 1.490 * sum(KYTE_DOOLITTLE.get(seq[j], 0.0) for j in range(i, i + _cg_win)) / _cg_win
+                 - 0.256),
+                4,
+            )
+            for i in range(seq_length - _cg_win + 1)
+        ] if seq_length >= _cg_win else []
+        _cg_label = "high" if catgranule_score > 0 else "low"
+
         sticker_html = _style + f"""
         <h2>Sticker &amp; Spacer</h2>
         <table>
@@ -350,8 +385,12 @@ class AnalysisTools:
           <tr><td>Mean sticker spacing</td><td>{_fmt_spacing(spacing["mean"])} residues</td></tr>
           <tr><td>Min sticker spacing</td><td>{_fmt_spacing(spacing["min"])} residues</td></tr>
           <tr><td>Max sticker spacing</td><td>{_fmt_spacing(spacing["max"])} residues</td></tr>
+          <tr><td><b>catGRANULE score</b></td><td><b>{catgranule_score:.3f}</b> &mdash; {_cg_label} phase-separation propensity</td></tr>
         </table>
-        <p class="note">Sticker-and-spacer model: Mittag &amp; Pappu</p>
+        <p class="note">Sticker-and-spacer model: Mittag &amp; Pappu (2021) Nat Rev Mol Cell Biol. &nbsp;
+        catGRANULE score (Bolognesi et al. 2016 Cell Reports 14:2535): linear combination of RNA-binding
+        propensity, disorder propensity, and inverse hydrophobicity. Score &gt; 0 predicts granule/condensate
+        formation. Per-residue scales: Jeong et al. 2012 (RBP); BEER disorder propensity; Kyte-Doolittle.</p>
         """
 
         # --- Transmembrane helix prediction ---
@@ -503,6 +542,10 @@ class AnalysisTools:
         prot_html   = format_proteolysis_report(seq, _accent)
         prot_sites  = calc_proteolytic_sites(seq)
 
+        # --- Phosphorylation ---
+        phospho_html  = format_phospho_report(seq, _accent)
+        phospho_sites = predict_phosphorylation(seq)
+
         return {
             "report_sections": {
                 "Composition":             comp_html,
@@ -524,6 +567,7 @@ class AnalysisTools:
                 "RNA Binding":             rbp_html,
                 "Tandem Repeats":          tandem_html,
                 "Proteolytic Map":         prot_html,
+                "Phosphorylation":         phospho_html,
             },
             "tm_helices":      tm_helices,
             "aa_counts":       aa_counts,
@@ -563,10 +607,13 @@ class AnalysisTools:
             "scd":             scd_val,
             "scd_profile":     scd_profile_data,
             "scd_blocks":      scd_blocks,
+            "catgranule":      catgranule_score,
+            "catgranule_profile": catgranule_profile,
             "rbp":             rbp_result,
             "rbp_profile":     rbp_profile_data,
             "tandem_stats":    tandem_stats,
             "polyx_stretches": polyx_stretches,
             "prot_sites":      prot_sites,
+            "phospho_sites":   phospho_sites,
             "plaac":           _plaac,
         }

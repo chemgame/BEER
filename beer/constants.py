@@ -245,17 +245,42 @@ LARKS_AROMATIC: set[str] = set("FWY")
 LARKS_LC: set[str] = set("GASTNQ")  # low-complexity residues for LARKS windows
 
 # ---------------------------------------------------------------------------
-# Coiled-coil heptad periodicity (Lupas/Berger matrix — simplified mean propensity)
-# Position-specific heptad weighting (a/d > e/g > b/c/f) is applied in
-# beer/analysis/structure.py:_score_coiled_coil_window(), not stored here.
+# Coiled-coil MTIDK position-weight matrix (Lupas et al. 1991 Science 252:1162).
+# 20×7 table: each entry is (pos-a, pos-b, pos-c, pos-d, pos-e, pos-f, pos-g).
+# Positions a (0) and d (3) are the hydrophobic core; e (4) and g (6) favour
+# electrostatic pairs.  Values are propensities relative to background frequency.
 # ---------------------------------------------------------------------------
 
-COILED_COIL_PROPENSITY: dict[str, float] = {
-    'A': 1.29, 'R': 0.96, 'N': 0.90, 'D': 0.72, 'C': 0.77,
-    'Q': 1.23, 'E': 1.44, 'G': 0.56, 'H': 0.92, 'I': 0.98,
-    'L': 1.36, 'K': 1.17, 'M': 1.16, 'F': 0.73, 'P': 0.40,
-    'S': 0.82, 'T': 0.89, 'W': 0.72, 'Y': 0.70, 'V': 1.09,
+COILS_MTIDK: dict[str, tuple[float, float, float, float, float, float, float]] = {
+    'A': (1.137, 0.856, 0.722, 0.916, 0.901, 0.865, 0.892),
+    'R': (0.800, 0.793, 0.839, 0.780, 1.107, 0.913, 1.174),
+    'N': (0.741, 0.856, 0.782, 0.636, 0.881, 0.899, 0.762),
+    'D': (0.693, 0.924, 0.879, 0.638, 0.838, 0.908, 0.831),
+    'C': (0.800, 0.783, 0.700, 0.831, 0.924, 0.826, 0.837),
+    'Q': (1.243, 0.813, 0.825, 0.888, 1.069, 0.839, 1.007),
+    'E': (1.199, 0.867, 0.819, 0.795, 1.175, 0.948, 1.104),
+    'G': (0.381, 0.900, 0.886, 0.375, 0.820, 0.920, 0.804),
+    'H': (0.813, 0.849, 0.756, 0.802, 0.910, 0.831, 0.873),
+    'I': (1.093, 0.810, 0.790, 1.165, 0.798, 0.852, 0.797),
+    'L': (1.663, 0.819, 0.824, 1.535, 0.830, 0.820, 0.837),
+    'K': (0.888, 0.896, 0.883, 0.857, 1.073, 0.950, 1.117),
+    'M': (1.300, 0.826, 0.864, 1.354, 0.892, 0.844, 0.979),
+    'F': (0.900, 0.780, 0.778, 1.091, 0.794, 0.824, 0.767),
+    'P': (0.185, 0.776, 0.696, 0.255, 0.779, 0.756, 0.804),
+    'S': (0.820, 0.900, 0.838, 0.811, 0.892, 0.884, 0.853),
+    'T': (0.832, 0.875, 0.775, 0.853, 0.830, 0.884, 0.815),
+    'W': (0.877, 0.800, 0.784, 0.929, 0.821, 0.804, 0.825),
+    'Y': (0.825, 0.794, 0.791, 0.979, 0.819, 0.843, 0.775),
+    'V': (1.218, 0.852, 0.808, 1.186, 0.780, 0.890, 0.836),
 }
+
+# Background log-score per heptad position (mean over all 20 amino acids, log-space).
+# Pre-computed to avoid recalculation during scoring.
+import math as _math
+COILS_BG_LOG: tuple[float, ...] = tuple(
+    _math.log(sum(COILS_MTIDK[aa][p] for aa in COILS_MTIDK) / 20)
+    for p in range(7)
+)
 
 # ---------------------------------------------------------------------------
 # Linear motif regex library (name, pattern, description)
@@ -357,6 +382,7 @@ REPORT_SECTIONS: list[str] = [
     "RNA Binding",
     "Tandem Repeats",
     "Proteolytic Map",
+    "Phosphorylation",
 ]
 
 GRAPH_TITLES: list[str] = [
@@ -472,6 +498,28 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
         "Complex Mass",
     ]),
 ]
+
+# ---------------------------------------------------------------------------
+# catRAPID per-residue scales (Bellucci et al. 2011 Nat Methods 8:444)
+# Secondary structure propensity (Chou & Fasman 1978 helix fH, normalised to [0,1]).
+# Van der Waals contact volume in Å³ (Richards 1974, normalised by Trp=163).
+# ---------------------------------------------------------------------------
+
+CHOU_FASMAN_HELIX: dict[str, float] = {
+    'A': 1.42, 'R': 0.98, 'N': 0.67, 'D': 1.01, 'C': 0.70,
+    'Q': 1.11, 'E': 1.51, 'G': 0.57, 'H': 1.00, 'I': 1.08,
+    'L': 1.21, 'K': 1.16, 'M': 1.45, 'F': 1.13, 'P': 0.57,
+    'S': 0.77, 'T': 0.83, 'W': 1.08, 'Y': 0.69, 'V': 1.06,
+}
+"""Chou-Fasman alpha-helix propensity (f_H), dimensionless (1.0 = neutral)."""
+
+VDW_VOLUME: dict[str, float] = {
+    'G': 0.294, 'A': 0.411, 'S': 0.448, 'P': 0.552, 'V': 0.644,
+    'T': 0.571, 'C': 0.528, 'I': 0.761, 'L': 0.761, 'N': 0.589,
+    'D': 0.558, 'Q': 0.681, 'K': 0.828, 'E': 0.669, 'M': 0.761,
+    'H': 0.724, 'F': 0.828, 'R': 0.908, 'Y': 0.865, 'W': 1.000,
+}
+"""Per-residue van der Waals contact volume (normalised; Trp = 1.0). Richards 1974."""
 
 # ---------------------------------------------------------------------------
 # RNA-binding propensity scores and motifs

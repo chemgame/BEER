@@ -579,3 +579,105 @@ class AlphaMissenseWorker(QThread):
             self.finished.emit(data)
         except Exception as e:
             self.error.emit(str(e))
+
+
+class SignalP6Worker(QThread):
+    """Runs SignalP 6.0 via pybiolib (requires BioLib authentication).
+
+    Emits finished(dict) on success or error(str) on failure.
+    The dict contains: cleavage_site (int, 1-based), probability (float),
+    signal_type (str), source (str).
+    """
+    finished = Signal(dict)
+    error    = Signal(str)
+
+    def __init__(self, seq: str, organism: str = "eukarya", parent=None):
+        super().__init__(parent)
+        self._seq = seq
+        self._organism = organism
+
+    def _run_signalp6(self) -> dict:
+        """Submit sequence to SignalP 6.0 via pybiolib. Raises on any failure."""
+        import biolib
+        import tempfile
+        import os
+
+        signalp = biolib.load("DTU/SignalP_6")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fasta_path = os.path.join(tmpdir, "query.fasta")
+            with open(fasta_path, "w") as fh:
+                fh.write(f">query\n{self._seq}\n")
+            result = signalp.cli(args=[
+                "--fastafile", fasta_path,
+                "--organism", self._organism,
+                "--output_dir", os.path.join(tmpdir, "out"),
+                "--format", "txt",
+            ])
+            out_dir = os.path.join(tmpdir, "out")
+            os.makedirs(out_dir, exist_ok=True)
+            result.save_files(out_dir)
+
+            # Locate summary output file (prediction_results.txt or similar)
+            txt_path = None
+            for root, _, files in os.walk(out_dir):
+                for fname in files:
+                    if fname.endswith(".txt") or fname.endswith("_summary.signalp5"):
+                        txt_path = os.path.join(root, fname)
+                        break
+                if txt_path:
+                    break
+
+            if not txt_path or not os.path.exists(txt_path):
+                saved = []
+                for root, _, files in os.walk(out_dir):
+                    saved.extend(os.path.relpath(os.path.join(root, f), out_dir) for f in files)
+                raise RuntimeError(
+                    "SignalP 6.0 returned no output file.\n"
+                    f"Files saved: {saved or ['(none)']}\n"
+                    "This usually means BioLib authentication failed. "
+                    "Run: python -m biolib login"
+                )
+
+            content = open(txt_path).read()
+
+        # Parse SignalP 6.0 output
+        # Format: # ID  Prediction  SP(Sec/SPI)  TAT(Tat/SPI)  LIPO(Sec/SPII)  OTHER  CS Position
+        result_dict = {"source": "SignalP 6.0", "cleavage_site": -1,
+                       "probability": 0.0, "signal_type": "OTHER"}
+        for line in content.splitlines():
+            if line.startswith("#") or not line.strip():
+                continue
+            parts = line.split()
+            if len(parts) >= 7:
+                prediction = parts[1]
+                result_dict["signal_type"] = prediction
+                # CS Position column: "CS pos: X-Y, prob: Z"
+                cs_text = " ".join(parts[6:])
+                import re
+                m = re.search(r"(\d+)-\d+", cs_text)
+                if m:
+                    result_dict["cleavage_site"] = int(m.group(1))
+                mp = re.search(r"prob:\s*([\d.]+)", cs_text)
+                if mp:
+                    result_dict["probability"] = float(mp.group(1))
+                # SP probability is in column index 2
+                if prediction not in ("OTHER",) and len(parts) > 2:
+                    try:
+                        result_dict["probability"] = float(parts[2])
+                    except ValueError:
+                        pass
+                break
+
+        return result_dict
+
+    def run(self):
+        try:
+            self.finished.emit(self._run_signalp6())
+        except ImportError:
+            self.error.emit(
+                "pybiolib is not installed.\n"
+                "Install it with:  pip install pybiolib\n"
+                "Then authenticate: python -m biolib login"
+            )
+        except Exception as exc:
+            self.error.emit(str(exc))

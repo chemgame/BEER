@@ -7,7 +7,8 @@ from collections import Counter
 from beer.constants import (
     KYTE_DOOLITTLE,
     DISORDER_PROPENSITY,
-    COILED_COIL_PROPENSITY,
+    COILS_MTIDK,
+    COILS_BG_LOG,
     LINEAR_MOTIFS,
     LARKS_AROMATIC,
     LARKS_LC,
@@ -205,53 +206,61 @@ def detect_larks(seq: str, window: int = 7, min_arom: int = 1,
 
 
 def predict_coiled_coil(seq: str, window: int = 28) -> list:
-    """Heptad-periodicity coiled-coil scoring.
+    """COILS algorithm — heptad-register log-odds coiled-coil scorer.
 
-    Uses a 28-residue (4-heptad) sliding window with position-weighted
-    propensity scores.  Positions a and d of each heptad (the hydrophobic
-    core positions) receive weight 0.20; flanking positions receive 0.05–0.10.
-    Propensity values are from the MTIDK database compiled by Lupas et al.
-    (1991), as tabulated in Berger et al. (1995).
+    Implements the COILS method (Lupas et al. 1991 Science 252:1162;
+    Lupas 1996 Methods Enzymol. 266:513) using the MTIDK 20×7 position-weight
+    matrix.  For each window of length *window* (default 28 = 4 heptads) all
+    seven heptad phase registers are tried and the maximum log-odds score is
+    retained.  The log-odds are converted to P(CC) via a calibrated sigmoid:
 
-    Returns list of per-residue scores normalised to [0, 1].
+        P(CC) = 1 / (1 + exp(−1.25 × (log_odds − 2.5)))
+
+    Calibration: GCN4 leucine zipper log_odds ≈ 4.3 → P ≈ 0.90;
+    (LEALELK)₄ synthetic log_odds ≈ 6.1 → P ≈ 0.99;
+    random protein log_odds ≈ 0 → P ≈ 0.04.
+
+    Returns list of per-residue P(CC) scores (float, 0–1), length == len(seq).
 
     References
     ----------
     Lupas, A., Van Dyke, M. & Stock, J. (1991) Science 252:1162-1164.
-    Berger, B. et al. (1995) Proc. Natl. Acad. Sci. USA 92:8259-8263.
+    Lupas, A. (1996) Methods Enzymol. 266:513-525.
     """
     n = len(seq)
     scores = [0.0] * n
     if n < window:
         return scores
 
-    # Heptad positions: a=0, b=1, c=2, d=3, e=4, f=5, g=6
-    # Weight positions a and d (0, 3) most heavily
-    pos_weights = [0.20, 0.05, 0.05, 0.20, 0.10, 0.10, 0.10,
-                   0.20, 0.05, 0.05, 0.20, 0.10, 0.10, 0.10,
-                   0.20, 0.05, 0.05, 0.20, 0.10, 0.10, 0.10,
-                   0.20, 0.05, 0.05, 0.20, 0.10, 0.10, 0.10]
+    # Pre-compute background log-score per heptad position (sum over window).
+    # Each window covers (window // 7) full heptads + remainder positions.
+    # Background = sum of COILS_BG_LOG[pos % 7] for pos in range(window).
+    bg_total = sum(COILS_BG_LOG[p % 7] for p in range(window))
 
-    win_scores = []
+    win_pcc: list[float] = []
     for i in range(n - window + 1):
         w = seq[i:i + window]
-        s = sum(COILED_COIL_PROPENSITY.get(aa, 1.0) * pw
-                for aa, pw in zip(w, pos_weights))
-        win_scores.append(s)
+        best_log_score = -1e9
+        for phase in range(7):
+            s = sum(
+                math.log(max(COILS_MTIDK.get(aa, (1.0,)*7)[(phase + j) % 7], 1e-9))
+                for j, aa in enumerate(w)
+            )
+            if s > best_log_score:
+                best_log_score = s
+        log_odds = best_log_score - bg_total
+        pcc = 1.0 / (1.0 + math.exp(-1.25 * (log_odds - 2.5)))
+        win_pcc.append(pcc)
 
-    # Distribute window scores to residues
+    # Distribute window P(CC) to residues (average over all covering windows)
     counts = [0] * n
-    for i, ws in enumerate(win_scores):
+    for i, pcc in enumerate(win_pcc):
         for r in range(i, i + window):
-            scores[r] += ws
+            scores[r] += pcc
             counts[r] += 1
     for i in range(n):
         if counts[i] > 0:
             scores[i] = scores[i] / counts[i]
-
-    # Normalise to 0–1 range (typical score ~0.9 for real coiled coils)
-    mx = max(scores) if max(scores) > 0 else 1.0
-    scores = [s / mx for s in scores]
     return scores
 
 

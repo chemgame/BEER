@@ -992,6 +992,14 @@ class ProteinAnalyzerGUI(QMainWindow):
             "Run DeepTMHMM transmembrane topology prediction (requires internet + pybiolib)")
         self.fetch_deeptmhmm_btn.clicked.connect(self._run_deeptmlhmm)
         tb2.addWidget(self.fetch_deeptmhmm_btn)
+        self.fetch_signalp6_btn = QPushButton("SignalP 6")
+        self.fetch_signalp6_btn.setObjectName("chip_btn")
+        self.fetch_signalp6_btn.setProperty("chip_state", "normal")
+        self.fetch_signalp6_btn.setEnabled(False)
+        self.fetch_signalp6_btn.setToolTip(
+            "Run SignalP 6.0 signal peptide prediction via BioLib (requires internet + pybiolib)")
+        self.fetch_signalp6_btn.clicked.connect(self._run_signalp6)
+        tb2.addWidget(self.fetch_signalp6_btn)
 
         tb2.addSpacing(4)
         tb2.addWidget(_sep())
@@ -3517,9 +3525,13 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             disorder_scores=ad.get("disorder_scores"),
             tm_helices=ad.get("tm_helices"),
             label_font=lf, tick_font=tf))
+        # Use ESM2 aggregation profile for Annotation Track when available
+        _annot_aggr = ad.get("aggr_profile_esm2") if (
+            self.use_esm2_aggregation and ad.get("aggr_profile_esm2")
+        ) else ad.get("aggr_profile", calc_aggregation_profile(seq))
         gens["Annotation Track"] = lambda: _wrap(lambda: create_annotation_track_figure(
             seq, ad.get("disorder_scores", []), ad.get("hydro_profile", []),
-            ad.get("aggr_profile", calc_aggregation_profile(seq)),
+            _annot_aggr,
             ad.get("tm_helices", []),
             ad.get("larks", []), ad.get("sp_result", {}),
             label_font=lf, tick_font=tf))
@@ -4222,6 +4234,66 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             f"{msg}\n\nThe local TMHMM\u00a02.0 result is preserved."
         )
 
+    # --- SignalP 6.0 ---
+
+    def _run_signalp6(self):
+        if not self.analysis_data:
+            return
+        seq = self.analysis_data.get("seq", "")
+        if not seq:
+            return
+
+        msg = (
+            "<b>BioLib authentication required</b><br><br>"
+            "SignalP&nbsp;6.0 runs on BioLib's cloud servers. You must be logged in "
+            "before submitting a job.<br><br>"
+            "To authenticate, run once in a terminal:<br>"
+            "<code>&nbsp;&nbsp;python -m biolib login</code><br><br>"
+            "The local von Heijne signal peptide result (already shown) will be "
+            "kept if SignalP&nbsp;6.0 fails."
+        )
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle("SignalP 6.0 — BioLib login")
+        dlg.setIcon(QMessageBox.Icon.Information)
+        dlg.setText(msg)
+        dlg.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        dlg.button(QMessageBox.StandardButton.Ok).setText("I am logged in — Continue")
+        if dlg.exec() != QMessageBox.StandardButton.Ok:
+            return
+
+        from beer.network.workers import SignalP6Worker
+        self.fetch_signalp6_btn.setEnabled(False)
+        self._mark_chip_loading(self.fetch_signalp6_btn)
+        self._signalp6_worker = SignalP6Worker(seq, parent=self)
+        self._signalp6_worker.finished.connect(self._on_signalp6_done)
+        self._signalp6_worker.error.connect(self._on_signalp6_error)
+        self._signalp6_worker.start()
+
+    def _on_signalp6_done(self, result: dict):
+        self.fetch_signalp6_btn.setEnabled(True)
+        self._mark_chip_fetched(self.fetch_signalp6_btn)
+        cs = result.get("cleavage_site", -1)
+        prob = result.get("probability", 0.0)
+        sig_type = result.get("signal_type", "OTHER")
+        if sig_type == "OTHER":
+            self.statusBar.showMessage("SignalP 6.0: No signal peptide detected.", 5000)
+        else:
+            self.statusBar.showMessage(
+                f"SignalP 6.0: {sig_type}, CS after pos {cs}, P={prob:.3f}", 6000)
+        if self.analysis_data:
+            self.analysis_data["signalp6"] = result
+            self._generated_graphs.discard("Signal Peptide & GPI")
+            self._render_visible_graph()
+
+    def _on_signalp6_error(self, msg: str):
+        self.fetch_signalp6_btn.setEnabled(True)
+        self._mark_chip_normal(self.fetch_signalp6_btn)
+        QMessageBox.warning(
+            self, "SignalP 6.0 Error",
+            f"{msg}\n\nThe local von Heijne result is preserved."
+        )
+
     def _run_alphafold_missense(self, uniprot_id: str):
         if not uniprot_id:
             QMessageBox.warning(self, "AlphaMissense",
@@ -4422,7 +4494,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.analyze_btn.setEnabled(True)
         # Enable all analysis-dependent buttons
         for btn in (self.export_analysis_btn, self.mutate_btn, self.trunc_run_btn,
-                    self.fetch_deeptmhmm_btn):
+                    self.fetch_deeptmhmm_btn, self.fetch_signalp6_btn):
             btn.setEnabled(True)
         self.trunc_run_btn.setToolTip("Run truncation series analysis")
         # Update window title with current sequence name
