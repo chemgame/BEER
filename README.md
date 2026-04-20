@@ -24,7 +24,7 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 - **Protein summary bar**: fetches name, gene, organism, and function from UniProt or RCSB automatically after a fetch
 - **Session-only history**: the last 10 analysed sequences are available in a dropdown during the session and cleared when you close the app
 - **Official logo** and About dialog — logo displayed in the taskbar/Dock and accessible via the Help tab
-- Persistent settings, drag-and-drop FASTA, session save/load, keyboard shortcuts overlay, right-click figure menu
+- Persistent settings, drag-and-drop FASTA, session save/load, keyboard shortcuts overlay, right-click figure menu (copy, save PNG/SVG/PDF, export underlying data as CSV/JSON)
 - Structure export in PDB, mmCIF, GRO, XYZ, and FASTA formats
 - Removed unreliable metrics (Instability Index, LLPS composite score, Chou-Fasman)
 
@@ -149,7 +149,7 @@ Residues in the sequence viewer are colour-coded by type. Use the **Search** / *
 
 ## Graphs Tab
 
-Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, pan, home) appears above each figure. Click the **ⓘ** button (bottom-right of each graph) for a detailed description, equations, and references. Right-click any graph to copy to clipboard or save. **Save All Graphs** exports every generated graph to a directory.
+Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, pan, home) appears above each figure. Click the **ⓘ** button (bottom-right of each graph) for a detailed description, equations, and references. **Right-click any graph** for three options: copy to clipboard, save figure (PNG/SVG/PDF), or **Export Graph Data…** — writes the underlying data (residue scores, domain lists, site tables, etc.) to a CSV or JSON file so you can re-plot or analyse it with external tools. **Save All Graphs** exports every generated graph to a directory.
 
 | Category | Graphs |
 |----------|--------|
