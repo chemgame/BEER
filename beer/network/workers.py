@@ -527,14 +527,15 @@ class DeepTMHMMWorker(QThread):
             self.finished.emit(self._run_deeptmhmm())
             return
         except ImportError:
-            reason = "pybiolib not installed (pip install pybiolib)"
+            reason = "pybiolib import failed (try: pip install --upgrade pybiolib)"
         except Exception as e:
             reason = str(e)
 
         # 2. Fall back to local predictor; surface reason as a warning
         self.warning.emit(
             f"DeepTMHMM unavailable ({reason}).\n"
-            "Using local Kyte-Doolittle sliding-window predictor instead."
+            "Using local Kyte-Doolittle sliding-window predictor instead.\n"
+            "Note: KD-window may undercount TM helices in proton pumps and GPCRs."
         )
         try:
             self.finished.emit(self._run_local())
