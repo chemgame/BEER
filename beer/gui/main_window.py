@@ -3472,17 +3472,20 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         hs  = self.hydro_scale
 
         def _wrap(fn):
-            """Apply heading/grid overrides then return figure."""
+            """Apply heading/grid overrides to ALL axes and suptitle."""
             fig = fn()
-            if fig.axes:
-                if not sh:
-                    fig.axes[0].set_title("")
+            if not sh:
+                # Remove both figure-level suptitle and any per-axes title
+                fig.suptitle("")
+                for ax in fig.axes:
+                    ax.set_title("")
+            for ax in fig.axes:
                 if sg:
-                    fig.axes[0].grid(True, linestyle="--", linewidth=0.3,
-                                     alpha=0.5, color="#c8cdd8")
-                    fig.axes[0].set_axisbelow(True)
+                    ax.grid(True, linestyle="--", linewidth=0.3,
+                            alpha=0.5, color="#c8cdd8")
+                    ax.set_axisbelow(True)
                 else:
-                    fig.axes[0].grid(False)
+                    ax.grid(False)
             return fig
 
         gens = {}

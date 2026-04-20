@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use("Agg")
 from matplotlib.figure import Figure
 from matplotlib.patches import Patch, Rectangle
+from matplotlib.ticker import MaxNLocator
 
 from beer.graphs._style import (
     _pub_style_ax, _PALETTE, _ACCENT, _NEG_COL, _POS_COL,
@@ -49,6 +50,7 @@ def create_linear_sequence_map_figure(
         ax.plot(xs, ys, color=col, linewidth=1.3)
         ax.axhline(zero, color="#aaa", linewidth=0.6, linestyle="--")
         ax.set_ylabel(ylabel_txt, fontsize=tick_font - 2, color="#4a5568")
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=3, prune="both"))
         ax.tick_params(labelsize=tick_font - 3, length=3)
         for sp in ["top", "right"]:
             ax.spines[sp].set_visible(False)
@@ -229,20 +231,44 @@ def create_domain_architecture_figure(
     ax.set_ylim(-half - 0.1, total_height + 0.2)
 
     if legend_patches:
-        # Deduplicate by label (same domain name can appear multiple times)
+        # Deduplicate by label
         seen, unique = set(), []
         for p in legend_patches:
             if p.get_label() not in seen:
                 seen.add(p.get_label())
                 unique.append(p)
-        ncols = max(1, min(len(unique), 4))
-        ax.legend(handles=unique,
-                  fontsize=max(6, tick_font - 4), framealpha=0.85,
-                  edgecolor="#d0d4e0", loc="upper right", ncol=ncols,
-                  handlelength=1.2, borderpad=0.5, labelspacing=0.3)
 
-    fig.set_size_inches(10, max(2.5, 1.0 + total_height * 1.3))
-    fig.tight_layout(pad=1.5)
+        _MAX_LEGEND = 12
+        if len(unique) > _MAX_LEGEND:
+            n_extra = len(unique) - _MAX_LEGEND
+            unique = unique[:_MAX_LEGEND]
+            unique.append(Patch(color="none", label=f"(+{n_extra} more)"))
+
+        ncols = max(1, min(len(unique), 5))
+        leg_font = max(6, tick_font - 4)
+
+        if len(unique) > 8:
+            # Many entries: place legend below the axes so it doesn't overlap
+            ax.legend(handles=unique,
+                      fontsize=leg_font, framealpha=0.85,
+                      edgecolor="#d0d4e0",
+                      loc="upper center",
+                      bbox_to_anchor=(0.5, -0.22),
+                      ncol=ncols,
+                      handlelength=1.2, borderpad=0.5, labelspacing=0.3)
+            fig.set_size_inches(10, max(3.0, 1.5 + total_height * 1.3))
+            fig.subplots_adjust(bottom=0.28)
+        else:
+            ncols = max(1, min(len(unique), 4))
+            ax.legend(handles=unique,
+                      fontsize=leg_font, framealpha=0.85,
+                      edgecolor="#d0d4e0", loc="upper right", ncol=ncols,
+                      handlelength=1.2, borderpad=0.5, labelspacing=0.3)
+            fig.set_size_inches(10, max(2.5, 1.0 + total_height * 1.3))
+            fig.tight_layout(pad=1.5)
+    else:
+        fig.set_size_inches(10, max(2.5, 1.0 + total_height * 1.3))
+        fig.tight_layout(pad=1.5)
     return fig
 
 
@@ -367,8 +393,11 @@ def create_annotation_track_figure(
     # Shared spine / tick helper
     # ------------------------------------------------------------------ #
     def _style_track(ax, ylabel_txt, hide_xticks=True):
-        ax.set_ylabel(ylabel_txt, fontsize=tick_font - 1, color="#4a5568",
+        ax.set_ylabel(ylabel_txt, fontsize=max(6, tick_font - 2), color="#4a5568",
                       labelpad=4, rotation=90, va="center")
+        # Limit y-ticks and prune the outermost values to prevent
+        # tick labels from adjacent panels overlapping each other.
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=3, prune="both"))
         ax.tick_params(labelsize=tick_font - 3, length=3, width=0.7,
                        colors="#4a5568")
         for sp in ("top", "right"):
