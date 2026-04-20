@@ -4188,6 +4188,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self.analysis_data:
             self.analysis_data["tm_helices"] = helices
             self._generated_graphs.discard("TM Topology")
+            self._generated_graphs.discard("Domain Architecture")
+            self._generated_graphs.discard("Annotation Track")
             self._render_visible_graph()
 
     def _on_deeptmlhmm_error(self, msg: str):
