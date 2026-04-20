@@ -391,13 +391,8 @@ def create_annotation_track_figure(
                  fontweight="bold", color="#1a1a2e")
 
     def _style_track(ax, label_txt, hide_xticks=True):
-        # Track name as a small text badge in the upper-left corner of the panel
-        ax.text(0.01, 0.97, label_txt,
-                transform=ax.transAxes,
-                fontsize=max(7, tick_font - 1), color="#4a5568",
-                fontweight="600", va="top", ha="left",
-                bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
-                          edgecolor="none", alpha=0.75))
+        ax.set_title(label_txt, fontsize=max(7, tick_font - 1), color="#4a5568",
+                     fontweight="normal", loc="left", pad=3)
         ax.set_ylabel("")
         ax.yaxis.set_major_locator(MaxNLocator(nbins=3, prune="both"))
         ax.tick_params(labelsize=tick_font - 2, length=3, width=0.7,
@@ -451,7 +446,7 @@ def create_annotation_track_figure(
         ax_hyd.text(0.5, 0.5, "No hydrophobicity data",
                     transform=ax_hyd.transAxes,
                     ha="center", va="center", fontsize=tick_font - 2, color="#aaa")
-    _style_track(ax_hyd, "Hydrophob.")
+    _style_track(ax_hyd, "Hydrophobicity")
 
     # Track 3 – Aggregation
     ax_agg = axs[2]
