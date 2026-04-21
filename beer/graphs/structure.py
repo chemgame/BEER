@@ -364,12 +364,13 @@ def create_coiled_coil_profile_figure(
     ax = fig.add_subplot(111)
     ax.set_facecolor("#fafbff")
 
+    has_cc = any(v > 0.5 for v in cc_profile)
     ax.fill_between(xs, cc_profile, 0,
-                    alpha=0.15, color=_ACCENT, zorder=1)
+                    alpha=0.12, color=_ACCENT, zorder=1)
     ax.fill_between(xs, cc_profile, 0.5,
                     where=[v > 0.5 for v in cc_profile],
-                    alpha=0.30, color=_ACCENT, zorder=2,
-                    label=r"$P(\mathrm{CC})$ > 0.5")
+                    alpha=0.55, color="#7209b7", zorder=2,
+                    label=r"$P(\mathrm{CC})$ > 0.5" if has_cc else "_nolegend_")
     ax.plot(xs, cc_profile, color=_ACCENT, linewidth=1.4, zorder=3)
     ax.axhline(0.5, color="#374151", linestyle="--", linewidth=0.9,
                alpha=0.7, label="Threshold (0.5)", zorder=4)
