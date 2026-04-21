@@ -57,7 +57,7 @@ def create_isoelectric_focus_figure(
     ax.text(7.55, y_bot * 0.65, f"pH 7.4\n({ch74:+.1f})",
             fontsize=tick_font - 2, color="#43aa8b")
     _pub_style_ax(ax, title="Isoelectric Focus",
-                  xlabel="pH", ylabel="Net Charge",
+                  xlabel="pH", ylabel=r"Net charge $q$",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(0, 14)
@@ -88,7 +88,7 @@ def create_local_charge_figure(
             marker="o", markersize=3.0, markeredgewidth=0, zorder=4)
     ax.axhline(0, color="#888", linewidth=0.8, linestyle="--", zorder=3)
     _pub_style_ax(ax, title=f"Local Charge  (w={window_size})",
-                  xlabel="Residue", ylabel="NCPR",
+                  xlabel="Residue", ylabel=r"NCPR",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     fig.tight_layout(pad=1.8)
@@ -127,7 +127,7 @@ def create_charge_decoration_figure(
     ax.annotate(f"  ({fcr:.2f}, {abs_ncpr:.2f})", xy=(fcr, abs_ncpr),
                 fontsize=tick_font - 1, color="#f72585", va="bottom")
     _pub_style_ax(ax, title="Das-Pappu Phase Diagram",
-                  xlabel="FCR", ylabel="|NCPR|",
+                  xlabel="FCR", ylabel=r"$|\mathrm{NCPR}|$",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(0, 0.72)

@@ -151,7 +151,7 @@ def create_complex_mw_figure(
         range(len(bar_labels)),
         [mw / 1000 for mw in bar_heights],
         color=bar_colors_all,
-        edgecolor="black",
+        edgecolor="white",
         linewidth=0.6,
     )
 
@@ -161,22 +161,12 @@ def create_complex_mw_figure(
             bar_obj.get_height() + 0.5,
             f"{height_kda:.1f} kDa",
             ha="center", va="bottom",
-            fontsize=max(tick_font - 2, 8),
+            fontsize=max(tick_font - 2, 8), color="#2d3748",
         )
-
-    ax.annotate(
-        f"Total Complex: {total_mw/1000:.1f} kDa\n(Stoichiometry: {stoichiometry_str})",
-        xy=(len(bar_labels) - 1, total_mw / 1000),
-        xytext=(-60, 20),
-        textcoords="offset points",
-        arrowprops=dict(arrowstyle="->", color="black"),
-        fontsize=tick_font,
-        bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="grey"),
-    )
 
     ax.set_xticks(range(len(bar_labels)))
     ax.set_xticklabels(bar_labels, fontsize=tick_font - 1)
-    _pub_style_ax(ax, title="Complex Mass Composition",
+    _pub_style_ax(ax, title=f"Complex Mass Composition  ({stoichiometry_str})",
                   xlabel="", ylabel="MW (kDa)",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
@@ -393,23 +383,23 @@ def create_uversky_phase_plot(
     h_boundary = 2.785 * r_vals + 0.446
     h_boundary = np.clip(h_boundary, 0, 1)
     ax.plot(r_vals, h_boundary, color="#374151", linewidth=1.8,
-            linestyle="--", label="Uversky boundary", zorder=3)
+            linestyle="--", zorder=3)
 
-    ax.fill_between(r_vals, h_boundary, 1.0, alpha=0.10,
-                    color="#4361ee", label="Ordered / compact")
-    ax.fill_between(r_vals, 0, h_boundary, alpha=0.10,
-                    color="#f72585", label="Disordered / IDP")
+    ax.fill_between(r_vals, h_boundary, 1.0, alpha=0.10, color="#4361ee")
+    ax.fill_between(r_vals, 0, h_boundary, alpha=0.10, color="#f72585")
 
-    ax.text(0.05, 0.75, "Ordered / Folded", fontsize=tick_font - 3,
-            color="#4361ee", alpha=0.8, style="italic")
-    ax.text(0.25, 0.15, "Disordered / IDP", fontsize=tick_font - 3,
-            color="#f72585", alpha=0.8, style="italic")
+    ax.text(0.04, 0.82, "Ordered / Folded", fontsize=tick_font - 3,
+            color="#4361ee", alpha=0.85, style="italic",
+            transform=ax.transAxes)
+    ax.text(0.55, 0.12, "Disordered / IDP", fontsize=tick_font - 3,
+            color="#f72585", alpha=0.85, style="italic",
+            transform=ax.transAxes)
 
     # Plot the protein's position without a binary verdict label
     is_below = h_norm < (2.785 * mean_charge + 0.446)
     pt_color = "#f72585" if is_below else "#4361ee"
     ax.scatter([mean_charge], [h_norm], color=pt_color, s=120, zorder=5,
-               edgecolors="white", linewidths=1.2)
+               edgecolors="white", linewidths=1.2, label="This protein")
     ax.annotate(f"  ({mean_charge:.3f}, {h_norm:.3f})",
                 xy=(mean_charge, h_norm),
                 fontsize=tick_font - 3, color=pt_color,
@@ -424,7 +414,7 @@ def create_uversky_phase_plot(
     ax.set_xlim(0, 0.5)
     ax.set_ylim(0, 1.0)
     ax.legend(fontsize=tick_font - 3, framealpha=0.85,
-              edgecolor="#d0d4e0", loc="upper right")
+              edgecolor="#d0d4e0", loc="upper right", borderpad=0.6)
     fig.tight_layout(pad=1.8)
     return fig
 

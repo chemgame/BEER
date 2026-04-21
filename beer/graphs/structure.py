@@ -339,7 +339,7 @@ def create_hydrophobic_moment_figure(
         ))
 
     _pub_style_ax(ax, title="Hydrophobic Moment",
-                  xlabel="Residue", ylabel="μH",
+                  xlabel="Residue", ylabel=r"$\mu H$",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(x[0], x[-1])
@@ -364,25 +364,21 @@ def create_coiled_coil_profile_figure(
     ax = fig.add_subplot(111)
     ax.set_facecolor("#fafbff")
 
-    ax.plot(xs, cc_profile, color=_ACCENT, linewidth=1.4, zorder=3)
+    ax.fill_between(xs, cc_profile, 0,
+                    alpha=0.15, color=_ACCENT, zorder=1)
     ax.fill_between(xs, cc_profile, 0.5,
                     where=[v > 0.5 for v in cc_profile],
-                    alpha=0.22, color=_ACCENT, zorder=2,
-                    label="P(CC) > 0.5")
+                    alpha=0.30, color=_ACCENT, zorder=2,
+                    label=r"$P(\mathrm{CC})$ > 0.5")
+    ax.plot(xs, cc_profile, color=_ACCENT, linewidth=1.4, zorder=3)
     ax.axhline(0.5, color="#374151", linestyle="--", linewidth=0.9,
                alpha=0.7, label="Threshold (0.5)", zorder=4)
-    _pub_style_ax(ax, title="Coiled-Coil Propensity  (COILS)",
-                  xlabel="Residue", ylabel="P(CC)",
+    _pub_style_ax(ax, title="Coiled-Coil Propensity",
+                  xlabel="Residue", ylabel=r"$P(\mathrm{CC})$",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_ylim(0, 1.05)
     ax.legend(fontsize=tick_font - 2, framealpha=0.90,
               edgecolor="#d0d4e0", loc="upper right", borderpad=0.6)
-    ax.annotate(
-        "Lupas et al. (1991) Science 252:1162",
-        xy=(0.5, -0.10), xycoords="axes fraction",
-        fontsize=max(6, tick_font - 5), color="#9ca3af",
-        ha="center", va="top",
-    )
     fig.tight_layout(pad=1.8)
     return fig

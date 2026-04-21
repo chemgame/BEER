@@ -105,7 +105,7 @@ def create_aggregation_profile_figure(
         ax.add_patch(rect)
 
     _pub_style_ax(ax, title="β-Aggregation Propensity (ZYGGREGATOR Z-score)",
-                  xlabel="Residue", ylabel="Z_agg",
+                  xlabel="Residue", ylabel=r"$Z_\mathrm{agg}$",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(x[0], x[-1])
@@ -139,7 +139,7 @@ def create_solubility_profile_figure(
     ax.axhline(0.0, color="#888", linestyle="--", linewidth=0.8)
 
     _pub_style_ax(ax, title="CamSol Solubility",
-                  xlabel="Residue", ylabel="CamSol Score",
+                  xlabel="Residue", ylabel=r"$S_\mathrm{CamSol}$",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(x[0], x[-1])
@@ -179,7 +179,7 @@ def create_scd_profile_figure(
     ax.axhline(0.0, color="#888", linestyle="--", linewidth=0.8)
 
     _pub_style_ax(ax, title=f"Charge Decoration  (w={window})",
-                  xlabel="Residue", ylabel="SCD",
+                  xlabel="Residue", ylabel=r"$\kappa_\mathrm{SCD}$",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(1, seq_len)
@@ -223,7 +223,7 @@ def create_rbp_profile_figure(
                    label=mname, zorder=0)
 
     _pub_style_ax(ax, title="RNA-Binding Propensity",
-                  xlabel="Residue", ylabel="RBP Score",
+                  xlabel="Residue", ylabel=r"$\omega_\mathrm{RBP}$",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(x[0], x[-1])
@@ -257,7 +257,7 @@ def create_disorder_profile_figure(
     ax.axhline(0.5, color="#888", linewidth=0.9, linestyle="--",
                zorder=3, label="Threshold (0.5)")
     _pub_style_ax(ax, title="Disorder Profile",
-                  xlabel="Residue", ylabel="Disorder Score",
+                  xlabel="Residue", ylabel=r"$P(\mathrm{disorder})$",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_ylim(-0.02, 1.05)
@@ -296,7 +296,7 @@ def create_plaac_profile_figure(
     ax.axhline(0, color="#aaa", linewidth=0.8, linestyle="--")
 
     _pub_style_ax(ax, title="PLAAC Prion-like Profile",
-                  xlabel="Residue", ylabel="Log-odds",
+                  xlabel="Residue", ylabel=r"$\log$-odds",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(1, n)

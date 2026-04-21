@@ -381,20 +381,23 @@ def create_annotation_track_figure(
 
     n_tracks = 5
 
-    fig = Figure(figsize=(12, 12), dpi=120)
+    fig = Figure(figsize=(12, 11), dpi=120)
     fig.set_facecolor("#ffffff")
-    height_ratios = [2, 2, 2, 1.6, 0.6]
+    height_ratios = [3, 3, 3, 2, 0.5]
     axs = fig.subplots(n_tracks, 1, sharex=True,
                        gridspec_kw={"height_ratios": height_ratios})
-    fig.subplots_adjust(hspace=0.35, left=0.05, right=0.97, top=0.93, bottom=0.06)
+    fig.subplots_adjust(hspace=0.20, left=0.05, right=0.97, top=0.93, bottom=0.07)
     fig.suptitle("Feature Annotation Track", fontsize=label_font + 1,
                  fontweight="bold", color="#1a1a2e")
 
     def _style_track(ax, label_txt, hide_xticks=True):
-        ax.set_title(label_txt, fontsize=max(7, tick_font - 1), color="#4a5568",
-                     fontweight="normal", loc="left", pad=3)
+        ax.set_title(label_txt, fontsize=max(8, tick_font), color="#4a5568",
+                     fontweight="normal", loc="left", pad=4)
         ax.set_ylabel("")
-        ax.yaxis.set_major_locator(MaxNLocator(nbins=3, prune="both"))
+        # Hide y-axis tick labels — this is an overview track; exact values
+        # are not the focus and labels at this panel size would overlap titles.
+        ax.set_yticks([])
+        ax.tick_params(axis="y", length=0)
         ax.tick_params(labelsize=tick_font - 2, length=3, width=0.7,
                        colors="#4a5568")
         for sp in ("top", "right"):
@@ -635,22 +638,5 @@ def create_cleavage_map_figure(
     ax.text(n + n * 0.01, n_enzymes - 0.5 + 0.1, "cuts",
             va="bottom", ha="left",
             fontsize=tick_font - 3, color="#888888")
-
-    # Trypsin summary — placed inside the figure at axes fraction
-    trypsin_key = next((k for k in enzymes if "trypsin" in k.lower()), None)
-    if trypsin_key is not None:
-        t_cuts = cleavage_data[trypsin_key] or []
-        n_cuts = len(t_cuts)
-        n_peptides = n_cuts + 1
-        avg_len = round(n / n_peptides, 1) if n_peptides > 0 else 0
-        summary = (
-            f"Trypsin: {n_cuts} cut{'s' if n_cuts != 1 else ''}  "
-            f"→  {n_peptides} peptide{'s' if n_peptides != 1 else ''}"
-            f"  (avg {avg_len} aa)"
-        )
-        ax.annotate(summary,
-                    xy=(0.5, -0.14), xycoords="axes fraction",
-                    fontsize=tick_font - 1, color="#2d3748",
-                    style="italic", ha="center", va="top")
 
     return fig

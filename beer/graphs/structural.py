@@ -98,7 +98,7 @@ def create_ramachandran_figure(
     ax.set_xlim(-180, 180)
     ax.set_ylim(-180, 180)
     _pub_style_ax(ax, title="Ramachandran Plot",
-                  xlabel="φ (°)", ylabel="ψ (°)",
+                  xlabel=r"$\phi$ (°)", ylabel=r"$\psi$ (°)",
                   grid=True, despine=True,
                   title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
@@ -226,7 +226,7 @@ def create_plddt_figure(
     for thresh, col in [(90, "#0053D6"), (70, "#65CBF3"), (50, "#FFDB13")]:
         ax.axhline(thresh, color=col, linewidth=0.7, linestyle="--", alpha=0.8)
     _pub_style_ax(ax, title="pLDDT Confidence",
-                  xlabel="Residue", ylabel="pLDDT",
+                  xlabel="Residue", ylabel=r"pLDDT",
                   grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_ylim(0, 100)
