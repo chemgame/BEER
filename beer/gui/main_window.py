@@ -2508,11 +2508,12 @@ function _spectrum_grey(atom){{
 }}
 function _spectrumScheme(){{
     var mx=seqLen>0?seqLen:9999;
+    if(colorScheme==='Rainbow (N\u2192C)')        return {{gradient:'roygb',prop:'resi',min:mx,max:1}};
     if(colorScheme==='Blue\u2192Red (N\u2192C)') return {{gradient:'rwb',prop:'resi',min:1,max:mx}};
     if(colorScheme==='Sinebow (N\u2192C)')        return {{gradient:'sinebow',prop:'resi',min:1,max:mx}};
-    if(colorScheme==='Reverse (C\u2192N)')        return {{gradient:'roygb',prop:'resi',min:mx,max:1}};
+    if(colorScheme==='Reverse (C\u2192N)')        return {{gradient:'roygb',prop:'resi',min:1,max:mx}};
     if(colorScheme==='Greyscale (N\u2192C)')      return null;
-    return 'spectrum';
+    return {{gradient:'roygb',prop:'resi',min:mx,max:1}};
 }}
 
 function _getColorFunc(){{
