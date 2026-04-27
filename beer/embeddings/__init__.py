@@ -18,7 +18,7 @@ if ESM2_AVAILABLE:
     from beer.embeddings.esm2_embedder import ESM2Embedder
 
 
-def get_embedder(model_name: str = "esm2_t6_8M_UR50D", device: str = "cpu") -> SequenceEmbedder:
+def get_embedder(model_name: str = "esm2_t33_650M_UR50D", device: str = "cpu") -> SequenceEmbedder:
     """Return an ESM2Embedder if available, else a FallbackEmbedder."""
     if ESM2_AVAILABLE:
         return ESM2Embedder(model_name=model_name, device=device)

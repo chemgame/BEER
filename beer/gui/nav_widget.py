@@ -13,17 +13,19 @@ class NavTabWidget(QWidget):
     Implements the subset of QTabWidget API used in this app."""
 
     _NAV_ICONS = {
-        "Analysis":            "\U0001f9ea",
-        "Graphs":              "\U0001f4ca",
-        "Structure":           "\U0001f52c",
-        "BLAST":               "\U0001f50d",
-        "Compare":             "\u2696",
-        "Multichain Analysis": "\U0001f4cb",
-        "Truncation":          "\u2702",
-        "MSA":                 "\U0001f500",
-        "Complex":             "\u269b",
-        "Settings":            "\u2699",
-        "Help":                "\u2753",
+        "Analysis":            "\U0001f9ec",   # 🧬  sequence / biology
+        "Report":              "\U0001f4cb",   # 📋  report / results
+        "Summary":             "\U0001f4ca",   # 📊  bar chart / stats
+        "Graphs":              "\U0001f4c8",   # 📈  line chart / plots
+        "Structure":           "\U0001f52c",   # 🔬  microscope / 3-D
+        "BLAST":               "\U0001f50d",   # 🔍  search
+        "Compare":             "\u2696\ufe0f", # ⚖️  compare / scales
+        "Multichain Analysis": "\U0001f9e9",   # 🧩  multichain / assembly
+        "Truncation":          "\u2702\ufe0f", # ✂️  truncation / cut
+        "MSA":                 "\U0001f500",   # 🔀  multiple alignment
+        "Complex":             "\u269b\ufe0f", # ⚛️  complex / molecular
+        "Settings":            "\u2699\ufe0f", # ⚙️  settings
+        "Help":                "\U0001f4d6",   # 📖  help / docs
     }
 
     def __init__(self, parent=None):

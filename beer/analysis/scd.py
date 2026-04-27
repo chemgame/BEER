@@ -1,4 +1,4 @@
-"""Sequence Charge Decoration (SCD) and charge-patterning analysis."""
+"""Sequence Charge Decoration (SCD), Sequence Hydrophobicity Decoration (SHD), and charge-patterning analysis."""
 from __future__ import annotations
 import math
 
@@ -88,6 +88,47 @@ def calc_scd_profile(seq: str, window: int = 20) -> list[float]:
     if n < window:
         return [calc_scd(seq)] if n > 0 else []
     return [calc_scd(seq[i:i + window]) for i in range(n - window + 1)]
+
+
+# ---------------------------------------------------------------------------
+# SHD — Sequence Hydrophobicity Decoration
+# ---------------------------------------------------------------------------
+
+def calc_shd(seq: str, hydro_values: dict) -> float:
+    """Sequence Hydrophobicity Decoration — analogous to SCD but for hydrophobicity.
+
+    SHD = (1/N) * Σ_{i<j} hᵢ · hⱼ · |i−j|^0.5
+
+    where hᵢ is the normalised hydrophobicity score of residue i.
+    Positive: hydrophobic and hydrophilic residues cluster in separate blocks.
+    Negative: alternating hydrophobic/hydrophilic pattern.
+    """
+    n = len(seq)
+    if n < 2:
+        return 0.0
+    h = [hydro_values.get(aa, 0.0) for aa in seq]
+    total = 0.0
+    for i in range(n):
+        hi = h[i]
+        if hi == 0.0:
+            continue
+        for j in range(i + 1, n):
+            hj = h[j]
+            if hj == 0.0:
+                continue
+            total += hi * hj * math.sqrt(j - i)
+    return total / n
+
+
+def calc_shd_profile(seq: str, hydro_values: dict, window: int = 20) -> list[float]:
+    """Sliding-window SHD profile.
+
+    Returns one value per window start position (length = max(0, N - window + 1)).
+    """
+    n = len(seq)
+    if n < window:
+        return [calc_shd(seq, hydro_values)] if n > 0 else []
+    return [calc_shd(seq[i:i + window], hydro_values) for i in range(n - window + 1)]
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,11 @@
 """PDB/structural file utilities."""
 from __future__ import annotations
 import math
+import os
 from io import StringIO
 
 import numpy as np
-from Bio.PDB import PDBParser, PDBIO, Select as PDBSelect, PPBuilder
+from Bio.PDB import PDBParser, MMCIFParser, PDBIO, Select as PDBSelect, PPBuilder
 from Bio.PDB.Polypeptide import is_aa
 
 
@@ -145,6 +146,85 @@ def extract_chain_structures(pdb_str: str) -> dict:
 
     parser = PDBParser(QUIET=True)
     struct = parser.get_structure("x", StringIO(pdb_str))
+    result = {}
+    model = next(struct.get_models())
+    io = PDBIO()
+    io.set_structure(struct)
+    for chain in model:
+        buf = StringIO()
+        io.save(buf, _ChainSelect(chain.id))
+        chain_pdb = buf.getvalue()
+        if not chain_pdb.strip():
+            continue
+        plddt = extract_plddt_from_pdb(chain_pdb)
+        dm = compute_ca_distance_matrix(chain_pdb)
+        result[chain.id] = {"pdb_str": chain_pdb, "plddt": plddt, "dist_matrix": dm}
+    return result
+
+
+def import_mmcif_sequence(path_or_str: str) -> dict:
+    """Extract chain sequences from an mmCIF file path or string.
+
+    Returns ``{chain_id: sequence}`` for all chains with standard amino acids,
+    identical in shape to :func:`import_pdb_sequence`.
+    """
+    from Bio.SeqUtils import seq1
+    if os.path.isfile(path_or_str):
+        parser = MMCIFParser(QUIET=True)
+        struct = parser.get_structure("x", path_or_str)
+    else:
+        import tempfile, uuid
+        tmp = os.path.join(tempfile.gettempdir(), f"beer_cif_{uuid.uuid4().hex}.cif")
+        try:
+            with open(tmp, "w") as fh:
+                fh.write(path_or_str)
+            parser = MMCIFParser(QUIET=True)
+            struct = parser.get_structure("x", tmp)
+        finally:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    chains = {}
+    for model in struct:
+        for chain in model:
+            seq_parts = []
+            for res in chain:
+                if is_aa(res, standard=True):
+                    seq_parts.append(seq1(res.get_resname()))
+            if seq_parts:
+                chains[chain.id] = "".join(seq_parts)
+        break  # first model only
+    return chains
+
+
+def extract_chain_structures_mmcif(mmcif_str: str) -> dict:
+    """Return per-chain structure dicts from an mmCIF string.
+
+    Parses via :class:`Bio.PDB.MMCIFParser`, then writes each chain as a
+    temporary PDB string so the existing pLDDT/distance-matrix helpers work
+    without modification.  Returns ``{chain_id: {"pdb_str", "plddt", "dist_matrix"}}``.
+    """
+    import tempfile, uuid
+
+    class _ChainSelect(PDBSelect):
+        def __init__(self, cid):
+            self._cid = cid
+        def accept_chain(self, chain):
+            return chain.id == self._cid
+
+    tmp = os.path.join(tempfile.gettempdir(), f"beer_cif_{uuid.uuid4().hex}.cif")
+    try:
+        with open(tmp, "w") as fh:
+            fh.write(mmcif_str)
+        parser = MMCIFParser(QUIET=True)
+        struct = parser.get_structure("x", tmp)
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
     result = {}
     model = next(struct.get_models())
     io = PDBIO()

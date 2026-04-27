@@ -19,6 +19,41 @@ _NEG_COL  = "#f72585"
 _POS_COL  = "#4361ee"
 _NEUT_COL = "#adb5bd"
 
+# Uniform palette for all sequence profile plots (line + fills)
+_PROFILE_LINE  = "#1e2640"   # near-black curve for all profiles
+_FILL_ABOVE    = "#4361ee"   # blue  — hydrophobic / positive charge / BiLSTM predicted
+_FILL_BELOW    = "#f72585"   # pink  — hydrophilic / negative charge
+_FILL_NEUTRAL  = "#d0d8e8"   # light blue-gray — BiLSTM "below threshold" (not predicted)
+
+# ---------------------------------------------------------------------------
+# Per-feature colour map (21 BiLSTM heads + aggregation)
+# Used consistently across profile plots, dual-track figures, and report badges.
+# ---------------------------------------------------------------------------
+
+FEATURE_COLORS: dict[str, str] = {
+    "disorder":        "#f3722c",  # warm orange — flexibility
+    "signal_peptide":  "#4361ee",  # blue — secretory
+    "transmembrane":   "#7209b7",  # purple — membrane
+    "coiled_coil":     "#f72585",  # magenta — structural repeat
+    "dna_binding":     "#3a0ca3",  # deep violet — nucleic acid
+    "active_site":     "#e63946",  # red — catalytic
+    "binding_site":    "#2a9d8f",  # teal — ligand interaction
+    "phosphorylation": "#e9c46a",  # amber — PTM
+    "lcd":             "#90be6d",  # green — low complexity
+    "zinc_finger":     "#457b9d",  # steel blue — metal binding
+    "glycosylation":   "#f4a261",  # peach — sugar modification
+    "ubiquitination":  "#e76f51",  # terracotta — degradation
+    "methylation":     "#84a98c",  # sage green — epigenetic
+    "acetylation":     "#52b788",  # emerald — histone mark
+    "lipidation":      "#9b5de5",  # lavender — membrane anchor
+    "disulfide":       "#fcbf49",  # gold — structural bond
+    "intramembrane":   "#9b2226",  # dark red — membrane interior
+    "motif":           "#606c38",  # olive — functional sequence
+    "propeptide":      "#bc6c25",  # brown — processing
+    "repeat":          "#577590",  # slate blue — structural repeat
+    "aggregation":     "#4682b4",  # steel blue — aggregation
+}
+
 
 # ---------------------------------------------------------------------------
 # Axes styling helpers

@@ -152,11 +152,11 @@ def create_contact_network_figure(
     norm_n = (n - 1) if n > 1 else 1
     centrality = node_degrees / norm_n
 
-    # Scale figure with n, capped
+    # Scale figure with n, capped; extra width for colorbar via subplots_adjust
     dim = max(6, min(9, 6 + n * 0.015))
-    fig = Figure(figsize=(dim + 1.0, dim), dpi=120)
+    fig = Figure(figsize=(dim, dim), dpi=120)
     fig.set_facecolor("#ffffff")
-    ax = fig.add_subplot(111)
+    ax = fig.add_axes([0.05, 0.05, 0.80, 0.88])
 
     _cmap = cm.get_cmap(cmap)
     norm = mcolors.Normalize(vmin=0, vmax=centrality.max() if centrality.max() > 0 else 1)
@@ -184,7 +184,8 @@ def create_contact_network_figure(
                     ha="center", va="center",
                     fontsize=max(tick_font - 4, 6), zorder=4)
 
-    cbar = fig.colorbar(scatter, ax=ax, fraction=0.03, pad=0.02)
+    cax = fig.add_axes([0.87, 0.15, 0.03, 0.65])
+    cbar = fig.colorbar(scatter, cax=cax)
     cbar.set_label("Degree centrality", fontsize=label_font - 2)
     cbar.ax.tick_params(labelsize=tick_font - 2)
 
@@ -195,7 +196,6 @@ def create_contact_network_figure(
         f"Contact Network  (Cα ≤ {cutoff_angstrom} Å){subtitle}",
         fontsize=label_font - 1, fontweight="bold", color="#1a1a2e", pad=8,
     )
-    fig.tight_layout(pad=1.8)
     return fig
 
 
@@ -213,29 +213,32 @@ def create_plddt_figure(
     fig = Figure(figsize=(w, 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
-    ax.axhspan(90, 100, alpha=0.07, color="#0053D6")
-    ax.axhspan(70,  90, alpha=0.07, color="#65CBF3")
-    ax.axhspan(50,  70, alpha=0.07, color="#FFDB13")
-    ax.axhspan(0,   50, alpha=0.07, color="#FF7D45")
-    cmap = plt.get_cmap("RdYlBu")
-    norm = mcolors.Normalize(vmin=0, vmax=100)
+    ax.axhspan(90, 100, alpha=0.14, color="#0053D6")
+    ax.axhspan(70,  90, alpha=0.14, color="#65CBF3")
+    ax.axhspan(50,  70, alpha=0.14, color="#FFDB13")
+    ax.axhspan(0,   50, alpha=0.14, color="#FF7D45")
     for i in range(n - 1):
+        mid = (plddt[i] + plddt[i + 1]) / 2
+        if mid >= 90:   seg_col = "#0053D6"
+        elif mid >= 70: seg_col = "#65CBF3"
+        elif mid >= 50: seg_col = "#FFDB13"
+        else:           seg_col = "#FF7D45"
         ax.plot([xs[i], xs[i + 1]], [plddt[i], plddt[i + 1]],
-                color=cmap(norm((plddt[i] + plddt[i + 1]) / 2)),
-                linewidth=1.6, zorder=4, solid_capstyle="round")
+                color=seg_col, linewidth=2.5, zorder=4, solid_capstyle="round")
+    ax.plot(xs, plddt, color="black", linewidth=0.5, alpha=0.35, zorder=5)
     for thresh, col in [(90, "#0053D6"), (70, "#65CBF3"), (50, "#FFDB13")]:
-        ax.axhline(thresh, color=col, linewidth=0.7, linestyle="--", alpha=0.8)
-    _pub_style_ax(ax, title="pLDDT Confidence",
-                  xlabel="Residue", ylabel=r"pLDDT",
+        ax.axhline(thresh, color=col, linewidth=0.9, linestyle="--", alpha=0.9)
+    _pub_style_ax(ax, title="pLDDT Confidence Score",
+                  xlabel="Residue Position", ylabel="pLDDT Score",
                   grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_ylim(0, 100)
     ax.set_xlim(1, n)
     ax.legend(handles=[
-        Patch(color="#0053D6", alpha=0.5, label=">90  Very high"),
-        Patch(color="#65CBF3", alpha=0.5, label="70–90  Confident"),
-        Patch(color="#FFDB13", alpha=0.5, label="50–70  Low"),
-        Patch(color="#FF7D45", alpha=0.5, label="<50  Very low"),
+        Patch(color="#0053D6", alpha=0.5, label="Very high"),
+        Patch(color="#65CBF3", alpha=0.5, label="Confident"),
+        Patch(color="#FFDB13", alpha=0.5, label="Low"),
+        Patch(color="#FF7D45", alpha=0.5, label="Very low"),
     ], fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0",
        loc="lower right")
     fig.tight_layout(pad=1.8)
@@ -260,12 +263,12 @@ def create_distance_map_figure(
                    origin="upper", interpolation="nearest",
                    vmin=0, vmax=min(40, dist_matrix.max()))
     cbar = fig.colorbar(im, ax=ax, shrink=0.85, aspect=20, pad=0.02)
-    cbar.set_label("Cα dist. (Å)", fontsize=tick_font - 1, color="#4a5568")
+    cbar.set_label("Cα Pairwise Distance (Å)", fontsize=tick_font - 1, color="#4a5568")
     cbar.ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
     ax.contour(dist_matrix, levels=[8.0], colors=["#f72585"],
                linewidths=[0.6], alpha=0.7)
     _pub_style_ax(ax, title=f"Cα Distance Map  ({n} aa)",
-                  xlabel="Residue", ylabel="Residue",
+                  xlabel="Residue Position", ylabel="Residue Position",
                   grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     fig.tight_layout(pad=1.8)

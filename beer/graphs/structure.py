@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 
-from beer.constants import KYTE_DOOLITTLE
+from beer.constants import KYTE_DOOLITTLE, HYDROPHOBICITY_SCALES
 from beer.graphs._style import (
     _pub_style_ax, _PALETTE, _ACCENT,
 )
@@ -43,7 +43,7 @@ def create_bead_model_hydrophobicity_figure(
 ) -> Figure:
     """Linear bead model coloured by Kyte-Doolittle hydrophobicity."""
     n = len(seq)
-    fig = Figure(figsize=(_bead_width(n), 3.2), dpi=120)
+    fig = Figure(figsize=(_bead_width(n), 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     xs = list(range(1, n + 1))
@@ -53,13 +53,13 @@ def create_bead_model_hydrophobicity_figure(
                     vmin=-4.5, vmax=4.5, zorder=4)
     cbar = fig.colorbar(sc, ax=ax, shrink=0.7, aspect=15, pad=0.03,
                         fraction=0.025)
-    cbar.set_label("KD Score", fontsize=tick_font - 1, color="#4a5568")
+    cbar.set_label("Kyte-Doolittle (KD) Score", fontsize=tick_font - 1, color="#4a5568")
     cbar.ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
     ax.set_yticks([])
     ax.set_xlim(0, n + 1)
     ax.set_ylim(0.3, 1.7)
     _pub_style_ax(ax, title="Bead Model — Hydrophobicity",
-                  xlabel="Residue", grid=False, despine=False,
+                  xlabel="Residue Position", grid=False, despine=False,
                   title_size=label_font - 1, label_size=label_font - 2,
                   tick_size=tick_font - 2)
     ax.spines["top"].set_visible(False)
@@ -85,7 +85,7 @@ def create_bead_model_charge_figure(
 ) -> Figure:
     """Linear bead model coloured by charge (K/R/D/E/H)."""
     n = len(seq)
-    fig = Figure(figsize=(_bead_width(n), 3.2), dpi=120)
+    fig = Figure(figsize=(_bead_width(n), 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     xs = list(range(1, n + 1))
@@ -98,19 +98,21 @@ def create_bead_model_charge_figure(
         else:             cols.append(neu_c)
     ax.scatter(xs, [1] * n, c=cols, s=220, linewidths=0.5,
                edgecolors="white", zorder=4)
-    ax.legend(handles=[
-        Patch(color=pos_c, label="Positive (K, R)"),
-        Patch(color=neg_c, label="Negative (D, E)"),
-        Patch(color=his_c, label="His (H)"),
-        Patch(color=neu_c, label="Neutral"),
-    ], loc="upper right", fontsize=max(7, tick_font - 2),
-        framealpha=0.90, edgecolor="#d0d4e0", borderpad=0.6,
-        labelspacing=0.3)
+    import matplotlib.colors as _mc
+    import matplotlib.cm as _mcm
+    _charge_cmap = _mc.ListedColormap([pos_c, his_c, neu_c, neg_c])
+    _charge_norm = _mc.BoundaryNorm([0, 1, 2, 3, 4], 4)
+    _sm = _mcm.ScalarMappable(cmap=_charge_cmap, norm=_charge_norm)
+    _sm.set_array([])
+    cbar = fig.colorbar(_sm, ax=ax, shrink=0.7, aspect=15, pad=0.03, fraction=0.025)
+    cbar.set_ticks([0.5, 1.5, 2.5, 3.5])
+    cbar.set_ticklabels(["Positive\n(K, R)", "His\n(H)", "Neutral", "Negative\n(D, E)"])
+    cbar.ax.tick_params(labelsize=max(6, tick_font - 3), colors="#4a5568")
     ax.set_yticks([])
     ax.set_xlim(0, n + 1)
     ax.set_ylim(0.3, 1.7)
     _pub_style_ax(ax, title="Bead Model — Charge",
-                  xlabel="Residue", grid=False, despine=False,
+                  xlabel="Residue Position", grid=False, despine=False,
                   title_size=label_font - 1, label_size=label_font - 2,
                   tick_size=tick_font - 2)
     ax.spines["top"].set_visible(False)
@@ -131,6 +133,7 @@ def create_bead_model_charge_figure(
 def create_helical_wheel_figure(
     seq: str,
     label_font: int = 14,
+    hydro_scale: str = "Kyte-Doolittle",
 ) -> Figure:
     """Helical wheel projection (first ≤18 residues)."""
     seg = seq[:18]
@@ -138,7 +141,7 @@ def create_helical_wheel_figure(
     fig = Figure(figsize=(7.0, 6.5), dpi=120, layout="constrained")
     fig.set_facecolor("#ffffff")
 
-    gs = fig.add_gridspec(1, 2, width_ratios=[9, 1])
+    gs = fig.add_gridspec(1, 2, width_ratios=[20, 1])
     ax  = fig.add_subplot(gs[0])
     cax = fig.add_subplot(gs[1])
 
@@ -146,9 +149,13 @@ def create_helical_wheel_figure(
     ax.set_aspect("equal")
     ax.axis("off")
 
+    scale_data = HYDROPHOBICITY_SCALES.get(hydro_scale, HYDROPHOBICITY_SCALES["Kyte-Doolittle"])
+    scale_vals = scale_data["values"]
+    h_values = [scale_vals.get(aa, 0.0) for aa in seg]
+    h_min = min(scale_vals.values())
+    h_max = max(scale_vals.values())
     cmap = plt.get_cmap("RdYlBu_r")
-    kd_min, kd_max = -4.5, 4.5
-    norm = Normalize(vmin=kd_min, vmax=kd_max)
+    norm = Normalize(vmin=h_min, vmax=h_max)
     DOT_R = 0.13
     RING_R = 1.0
 
@@ -164,8 +171,7 @@ def create_helical_wheel_figure(
                 color="#b0bac8", linewidth=1.0, zorder=2, solid_capstyle="round")
 
     for i, aa in enumerate(seg):
-        kd = KYTE_DOOLITTLE.get(aa, 0.0)
-        col = cmap(norm(kd))
+        col = cmap(norm(h_values[i]))
         r, g, b, _ = col
         lum = 0.299 * r + 0.587 * g + 0.114 * b
         txt_col = "#1a1a2e" if lum > 0.45 else "white"
@@ -190,7 +196,7 @@ def create_helical_wheel_figure(
     sm = ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cb = fig.colorbar(sm, cax=cax)
-    cb.set_label("KD Score", fontsize=label_font - 4, color="#4a5568")
+    cb.set_label("Hydrophobicity", fontsize=label_font - 4, color="#4a5568")
     cb.ax.tick_params(labelsize=label_font - 5, colors="#4a5568")
     return fig
 
@@ -235,8 +241,8 @@ def create_tm_topology_figure(
     y = side * 1.15
     ax.plot([prev_end + 1, n], [y, y],
             color="#4361ee", linewidth=1.6, solid_capstyle="round", zorder=3)
-    _pub_style_ax(ax, title=f"TM Topology  ({len(helices)} helices)",
-                  xlabel="Residue", ylabel="",
+    _pub_style_ax(ax, title=f"Transmembrane Topology  ({len(helices)} helices)",
+                  xlabel="Residue Position", ylabel="",
                   grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(0, n + 2)
@@ -258,7 +264,7 @@ def create_sticker_map_figure(
 ) -> Figure:
     """Sticker map showing aromatic, basic, and acidic residues."""
     n = len(seq)
-    fig = Figure(figsize=(_bead_width(n), 3.2), dpi=120)
+    fig = Figure(figsize=(_bead_width(n), 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     xs = list(range(1, n + 1))
@@ -284,7 +290,7 @@ def create_sticker_map_figure(
     ax.set_xlim(0, n + 1)
     ax.set_ylim(0.3, 1.7)
     _pub_style_ax(ax, title="Sticker Map",
-                  xlabel="Residue", grid=False, despine=False,
+                  xlabel="Residue Position", grid=False, despine=False,
                   title_size=label_font - 1, label_size=label_font - 2,
                   tick_size=tick_font - 2)
     ax.spines["top"].set_visible(False)
@@ -339,7 +345,7 @@ def create_hydrophobic_moment_figure(
         ))
 
     _pub_style_ax(ax, title="Hydrophobic Moment",
-                  xlabel="Residue", ylabel=r"$\mu H$",
+                  xlabel="Residue Position", ylabel="Hydrophobic Moment (µH)",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(x[0], x[-1])
@@ -375,7 +381,7 @@ def create_coiled_coil_profile_figure(
     ax.axhline(0.5, color="#374151", linestyle="--", linewidth=0.9,
                alpha=0.7, label="Threshold (0.5)", zorder=4)
     _pub_style_ax(ax, title="Coiled-Coil Propensity",
-                  xlabel="Residue", ylabel=r"$P(\mathrm{CC})$",
+                  xlabel="Residue Position", ylabel="Coiled-Coil Probability",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_ylim(0, 1.05)

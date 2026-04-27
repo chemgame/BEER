@@ -4,7 +4,17 @@ from __future__ import annotations
 import math
 
 from beer.constants import KYTE_DOOLITTLE
-from beer.reports.css import make_style_tag
+from beer.reports.css import make_style_tag, method_badge
+
+
+def calc_signal_peptide_profile(
+    seq: str,
+    embedder=None,
+    head: dict | None = None,
+) -> "list[float] | None":
+    """Per-residue BiLSTM signal-peptide probability (0–1), or None if unavailable."""
+    from beer.utils.structure import bilstm_predict
+    return bilstm_predict(seq, embedder, head)
 
 # Small neutral residues allowed at signal-peptide cleavage (-3, -1) positions
 _SMALL_NEUTRAL = frozenset('AGSTC')
@@ -253,7 +263,11 @@ def predict_gpi_anchor(seq: str) -> dict:
 # HTML report
 # ---------------------------------------------------------------------------
 
-def format_signal_report(seq: str, style_tag: str) -> str:
+def format_signal_report(
+    seq: str,
+    style_tag: str,
+    bilstm_scores: "list[float] | None" = None,
+) -> str:
     """Generate HTML section for signal peptide and GPI anchor predictions.
 
     Parameters
@@ -262,56 +276,64 @@ def format_signal_report(seq: str, style_tag: str) -> str:
         Protein sequence in single-letter uppercase code.
     style_tag:
         Accent colour hex string (e.g. ``"#4361ee"``).
-
-    Returns
-    -------
-    str
-        Self-contained HTML fragment (includes ``<style>`` block).
+    bilstm_scores:
+        Optional per-residue BiLSTM signal-peptide probabilities.
     """
     accent = style_tag if style_tag else "#4361ee"
     _s = make_style_tag(accent)
 
-    sp = predict_signal_peptide(seq)
     gpi = predict_gpi_anchor(seq)
 
     # ---- Signal peptide table ----
-    # Cleavage site display
-    if sp['cleavage_site'] > 0 and sp['cleavage_site'] <= len(seq):
-        cs = sp['cleavage_site']
-        cs_context = seq[max(0, cs - 5):cs] + " | " + seq[cs:min(len(seq), cs + 5)]
+    if bilstm_scores is not None and len(bilstm_scores) >= 10:
+        n70 = min(70, len(bilstm_scores))
+        bilstm_sp_score = sum(bilstm_scores[:n70]) / n70
+        bl_label = "likely SP" if bilstm_sp_score >= 0.5 else "unlikely SP"
+        sp_rows = (
+            f"<tr><td><b>BiLSTM SP score (mean, pos 1&ndash;{n70})</b></td>"
+            f"<td><b>{bilstm_sp_score:.3f}</b> &mdash; {bl_label}"
+            f" &nbsp;<em>(ESM2 650M, AUROC 0.9999)</em></td></tr>"
+        )
+        _sp_note = (
+            "BiLSTM: ESM2 650M BiLSTM head trained on UniProt Swiss-Prot signal-peptide annotations "
+            "(AUROC 0.9999 on held-out test set); score shown is mean per-residue probability over "
+            "N-terminal 70 residues. Threshold: score &ge; 0.50."
+        )
     else:
-        cs_context = "N/A"
+        sp = predict_signal_peptide(seq)
+        if sp['cleavage_site'] > 0 and sp['cleavage_site'] <= len(seq):
+            cs = sp['cleavage_site']
+            cs_context = seq[max(0, cs - 5):cs] + " | " + seq[cs:min(len(seq), cs + 5)]
+        else:
+            cs_context = "N/A"
+        d = sp['d_score']
+        d_label = "likely SP" if d >= 0.5 else "unlikely SP"
+        sp_rows = (
+            f"<tr><td><b>D-score P(SP)</b></td>"
+            f"<td><b>{d:.3f}</b> &mdash; {d_label}</td></tr>"
+            f"<tr><td>n-region basic residues (K,R in pos 1&ndash;5)</td><td>{sp['n_score']}</td></tr>"
+            f"<tr><td>h-region position</td>"
+            f"<td>{sp['h_start']+1}&ndash;{sp['h_end']} ({sp['h_length']} aa)</td></tr>"
+            f"<tr><td>h-region sequence</td><td><code>{sp['h_region_seq']}</code></td></tr>"
+            f"<tr><td>h-region mean KD hydrophobicity</td><td>{sp['h_region_score']:.3f}</td></tr>"
+            f"<tr><td>c-region AXA cleavage motif found</td><td>{'Yes' if sp['c_has_axa'] else 'No'}</td></tr>"
+            f"<tr><td>Predicted cleavage site (after pos)</td>"
+            f"<td>{sp['cleavage_site']} &nbsp;[{cs_context}]</td></tr>"
+        )
+        _sp_note = (
+            "D-score: logistic discriminant combining h-region KD, n-region basicity, and AXA motif "
+            "(von Heijne 1986; Nielsen et al. 1997 SignalP; Bendtsen et al. 2004). "
+            "Threshold: D &ge; 0.50."
+        )
 
-    axa_str = "Yes" if sp['c_has_axa'] else "No"
-
-    d = sp['d_score']
-    d_label = "likely SP" if d >= 0.5 else "unlikely SP"
-    sp_rows = (
-        f"<tr><td><b>D-score P(SP)</b></td>"
-        f"<td><b>{d:.3f}</b> &mdash; {d_label}</td></tr>"
-        f"<tr><td>n-region basic residues (K,R in pos 1&ndash;5)</td><td>{sp['n_score']}</td></tr>"
-        f"<tr><td>h-region position</td>"
-        f"<td>{sp['h_start']+1}&ndash;{sp['h_end']} ({sp['h_length']} aa)</td></tr>"
-        f"<tr><td>h-region sequence</td><td><code>{sp['h_region_seq']}</code></td></tr>"
-        f"<tr><td>h-region mean KD hydrophobicity</td><td>{sp['h_region_score']:.3f}</td></tr>"
-        f"<tr><td>c-region AXA cleavage motif found</td><td>{axa_str}</td></tr>"
-        f"<tr><td>Predicted cleavage site (after pos)</td>"
-        f"<td>{sp['cleavage_site']} &nbsp;[{cs_context}]</td></tr>"
-    )
-
+    _sp_badge = method_badge("ESM2 BiLSTM", "bilstm") if bilstm_scores is not None else method_badge("classical", "classical")
     sp_html = (
-        "<h2>Signal Peptide Features (von Heijne 1986 / SignalP D-score)</h2>"
+        f"<h2>Signal Peptide {_sp_badge}</h2>"
         "<table>"
         "<tr><th>Parameter</th><th>Value</th></tr>"
         f"{sp_rows}"
         "</table>"
-        "<p class='note'>"
-        "Three-region (n/h/c) model: von Heijne, G. (1986) Nucleic Acids Res. 14:4683. "
-        "D-score: logistic discriminant combining h-region KD, n-region basicity, and AXA motif "
-        "(inspired by Nielsen et al. 1997 SignalP; Bendtsen et al. 2004 D-score). "
-        "Threshold: D &ge; 0.50. For deep-learning signal-peptide prediction use SignalP 6.0 "
-        "(Teufel et al. 2022, Nat. Biotechnol. 40:1023)."
-        "</p>"
+        f"<p class='note'>{_sp_note}</p>"
     )
 
     # ---- GPI anchor table ----

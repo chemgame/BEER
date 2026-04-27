@@ -62,8 +62,8 @@ def create_variant_effect_figure(
     ax_mean.set_xticks([x - 1 for x in xticks])  # imshow uses 0-based indices
     ax_mean.set_xticklabels([str(x) for x in xticks], fontsize=max(tick_font - 2, 7))
     _pub_style_ax(ax_mean, title="",
-                  xlabel="Residue",
-                  ylabel="Mean LLR",
+                  xlabel="Residue Position",
+                  ylabel="Mean Log-Likelihood Ratio",
                   grid=True, despine=True,
                   title_size=label_font - 1, label_size=label_font - 2,
                   tick_size=tick_font - 2)
@@ -134,7 +134,7 @@ def create_alphafold_missense_figure(
     ax_mean.set_xticks(xticks)
     ax_mean.set_xticklabels([str(x) for x in xticks], fontsize=max(tick_font - 2, 7))
     _pub_style_ax(ax_mean, title="",
-                  xlabel="Residue", ylabel="Mean path.",
+                  xlabel="Residue Position", ylabel="Mean Pathogenicity Score",
                   grid=True, despine=True,
                   title_size=label_font - 1, label_size=label_font - 2,
                   tick_size=tick_font - 2)

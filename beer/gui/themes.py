@@ -20,6 +20,10 @@ LIGHT_THEME_CSS = """
      padding: 4px 6px;
      selection-background-color: #4361ee;
  }
+ QTextBrowser > QWidget, QTextEdit > QWidget {
+     background-color: #ffffff;
+     color: #1a1a2e;
+ }
  QPushButton {
      background-color: #4361ee;
      color: #ffffff;
@@ -120,7 +124,7 @@ LIGHT_THEME_CSS = """
  QTreeWidget#graph_tree::item { padding: 5px 6px; color: #4a5568; }
  QTreeWidget#graph_tree::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 3px; }
  QTreeWidget#graph_tree::branch { background-color: #f0f2fa; }
- QTreeWidget#report_nav::item { padding: 6px 8px; color: #4a5568; }
+ QTreeWidget#report_nav::item { padding: 6px 8px; color: #4a5568; background-color: #f0f2fa; }
  QTreeWidget#report_nav::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 3px; }
  QTreeWidget#report_nav::item:hover:!selected { background-color: #dce3f8; }
  QTreeWidget#report_nav::branch { background-color: #f0f2fa; }
@@ -239,6 +243,10 @@ DARK_THEME_CSS = """
      padding: 4px 6px;
      selection-background-color: #4cc9f0;
  }
+ QTextBrowser > QWidget, QTextEdit > QWidget {
+     background-color: #16213e;
+     color: #e2e8f0;
+ }
  QPushButton {
      background-color: #4cc9f0;
      color: #1a1a2e;
@@ -336,7 +344,7 @@ DARK_THEME_CSS = """
  QTreeWidget#graph_tree::item { padding: 5px 6px; color: #94a3b8; }
  QTreeWidget#graph_tree::item:selected { background-color: #4cc9f0; color: #1a1a2e; border-radius: 3px; }
  QTreeWidget#graph_tree::branch { background-color: #16213e; }
- QTreeWidget#report_nav::item { padding: 6px 8px; color: #94a3b8; }
+ QTreeWidget#report_nav::item { padding: 6px 8px; color: #94a3b8; background-color: #16213e; }
  QTreeWidget#report_nav::item:selected { background-color: #4cc9f0; color: #1a1a2e; border-radius: 3px; }
  QTreeWidget#report_nav::item:hover:!selected { background-color: #1a3a5c; }
  QTreeWidget#report_nav::branch { background-color: #16213e; }

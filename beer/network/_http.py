@@ -560,6 +560,55 @@ def fetch_uniprot_fasta(query: str) -> str:
         return r.read().decode("utf-8")
 
 
+def fetch_uniprot_pdb_xrefs(uniprot_id: str) -> list[dict]:
+    """Return PDB cross-references for a UniProt accession.
+
+    Each entry is a dict with keys: ``id``, ``method``, ``resolution``, ``chains``.
+    Returns an empty list on any error.
+    """
+    url = f"https://rest.uniprot.org/uniprotkb/{uniprot_id.strip().upper()}.json"
+    req = urllib.request.Request(url, headers={"Accept": "application/json",
+                                               "User-Agent": _USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as r:
+            data = json.loads(r.read().decode())
+    except Exception:
+        return []
+    results = []
+    for ref in data.get("uniProtKBCrossReferences", []):
+        if ref.get("database") != "PDB":
+            continue
+        props = {p["key"]: p["value"] for p in ref.get("properties", [])}
+        results.append({
+            "id":         ref.get("id", ""),
+            "method":     props.get("Method", ""),
+            "resolution": props.get("Resolution", ""),
+            "chains":     props.get("Chains", ""),
+        })
+    return results
+
+
+def fetch_rcsb_assembly_cif(pdb_id: str, assembly: int = 1) -> str:
+    """Fetch biological assembly mmCIF from RCSB.
+
+    Parameters
+    ----------
+    pdb_id:
+        4-character PDB identifier (case-insensitive).
+    assembly:
+        Assembly number (default 1 = first / primary biological assembly).
+
+    Returns
+    -------
+    mmCIF file contents as a string.
+    """
+    pdb_id = pdb_id.strip().upper()
+    url = f"https://files.rcsb.org/download/{pdb_id}-assembly{assembly}.cif"
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.read().decode("utf-8")
+
+
 def fetch_rcsb_pdb(pdb_id: str) -> str:
     """Fetch a PDB file from RCSB.
 

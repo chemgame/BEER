@@ -178,21 +178,43 @@ def predict_phosphorylation(seq: str) -> dict[str, list[dict]]:
 # HTML report
 # ---------------------------------------------------------------------------
 
-def format_phospho_report(seq: str, style_tag: str) -> str:
+def format_phospho_report(
+    seq: str,
+    style_tag: str,
+    disorder_scores: "list[float] | None" = None,
+    plddt: "list[float] | None" = None,
+) -> str:
     """Generate HTML section for phosphorylation site predictions.
+
+    Sites are context-filtered: those in predicted disordered regions
+    (disorder score > 0.5) or low-confidence AlphaFold regions (pLDDT < 70)
+    are flagged as higher-confidence predictions, reducing false-positive noise.
 
     Parameters
     ----------
-    seq:
-        Protein sequence in single-letter uppercase code.
-    style_tag:
-        Accent colour hex string (e.g. ``"#4361ee"``).
+    seq:           Protein sequence.
+    style_tag:     Accent colour hex string.
+    disorder_scores: Per-residue BiLSTM disorder probability (same length as seq).
+    plddt:         Per-residue pLDDT scores from AlphaFold (same length as seq).
     """
     accent = style_tag if style_tag else "#4361ee"
     _s = make_style_tag(accent)
 
     predictions = predict_phosphorylation(seq)
     total = sum(len(v) for v in predictions.values())
+
+    has_context = disorder_scores is not None or plddt is not None
+
+    def _context(pos: int) -> str:
+        """Return 'high' if site is in disordered or low-pLDDT region."""
+        idx = pos - 1
+        if disorder_scores and 0 <= idx < len(disorder_scores):
+            if disorder_scores[idx] > 0.5:
+                return "disordered"
+        if plddt and 0 <= idx < len(plddt):
+            if plddt[idx] < 70:
+                return "low-pLDDT"
+        return ""
 
     summary_rows = "".join(
         f"<tr><td>{kinase}</td><td>{len(hits)}</td></tr>"
@@ -206,6 +228,17 @@ def format_phospho_report(seq: str, style_tag: str) -> str:
         "<tr><td><b>Total</b></td><td><b>" + str(total) + "</b></td></tr>"
         "</table>"
     )
+    if has_context:
+        summary_html += (
+            "<p class='note' style='background:#f0fdf4;border-left:3px solid #22c55e;"
+            "padding:6px 10px'>"
+            "<b>Context filter active</b> — sites in disordered regions (BiLSTM &gt; 0.5) "
+            "or low-confidence structure (pLDDT &lt; 70) are marked "
+            "<span style='color:#16a34a;font-weight:bold'>✓ high confidence</span>. "
+            "Others are shown but may be in well-folded domains where the PWM "
+            "motif is sterically buried."
+            "</p>"
+        )
 
     detail_parts = []
     for kinase, hits in predictions.items():
@@ -214,16 +247,30 @@ def format_phospho_report(seq: str, style_tag: str) -> str:
                 f"<h3>{kinase}</h3><p>No sites above threshold.</p>"
             )
             continue
-        rows = "".join(
-            f"<tr><td>{h['position']}</td><td>{h['residue']}</td>"
-            f"<td>{h['score']:.3f}</td></tr>"
-            for h in hits
+        header_ctx = (
+            "<tr><th>Position</th><th>Residue</th><th>PWM score</th><th>Context</th></tr>"
+            if has_context else
+            "<tr><th>Position</th><th>Residue</th><th>PWM score</th></tr>"
         )
+        rows = []
+        for h in hits:
+            ctx = _context(h["position"]) if has_context else ""
+            ctx_cell = ""
+            if has_context:
+                if ctx:
+                    ctx_cell = (f"<td><span style='color:#16a34a;font-weight:bold'>"
+                                f"✓ {ctx}</span></td>")
+                else:
+                    ctx_cell = "<td style='color:#94a3b8'>structured</td>"
+            rows.append(
+                f"<tr><td>{h['position']}</td><td>{h['residue']}</td>"
+                f"<td>{h['score']:.3f}</td>{ctx_cell}</tr>"
+            )
         detail_parts.append(
             f"<h3>{kinase}</h3>"
             "<table>"
-            "<tr><th>Position</th><th>Residue</th><th>PWM score</th></tr>"
-            f"{rows}"
+            f"{header_ctx}"
+            + "".join(rows) +
             "</table>"
         )
 
@@ -235,7 +282,8 @@ def format_phospho_report(seq: str, style_tag: str) -> str:
         "PKC ([S/T]x[R/K]), CK2 ([S/T]xxE/D), and Src/Tyr kinase (YxxΦ). "
         "PWM log-odds relative to uniform amino acid background (Blom et al. 1999 "
         "J. Mol. Biol. 294:1351). Scores &ge; threshold are reported; all sites require "
-        "experimental validation."
+        "experimental validation. Context filter uses BiLSTM disorder + AlphaFold pLDDT "
+        "to flag sites more likely to be accessible."
         "</p>"
     )
 

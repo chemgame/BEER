@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.request
 import urllib.error
 
@@ -447,8 +448,7 @@ class AnalysisWorker(QThread):
     error = Signal(str)
 
     def __init__(self, seq, pH, window_size, use_reducing, pka,
-                 hydro_scale="Kyte-Doolittle", embedder=None,
-                 use_esm2_aggregation=False):
+                 hydro_scale="Kyte-Doolittle", embedder=None):
         super().__init__()
         self.seq = seq
         self.pH = pH
@@ -457,7 +457,6 @@ class AnalysisWorker(QThread):
         self.pka = pka
         self.hydro_scale = hydro_scale
         self.embedder = embedder
-        self.use_esm2_aggregation = use_esm2_aggregation
 
     def run(self):
         try:
@@ -468,11 +467,128 @@ class AnalysisWorker(QThread):
                 self.use_reducing, self.pka,
                 embedder=self.embedder,
                 hydro_scale=self.hydro_scale,
-                use_esm2_aggregation=self.use_esm2_aggregation,
             )
             self.finished.emit(data)
         except Exception as exc:
             self.error.emit(str(exc))
+
+
+class AISectionWorker(QThread):
+    """Compute a single BiLSTM head on demand (lazy AI section loading).
+
+    The ESM2Embedder caches embeddings by sequence hash, so after the first
+    head is computed the embedding is reused for all subsequent heads.
+
+    Signals
+    -------
+    result_ready(str, list):
+        (section_key, scores) — section_key is "AI:<display_name>",
+        scores is the per-residue probability list.
+    error(str, str):
+        (section_key, message)
+    """
+
+    result_ready = Signal(str, list)
+    error        = Signal(str, str)
+
+    def __init__(self, section_key: str, data_key: str, seq: str, embedder):
+        super().__init__()
+        self.section_key = section_key
+        self.data_key    = data_key
+        self.seq         = seq
+        self.embedder    = embedder
+
+    def run(self) -> None:
+        try:
+            from beer.analysis.core import compute_single_bilstm_head
+            scores = compute_single_bilstm_head(self.data_key, self.seq, self.embedder)
+            if scores:
+                self.result_ready.emit(self.section_key, scores)
+            else:
+                self.error.emit(
+                    self.section_key,
+                    f"Model not available or embedder unavailable for '{self.section_key}'."
+                )
+        except Exception as exc:
+            import traceback as _tb
+            self.error.emit(
+                self.section_key,
+                f"{type(exc).__name__}: {exc}\n{_tb.format_exc()}"
+            )
+
+
+class MCDropoutWorker(QThread):
+    """Run MC-Dropout (N stochastic forward passes) for a single BiLSTM head.
+
+    Signals
+    -------
+    result_ready(str, list):
+        (graph_title, uncertainty_list)
+    error(str, str):
+        (graph_title, message)
+    """
+
+    result_ready = Signal(str, list)
+    error        = Signal(str, str)
+
+    def __init__(self, title: str, feat: str, seq: str, embedder,
+                 n_passes: int = 20) -> None:
+        super().__init__()
+        self.title    = title
+        self.feat     = feat
+        self.seq      = seq
+        self.embedder = embedder
+        self.n_passes = n_passes
+
+    def run(self) -> None:
+        try:
+            from beer.utils.structure import bilstm_predict_mc
+            import beer.models as _m
+            _loaders = {
+                "disorder":      "load_disorder_head",
+                "signal_peptide":"load_signal_peptide_head",
+                "transmembrane": "load_transmembrane_head",
+                "intramembrane": "load_intramembrane_head",
+                "coiled_coil":   "load_coiled_coil_head",
+                "dna_binding":   "load_dna_binding_head",
+                "active_site":   "load_active_site_head",
+                "binding_site":  "load_binding_site_head",
+                "phosphorylation":"load_phosphorylation_head",
+                "lcd":           "load_lcd_head",
+                "zinc_finger":   "load_zinc_finger_head",
+                "glycosylation": "load_glycosylation_head",
+                "ubiquitination":"load_ubiquitination_head",
+                "methylation":   "load_methylation_head",
+                "acetylation":   "load_acetylation_head",
+                "lipidation":    "load_lipidation_head",
+                "disulfide":     "load_disulfide_head",
+                "motif":         "load_motif_head",
+                "propeptide":    "load_propeptide_head",
+                "repeat":              "load_repeat_head",
+                "rna_binding":         "load_rna_binding_head",
+                "nucleotide_binding":  "load_nucleotide_binding_head",
+                "transit_peptide":     "load_transit_peptide_head",
+                "aggregation":         "load_aggregation_head",
+            }
+            loader_name = _loaders.get(self.feat)
+            if not loader_name or not hasattr(_m, loader_name):
+                self.error.emit(self.title, f"No loader for feature '{self.feat}'")
+                return
+            head = getattr(_m, loader_name)()
+            if head is None or self.embedder is None:
+                self.error.emit(self.title, "Model or embedder unavailable.")
+                return
+            result = bilstm_predict_mc(
+                self.seq, self.embedder, head, n_passes=self.n_passes)
+            if result is not None:
+                _, uncertainty = result
+                self.result_ready.emit(self.title, list(uncertainty))
+            else:
+                self.error.emit(self.title, "MC-Dropout returned no result.")
+        except Exception as exc:
+            import traceback as _tb
+            self.error.emit(self.title,
+                            f"{type(exc).__name__}: {exc}\n{_tb.format_exc()}")
 
 
 class DeepTMHMMWorker(QThread):
@@ -579,6 +695,204 @@ class AlphaMissenseWorker(QThread):
             self.finished.emit(data)
         except Exception as e:
             self.error.emit(str(e))
+
+
+class UniProtSequenceSearchWorker(QThread):
+    """Look up a UniProt accession from a raw sequence.
+
+    Strategy (fastest-first)
+    ------------------------
+    1. Parse a UniProt accession directly from the sequence_name hint if
+       provided (instant — covers sequences pasted as FASTA from UniProt).
+    2. Fetch all reviewed Swiss-Prot entries of the same length and compare
+       sequences in memory (~2 s for rare lengths, may be slow for very common
+       lengths; capped at 500 candidates).
+    3. NCBI BLAST against Swiss-Prot (~1–3 min; used only when steps 1–2 fail).
+
+    Signals
+    -------
+    finished(str): accession found, or ``""`` if not found.
+    error(str):    unrecoverable error message.
+    progress(str): status-bar updates.
+    """
+
+    finished = Signal(str)
+    error    = Signal(str)
+    progress = Signal(str)
+
+    _ACC_RE = re.compile(
+        r"(?:^|[|/\s])([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})"
+    )
+
+    def __init__(self, seq: str, name_hint: str = "", parent=None):
+        super().__init__(parent)
+        self._seq  = seq.upper().strip()
+        self._hint = name_hint
+
+    def run(self):
+        try:
+            acc = self._from_name_hint() or self._length_exact_match()
+            self.finished.emit(acc or "")
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+    # ── stage 1: parse accession from FASTA header ────────────────────────────
+
+    def _from_name_hint(self) -> str:
+        """Extract UniProt accession from the sequence name if it looks like
+        a UniProt FASTA id (e.g. ``sp|P69905|HBA_HUMAN`` or bare ``P69905``)."""
+        if not self._hint:
+            return ""
+        m = self._ACC_RE.search(self._hint)
+        if not m:
+            return ""
+        candidate = m.group(1)
+        self.progress.emit(f"Checking candidate accession {candidate}…")
+        try:
+            url = f"https://rest.uniprot.org/uniprotkb/{candidate}.json"
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                data = json.loads(resp.read())
+            uniprot_seq = data.get("sequence", {}).get("value", "")
+            if uniprot_seq.upper() == self._seq:
+                self.progress.emit(f"Matched from header: {candidate}")
+                return candidate
+        except Exception:
+            pass
+        return ""
+
+    # ── stage 2: fetch same-length Swiss-Prot entries and compare ─────────────
+
+    def _length_exact_match(self) -> str:
+        import urllib.parse
+        n = len(self._seq)
+        self.progress.emit(f"Searching UniProt for reviewed proteins of length {n}…")
+        query = urllib.parse.quote(f"reviewed:true AND length:[{n} TO {n}]")
+        url = (
+            "https://rest.uniprot.org/uniprotkb/search"
+            f"?query={query}"
+            "&format=json&fields=accession,sequence&size=500"
+        )
+        try:
+            with urllib.request.urlopen(url, timeout=20) as resp:
+                data = json.loads(resp.read())
+            for entry in data.get("results", []):
+                acc = entry.get("primaryAccession", "")
+                uniprot_seq = entry.get("sequence", {}).get("value", "")
+                if uniprot_seq.upper() == self._seq:
+                    self.progress.emit(f"Exact length match: {acc}")
+                    return acc
+        except Exception:
+            pass
+        return ""
+
+
+
+class UniProtFeaturesWorker(QThread):
+    """Fetch UniProt feature annotations for a given accession.
+
+    Returns per-feature region lists suitable for dual-track visualization.
+    Each region dict has keys: ``feature``, ``start`` (1-based), ``end`` (1-based),
+    ``description``.
+
+    Signals
+    -------
+    finished(dict):
+        Maps feature type string → list of region dicts.
+    error(str)
+    """
+
+    # UniProt ft_* field names → BEER feature names
+    _FIELD_MAP: dict[str, str] = {
+        "Signal":                           "signal_peptide",
+        "Transit peptide":                  "transit_peptide",
+        "Transmembrane":                    "transmembrane",
+        "Intramembrane":                    "intramembrane",
+        "Coiled coil":                      "coiled_coil",
+        "DNA binding":                      "dna_binding",
+        "Active site":                      "active_site",
+        "Binding site":                     "binding_site",
+
+        "Propeptide":                       "propeptide",
+        "Repeat":                           "repeat",
+        "Motif":                            "motif",
+        "Region":                           "region",
+        "Disulfide bond":                   "disulfide",
+        "Zinc finger":                      "zinc_finger",
+        "Glycosylation":                    "glycosylation",
+        "Lipid moiety-binding region":      "lipidation",
+    }
+    # ft_mod_res description → BEER feature name (substring match, first hit wins)
+    _MOD_RES_MAP: list[tuple[str, str]] = [
+        ("phospho",      "phosphorylation"),
+        ("ubiquitin",    "ubiquitination"),
+        ("methyl",       "methylation"),
+        ("acetyl",       "acetylation"),
+    ]
+
+    finished = Signal(dict)
+    error    = Signal(str)
+
+    def __init__(self, accession: str, parent=None):
+        super().__init__(parent)
+        self._acc = accession
+
+    def run(self):
+        try:
+            fields = (
+                "ft_signal,ft_transit,ft_transmem,ft_intramem,ft_coiled,ft_dna_bind,"
+                "ft_act_site,ft_binding,ft_propep,ft_repeat,ft_motif,"
+                "ft_region,ft_compbias,ft_disulfid,ft_mod_res,ft_carbohyd,ft_lipid,ft_zn_fing"
+            )
+            url = (
+                f"https://rest.uniprot.org/uniprotkb/{self._acc}.json"
+                f"?fields=accession,{fields}"
+            )
+            with urllib.request.urlopen(url, timeout=20) as resp:
+                data = json.loads(resp.read())
+
+            result: dict[str, list] = {}
+            for feat in data.get("features", []):
+                ftype = feat.get("type", "")
+                desc  = feat.get("description", "")
+                loc   = feat.get("location", {})
+                start = loc.get("start", {}).get("value")
+                end   = loc.get("end",   {}).get("value")
+                if start is None or end is None:
+                    continue
+
+                entry = {
+                    "start":        int(start),
+                    "end":          int(end),
+                    "description":  desc,
+                    "feature_type": ftype,
+                }
+
+                if ftype == "Modified residue":
+                    # Dispatch by description keyword
+                    desc_lc = desc.lower()
+                    beer_name = None
+                    for kw, name in self._MOD_RES_MAP:
+                        if kw in desc_lc:
+                            beer_name = name
+                            break
+                    if beer_name is None:
+                        beer_name = "modified_residue"
+                elif ftype == "Compositionally biased":
+                    # All compositionally biased regions are low-complexity proxies
+                    beer_name = "lcd"
+                elif ftype == "Region":
+                    beer_name = "region"
+                    # Also emit under rna_binding if the description mentions RNA
+                    if "rna" in desc.lower():
+                        result.setdefault("rna_binding", []).append(entry)
+                else:
+                    beer_name = self._FIELD_MAP.get(ftype, ftype.lower().replace(" ", "_"))
+
+                result.setdefault(beer_name, []).append(entry)
+            self.finished.emit(result)
+        except Exception as exc:
+            import traceback as _tb
+            self.error.emit(f"UniProt features fetch failed: {type(exc).__name__}: {exc}\n{_tb.format_exc()}")
 
 
 class SignalP6Worker(QThread):

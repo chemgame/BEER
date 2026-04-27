@@ -59,9 +59,18 @@ def create_linear_sequence_map_figure(
 
     _track(axs[0], xs_win, hydro_profile, "#4361ee", 0, "Hydrophobicity")
     _track(axs[1], xs_win, ncpr_profile, "#7209b7", 0, "NCPR")
-    _track(axs[2], xs_all, disorder_scores, "#f3722c", 0.5, "Disorder",
-           fill_above=True, fill_below=False)
-    axs[2].set_xlabel("Residue", fontsize=tick_font - 1, color="#4a5568")
+    if disorder_scores and len(disorder_scores) == n:
+        _track(axs[2], xs_all, disorder_scores, "#f3722c", 0.5, "Disorder",
+               fill_above=True, fill_below=False)
+    else:
+        axs[2].set_facecolor("#fafbff")
+        axs[2].text(0.5, 0.5, "Disorder — run AI Analysis to populate",
+                    transform=axs[2].transAxes, ha="center", va="center",
+                    fontsize=tick_font - 1, color="#94a3b8", style="italic")
+        axs[2].set_ylabel("Disorder", fontsize=tick_font - 1, color="#4a5568")
+        for sp in ["top", "right"]:
+            axs[2].spines[sp].set_visible(False)
+    axs[2].set_xlabel("Residue Position", fontsize=tick_font - 1, color="#4a5568")
     return fig
 
 
@@ -183,27 +192,32 @@ def create_domain_architecture_figure(
         else:
             legend_patches.append((colour, label, None, None))
 
-    # Build legend entries
-    seen, unique_leg = set(), []
-    raw_patches = []
+    # Build legend entries — truncate long domain names
+    _MAX_LBL = 28
+    seen, raw_patches = set(), []
     for item in legend_patches:
         col, lbl = item[0], item[1]
         if lbl not in seen:
             seen.add(lbl)
-            raw_patches.append(Patch(color=col, label=lbl))
+            short = lbl if len(lbl) <= _MAX_LBL else lbl[:_MAX_LBL - 1] + "\u2026"
+            raw_patches.append(Patch(color=col, label=short))
     legend_patches = raw_patches
 
-    # Decide figure height based on legend size
-    _MAX_LEGEND = 12
+    # Cap at 20 entries; show overflow count
+    _MAX_LEGEND = 20
     n_extra = 0
     if len(legend_patches) > _MAX_LEGEND:
         n_extra = len(legend_patches) - _MAX_LEGEND
         legend_patches = legend_patches[:_MAX_LEGEND]
         legend_patches.append(Patch(color="none", label=f"(+{n_extra} more)"))
 
-    many_legend = len(legend_patches) > 8
-    leg_rows = math.ceil(len(legend_patches) / 5) if many_legend else 0
-    extra_bottom = 0.06 + leg_rows * 0.06 if many_legend else 0.0
+    n_leg = len(legend_patches)
+    many_legend = n_leg > 6
+    # Scale columns and font with number of entries
+    leg_ncols = min(n_leg, 3) if n_leg <= 9 else min(n_leg, 5)
+    leg_rows = math.ceil(n_leg / leg_ncols) if many_legend else 0
+    leg_font = max(5, tick_font - 3) if n_leg > 12 else max(6, tick_font - 2)
+    extra_bottom = 0.05 + leg_rows * 0.055 if many_legend else 0.0
 
     fig_h = max(3.0, 1.5 + total_height * 1.4 + extra_bottom * 6)
     fig = Figure(figsize=(10, fig_h), dpi=120)
@@ -253,30 +267,29 @@ def create_domain_architecture_figure(
 
     _pub_style_ax(ax,
                   title="Domain Architecture",
-                  xlabel="Residue", ylabel="",
+                  xlabel="Residue Position", ylabel="",
                   grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(1, seq_len)
     ax.set_ylim(-half - 0.15, total_height + 0.25)
 
     if legend_patches:
-        ncols = max(1, min(len(legend_patches), 5))
-        leg_font = max(6, tick_font - 3)
         if many_legend:
             ax.legend(handles=legend_patches,
-                      fontsize=leg_font, framealpha=0.85,
+                      fontsize=leg_font, framealpha=0.88,
                       edgecolor="#d0d4e0",
                       loc="upper center",
-                      bbox_to_anchor=(0.5, -0.18),
-                      ncol=ncols,
-                      handlelength=1.2, borderpad=0.5, labelspacing=0.3)
-            fig.subplots_adjust(bottom=max(0.20, extra_bottom + 0.08))
+                      bbox_to_anchor=(0.5, -0.12),
+                      ncol=leg_ncols,
+                      handlelength=1.1, borderpad=0.45, labelspacing=0.25,
+                      columnspacing=0.8)
+            fig.subplots_adjust(bottom=max(0.18, extra_bottom + 0.08))
         else:
-            ncols = max(1, min(len(legend_patches), 4))
+            ncols = max(1, min(n_leg, 4))
             ax.legend(handles=legend_patches,
-                      fontsize=leg_font, framealpha=0.85,
+                      fontsize=leg_font, framealpha=0.88,
                       edgecolor="#d0d4e0", loc="upper right", ncol=ncols,
-                      handlelength=1.2, borderpad=0.5, labelspacing=0.3)
+                      handlelength=1.1, borderpad=0.45, labelspacing=0.25)
             fig.tight_layout(pad=1.8)
     else:
         fig.tight_layout(pad=1.8)
@@ -311,12 +324,12 @@ def create_cation_pi_map_figure(
     im = ax.imshow(mat, cmap=cmap, aspect="auto", origin="upper",
                    interpolation="nearest")
     cbar = fig.colorbar(im, ax=ax, shrink=0.80, aspect=22, pad=0.03)
-    cbar.set_label("Proximity (1/|i−j|)", fontsize=tick_font - 1, color="#4a5568")
+    cbar.set_label("Proximity 1/|i−j|", fontsize=tick_font - 1, color="#4a5568")
     cbar.ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
     _pub_style_ax(ax,
                   title="Cation–π Proximity Map",
-                  xlabel="Residue",
-                  ylabel="Residue",
+                  xlabel="Residue Position",
+                  ylabel="Residue Position",
                   grid=False,
                   title_size=label_font - 1,
                   label_size=label_font - 1,
@@ -342,15 +355,14 @@ def create_local_complexity_figure(
                     where=[v < 2.0 for v in entropy_profile],
                     alpha=0.18, color=_NEG_COL, interpolate=True,
                     label="Low complexity")
-    ax.plot(xs, entropy_profile, color=_ACCENT, linewidth=1.6,
-            marker="o", markersize=3.0, markeredgewidth=0, zorder=4,
+    ax.plot(xs, entropy_profile, color=_ACCENT, linewidth=1.6, zorder=4,
             label="Entropy")
     ax.axhline(2.0, color="#f72585", linewidth=1.2, linestyle="--",
                zorder=3, label="LC threshold (2.0 bits)")
     _pub_style_ax(ax,
-                  title=f"Local Complexity  (w = {window_size})",
-                  xlabel="Residue",
-                  ylabel="Entropy (bits)",
+                  title=f"Local Sequence Complexity  (window = {window_size})",
+                  xlabel="Residue Position",
+                  ylabel="Shannon Entropy (bits)",
                   grid=True,
                   title_size=label_font - 1,
                   label_size=label_font - 1,
@@ -537,7 +549,7 @@ def create_annotation_track_figure(
     ax_rul.set_facecolor("#ffffff")
     ax_rul.tick_params(axis="x", labelsize=tick_font - 2, length=4,
                        width=0.7, colors="#4a5568")
-    ax_rul.set_xlabel("Residue", fontsize=tick_font - 1, color="#4a5568", labelpad=3)
+    ax_rul.set_xlabel("Residue Position", fontsize=tick_font - 1, color="#4a5568", labelpad=3)
     tick_step = max(50, (n // 10 // 50) * 50) if n > 100 else 10
     major_ticks = list(range(1, n + 1, tick_step))
     if n not in major_ticks:
@@ -615,7 +627,7 @@ def create_cleavage_map_figure(
     ax.set_yticklabels(enzymes, fontsize=tick_font - 1, color="#4a5568")
     ax.tick_params(axis="y", length=0, pad=5)
 
-    ax.set_xlabel("Residue", fontsize=label_font - 1, color="#2d3748", labelpad=5)
+    ax.set_xlabel("Residue Position", fontsize=label_font - 1, color="#2d3748", labelpad=5)
     tick_step = max(50, (n // 10 // 50) * 50) if n > 100 else 10
     major_ticks = list(range(0, n + 1, tick_step))
     if n not in major_ticks:

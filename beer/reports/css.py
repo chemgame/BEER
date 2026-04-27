@@ -1,6 +1,29 @@
 """Shared HTML/CSS styling for all BEER HTML reports."""
 
 REPORT_CSS: str = """
+.method-badge {
+    display: inline-block;
+    font-size: 8pt;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background-color: #eef0f8;
+    color: #4361ee;
+    border: 1px solid #c0c8f0;
+    margin-left: 8px;
+    vertical-align: middle;
+    letter-spacing: 0.02em;
+}
+.method-badge.classical {
+    background-color: #f5f5f5;
+    color: #718096;
+    border-color: #d0d0d0;
+}
+.method-badge.bilstm {
+    background-color: #e8f4fd;
+    color: #1a6fa8;
+    border-color: #b3d9f5;
+}
 body {
     font-family: Arial, 'Helvetica Neue';
     font-size: 11pt;
@@ -116,3 +139,17 @@ def make_style_tag(accent: str = "#4361ee", dark: bool = False) -> str:
     """Return a ``<style>`` HTML tag with the report CSS, accent colour substituted."""
     css = get_report_css(dark).replace("#4361ee" if not dark else "#4cc9f0", accent)
     return f"<style>{css}</style>"
+
+
+def method_badge(label: str, kind: str = "bilstm") -> str:
+    """Return an inline HTML badge showing the prediction method.
+
+    Parameters
+    ----------
+    label:
+        Text to display, e.g. ``"ESM2 650M BiLSTM · AUROC 0.9999"`` or
+        ``"ZYGGREGATOR"`` or ``"Rule-based (von Heijne 1986)"``.
+    kind:
+        CSS class to apply: ``"bilstm"`` (blue), ``"classical"`` (gray).
+    """
+    return f'<span class="method-badge {kind}">{label}</span>'

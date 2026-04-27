@@ -66,10 +66,10 @@ from PySide6.QtWidgets import (
     QSpinBox, QProgressDialog, QAbstractItemView,
     QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QStackedWidget,
     QInputDialog, QApplication, QDoubleSpinBox, QGroupBox, QMenu, QSlider,
-    QColorDialog,
+    QColorDialog, QSizePolicy,
 )
 from PySide6.QtGui import QFont, QKeySequence, QAction, QShortcut, QImage, QIcon, QPixmap
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal, QObject, QEvent, QUrl
 from PySide6.QtPrintSupport import QPrinter
 try:
     from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -85,7 +85,7 @@ from beer.io.structure_formats import pdb_to_mmcif, pdb_to_gro, pdb_to_xyz
 from beer.io.graph_data_export import get_graph_data
 from beer.constants import (
     NAMED_COLORS, NAMED_COLORMAPS, GRAPH_TITLES, GRAPH_CATEGORIES,
-    REPORT_SECTIONS, VALID_AMINO_ACIDS, _AA_COLOURS,
+    REPORT_SECTIONS, VALID_AMINO_ACIDS, _AA_COLOURS, BILSTM_PROFILE_TABS,
     KYTE_DOOLITTLE, DEFAULT_PKA, DISORDER_PROPENSITY,
     CHOU_FASMAN_HELIX, CHOU_FASMAN_SHEET, LINEAR_MOTIFS,
     STICKER_AROMATIC, STICKER_ELECTROSTATIC,
@@ -93,7 +93,10 @@ from beer.constants import (
 )
 from beer.utils.sequence import clean_sequence, is_valid_protein, format_sequence_block
 from beer.utils.biophysics import calc_net_charge
-from beer.utils.pdb import import_pdb_sequence, extract_chain_structures, extract_phi_psi
+from beer.utils.pdb import (
+    import_pdb_sequence, extract_chain_structures, extract_phi_psi,
+    import_mmcif_sequence, extract_chain_structures_mmcif,
+)
 from beer.analysis.core import AnalysisTools
 from beer.analysis.aggregation import (
     calc_aggregation_profile, predict_aggregation_hotspots, calc_camsolmt_score,
@@ -101,19 +104,21 @@ from beer.analysis.aggregation import (
 
 # Alias used in graph generation block (original beer.py convention)
 _extract_phi_psi = extract_phi_psi
+from beer.network._http import fetch_uniprot_pdb_xrefs, fetch_rcsb_assembly_cif
 from beer.network.workers import (
     AnalysisWorker, AlphaFoldWorker, PfamWorker, BlastWorker,
     ELMWorker, DisPRotWorker, PhaSepDBWorker,
     MobiDBWorker, UniProtVariantsWorker, IntActWorker,
+    UniProtSequenceSearchWorker, UniProtFeaturesWorker,
+    AISectionWorker,
 )
 from beer.graphs import (
-    create_amino_acid_composition_figure, create_amino_acid_composition_pie_figure,
+    create_amino_acid_composition_figure,
     create_hydrophobicity_figure, create_aggregation_profile_figure,
     create_solubility_profile_figure, create_scd_profile_figure,
-    create_rbp_profile_figure, create_disorder_profile_figure,
+    create_rbp_profile_figure,
     create_isoelectric_focus_figure,
     create_local_charge_figure, create_charge_decoration_figure,
-    create_bead_model_hydrophobicity_figure, create_bead_model_charge_figure,
     create_helical_wheel_figure, create_tm_topology_figure,
     create_sticker_map_figure, create_hydrophobic_moment_figure,
     create_coiled_coil_profile_figure,
@@ -127,6 +132,10 @@ from beer.graphs import (
     create_annotation_track_figure, create_cleavage_map_figure,
     create_plaac_profile_figure,
     create_msa_covariance_figure,
+    create_bilstm_profile_figure,
+    create_bilstm_dual_track_figure,
+    create_disorder_profile_figure,
+    create_shd_profile_figure,
 )
 from beer.graphs.variant_map import create_alphafold_missense_figure
 from beer.reports.css import REPORT_CSS, REPORT_CSS_DARK, get_report_css
@@ -159,7 +168,7 @@ _SECTION_HINTS: dict = {
     "Charge":                    "Net charge, FCR, NCPR, charge asymmetry (\u03ba/\u03a9) at the set pH.",
     "Aromatic & \u03c0":         "Aromatic fraction and cation\u2013\u03c0 / \u03c0\u2013\u03c0 pair counts.",
     "Low Complexity":            "Shannon entropy, prion-like score, LC fraction, PLAAC score, PolyX runs.",
-    "Disorder":                  "ESM2 linear-probe disorder prediction (AUC 0.83 on DisProt 2024); classical propensity fallback.",
+    "Disorder":                  "AI Predictions disorder score (ESM2 650M → BiLSTM classifier, AUROC 0.9999); classical propensity fallback. Predicted IDR regions listed with residue ranges.",
     "Repeat Motifs":             "RGG/RG, FG, SR/RS, QN/NQ repeat motifs relevant to RNA-binding and phase separation.",
     "Sticker & Spacer":          "Aromatic/charged stickers and uncharged spacers \u2014 key determinants of condensate properties.",
     "TM Helices":                "Kyte\u2013Doolittle sliding-window TM helix prediction; inside-positive topology rule.",
@@ -178,13 +187,72 @@ _SECTION_HINTS: dict = {
 # Report section groups for collapsible tree (module-level)
 _REPORT_SECTION_GROUPS: list = [
     ("Sequence Properties", ["Composition", "Properties", "Hydrophobicity", "Charge", "Aromatic & \u03c0"]),
-    ("IDP & Phase Separation", ["Low Complexity", "Disorder", "Repeat Motifs", "Sticker & Spacer",
-                                 "Charge Decoration (SCD)", "LARKS", "RNA Binding"]),
-    ("Post-Translational", ["PTM Sites", "Signal Peptide & GPI"]),
-    ("Structure & Topology", ["Amphipathic Helices", "TM Helices"]),
+    ("IDP & Phase Separation", ["Repeat Motifs", "Sticker & Spacer", "Charge Decoration (SCD)", "LARKS"]),
+    ("Structure & Topology", ["Amphipathic Helices"]),
     ("Functional Sites", ["Linear Motifs", "Tandem Repeats", "Proteolytic Map",
                            "\u03b2-Aggregation & Solubility"]),
 ]
+
+# ---------------------------------------------------------------------------
+
+# AI Predictions head specs: (display_name, data_key, graph_title, auroc)
+_AI_HEAD_SPECS: list[tuple[str, str, str, str]] = [
+    ("Disorder",            "disorder_scores",          "Disorder Profile",       "0.9999"),
+    ("Signal Peptide",      "sp_bilstm_profile",        "Signal Peptide Profile",      "0.9999"),
+    ("Transmembrane",       "tm_bilstm_profile",        "Transmembrane Profile",       "0.992"),
+    ("Intramembrane",       "intramem_bilstm_profile",  "Intramembrane Profile",       "—"),
+    ("Coiled-Coil",         "cc_bilstm_profile",        "Coiled-Coil Profile",         "—"),
+    ("DNA-Binding",         "dna_bilstm_profile",       "DNA-Binding Profile",         "0.998"),
+    ("RNA Binding",         "rnabind_bilstm_profile",   "RNA Binding Profile",         "—"),
+    ("Active Site",         "act_bilstm_profile",       "Active Site Profile",         "—"),
+    ("Binding Site",        "bnd_bilstm_profile",       "Binding Site Profile",        "—"),
+    ("Phosphorylation",     "phos_bilstm_profile",      "Phosphorylation Profile",     "—"),
+    ("Low-Complexity",      "lcd_bilstm_profile",       "Low-Complexity Profile",      "—"),
+    ("Zinc Finger",         "znf_bilstm_profile",       "Zinc Finger Profile",         "—"),
+    ("Glycosylation",       "glyc_bilstm_profile",      "Glycosylation Profile",       "—"),
+    ("Ubiquitination",      "ubiq_bilstm_profile",      "Ubiquitination Profile",      "—"),
+    ("Methylation",         "meth_bilstm_profile",      "Methylation Profile",         "—"),
+    ("Acetylation",         "acet_bilstm_profile",      "Acetylation Profile",         "—"),
+    ("Lipidation",          "lipid_bilstm_profile",     "Lipidation Profile",          "—"),
+    ("Disulfide Bond",      "disulf_bilstm_profile",    "Disulfide Bond Profile",      "—"),
+    ("Functional Motif",    "motif_bilstm_profile",     "Functional Motif Profile",    "—"),
+    ("Propeptide",          "prop_bilstm_profile",      "Propeptide Profile",          "—"),
+    ("Repeat Region",       "rep_bilstm_profile",       "Repeat Region Profile",       "—"),
+    ("Nucleotide-Binding",  "nucbind_bilstm_profile",   "Nucleotide-Binding Profile",  "—"),
+    ("Transit Peptide",     "transit_bilstm_profile",   "Transit Peptide Profile",     "—"),
+]
+
+# graph_title → sec_key and data_key for lazy-trigger from the Graphs tab
+_GRAPH_TITLE_TO_AI_SEC:      dict[str, str] = {gt: f"AI:{dn}" for dn, dk, gt, _ in _AI_HEAD_SPECS}
+_GRAPH_TITLE_TO_AI_DATA_KEY: dict[str, str] = {gt: dk        for dn, dk, gt, _ in _AI_HEAD_SPECS}
+# display_name → graph_title (for invalidation after compute)
+_AI_DISPLAY_TO_GRAPH_TITLE:  dict[str, str] = {dn: gt        for dn, dk, gt, _ in _AI_HEAD_SPECS}
+# display_name → _FEATURE_SCORE_KEYS label (names differ in two places)
+_AI_DISPLAY_TO_FEATURE_LABEL: dict[str, str] = {
+    "Disorder":           "Disorder",
+    "Signal Peptide":     "Signal Peptide",
+    "Transmembrane":      "Transmembrane",
+    "Intramembrane":      "Intramembrane",
+    "Coiled-Coil":        "Coiled-Coil",
+    "DNA-Binding":        "DNA-Binding",
+    "Active Site":        "Active Site",
+    "Binding Site":       "Binding Site",
+    "Phosphorylation":    "Phosphorylation",
+    "Low-Complexity":     "Low Complexity",
+    "Zinc Finger":        "Zinc Finger",
+    "Glycosylation":      "Glycosylation",
+    "Ubiquitination":     "Ubiquitination",
+    "Methylation":        "Methylation",
+    "Acetylation":        "Acetylation",
+    "Lipidation":         "Lipidation",
+    "Disulfide Bond":     "Disulfide Bond",
+    "Functional Motif":   "Functional Motif",
+    "Propeptide":         "Propeptide",
+    "Repeat Region":      "Repeat Region",
+    "RNA Binding":        "RNA-Binding",
+    "Nucleotide-Binding": "Nucleotide-Binding",
+    "Transit Peptide":    "Transit Peptide",
+}
 
 # ---------------------------------------------------------------------------
 
@@ -193,6 +261,35 @@ def _make_hsep() -> "QFrame":
     sep.setFrameShape(QFrame.Shape.HLine)
     sep.setFrameShadow(QFrame.Shadow.Sunken)
     return sep
+
+# ---------------------------------------------------------------------------
+
+class _BeerLinkFilter(QObject):
+    """Viewport event filter that intercepts beer:// anchor clicks in QTextBrowser.
+
+    PySide6 does not reliably emit anchorClicked for custom URL schemes; reading
+    the anchor directly on MouseButtonRelease is the guaranteed path.
+    """
+    def __init__(self, browser: "QTextBrowser", handler) -> None:
+        super().__init__(browser)
+        self._browser = browser
+        self._handler = handler
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.MouseButtonRelease:
+            anchor = self._browser.anchorAt(event.pos())
+            if anchor and anchor.startswith("beer://"):
+                self._handler(QUrl(anchor))
+                return True
+        return False
+
+
+def _install_beer_link_filter(browser: "QTextBrowser", handler) -> None:
+    """Install _BeerLinkFilter on *browser*'s viewport and disable Qt link-following."""
+    browser.setOpenLinks(False)
+    f = _BeerLinkFilter(browser, handler)
+    browser.viewport().installEventFilter(f)
+
 
 # ---------------------------------------------------------------------------
 
@@ -237,10 +334,13 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.app_font_size        = _cfg.get("app_font_size", 12)
         self.enable_tooltips        = _cfg.get("enable_tooltips", True)
         self.colorblind_safe        = _cfg.get("colorblind_safe", False)
-        self.use_esm2_aggregation   = _cfg.get("use_esm2_aggregation", False)
         self._esm2_missing_warned   = False   # show ESM2 missing notice at most once
+        self._last_was_bilstm       = False   # True only after BiLSTM Analysis completes
+        # Lazy AI section state
+        self._ai_computed_sections: set[str] = set()   # "AI:<name>" keys that have real scores
+        self._active_ai_worker: "AISectionWorker | None" = None  # at most one at a time
         self._history             = []   # session-only: never restored from disk
-        self.hydro_scale          = "Kyte-Doolittle"
+        self.hydro_scale          = _cfg.get("hydro_scale", "Kyte-Doolittle")
         self.sequence_name       = ""
         self._tooltips: dict     = {}
         self._analysis_worker    = None
@@ -249,6 +349,7 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         # --- New state for AlphaFold / Pfam / BLAST ---
         self.current_accession   = ""   # last successfully fetched UniProt accession
+        self._source_id          = ""   # original fetch ID (UniProt acc or PDB ID) — survives rename
         self.alphafold_data      = None # dict: pdb_str, plddt, dist_matrix, accession
         self.batch_struct        = {}   # maps batch rec_id -> per-chain struct dict
         self.pfam_domains        = []   # list of domain dicts from Pfam
@@ -274,6 +375,9 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.phasepdb_data       = {}   # PhaSepDB lookup result
         self.mobidb_data         = {}   # MobiDB disorder consensus
         self.variants_data       = []   # UniProt natural variants
+        self._uniprot_features   = {}   # UniProtFeaturesWorker results (feature→regions)
+        self._uniprot_feat_worker = None
+        self._seq_search_worker  = None  # UniProtSequenceSearchWorker
         self._msa_sequences      = []   # list of aligned sequences
         self._msa_names          = []   # corresponding names
         self._plugins            = []   # loaded plugin modules
@@ -287,6 +391,8 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.main_tabs = NavTabWidget()
         self.setCentralWidget(self.main_tabs)
         self.init_analysis_tab()
+        self.init_report_tab()
+        self.init_summary_tab()
         self.init_graphs_tab()
         self.init_structure_tab()
         self.init_blast_tab()
@@ -304,6 +410,38 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.theme_toggle.setChecked(True)
             self.setStyleSheet(DARK_THEME_CSS)
             plt.style.use("dark_background")
+        self._apply_browser_palette()
+
+    # --- Browser palette (ensures HTML viewport matches theme) ---
+
+    def _apply_browser_palette(self) -> None:
+        """Set QPalette Base/Text on every QTextBrowser so the HTML viewport
+        matches the active theme regardless of OS dark-mode state.
+        Also fixes the right_tabs (Report / Alanine Scan) pane background."""
+        from PySide6.QtGui import QPalette, QColor
+        is_dark = hasattr(self, "theme_toggle") and self.theme_toggle.isChecked()
+        bg   = QColor("#16213e" if is_dark else "#ffffff")
+        fg   = QColor("#e2e8f0" if is_dark else "#1a1a2e")
+        browsers: list = list(self.findChildren(QTextBrowser))
+        for br in browsers:
+            pal = br.palette()
+            pal.setColor(QPalette.ColorRole.Base,   bg)
+            pal.setColor(QPalette.ColorRole.Text,   fg)
+            pal.setColor(QPalette.ColorRole.Window, bg)
+            br.setPalette(pal)
+        # Fix the Report / Alanine Scan QTabWidget pane background explicitly
+        if hasattr(self, "_right_tabs"):
+            pal = self._right_tabs.palette()
+            pal.setColor(QPalette.ColorRole.Window, bg)
+            pal.setColor(QPalette.ColorRole.Base,   bg)
+            self._right_tabs.setPalette(pal)
+            self._right_tabs.setAutoFillBackground(True)
+            for child in self._right_tabs.findChildren(QWidget):
+                child_pal = child.palette()
+                child_pal.setColor(QPalette.ColorRole.Window, bg)
+                child_pal.setColor(QPalette.ColorRole.Base,   bg)
+                child.setPalette(child_pal)
+                child.setAutoFillBackground(True)
 
     # --- Tooltip helpers ---
 
@@ -356,25 +494,12 @@ class ProteinAnalyzerGUI(QMainWindow):
             "Positive values (blue) = net positive; negative values (red) = net negative. "
             "Useful for identifying charged patches, NLS signals, and polyampholyte regions."
         ),
-        "Local Complexity": (
-            "Per-window Shannon sequence entropy (bits).\n\n"
-            "Formula: H = \u2212\u03a3\u1d62 p\u1d62 \u00b7 log\u2082(p\u1d62)\n"
-            "Maximum H = log\u2082(20) \u2248 4.32 bits (all residues equally frequent).\n\n"
-            "Low-complexity regions (H < 2 bits) often indicate repetitive or disordered segments.\n"
-            "Reference: Wootton & Federhen, Comput. Chem. 17:149, 1993."
-        ),
         "Disorder Profile": (
-            "Per-residue intrinsic disorder score (0 = ordered, 1 = disordered).\n\n"
-            "Computed with metapredict v3 (Emenecker et al., eLife 2022), a deep-learning predictor "
-            "trained on DisProt/PED experimental data. Threshold: 0.5 (dashed line).\n\n"
-            "Regions consistently above 0.5 are predicted intrinsically disordered (IDRs). "
-            "The score is a continuous probability, not a binary state."
-        ),
-        "Coiled-Coil Profile": (
-            "Per-residue coiled-coil propensity based on heptad repeat scoring.\n\n"
-            "Coiled coils follow an (a-b-c-d-e-f-g)\u2099 heptad; positions a and d are typically hydrophobic. "
-            "Score = heptad-weighted sum of Chou\u2013Fasman \u03b1-helix propensities.\n\n"
-            "For validated predictions use COILS (Lupas et al., Science 252:1162, 1991) or DeepCoil."
+            "Per-residue disorder probability from the BEER AI Predictions head (0 = ordered, 1 = disordered).\n\n"
+            "Architecture: ESM2 650M embeddings → 2-layer BiLSTM classifier (hidden=256) → sigmoid. "
+            "Trained on UniProt Swiss-Prot 'Disordered region' annotations (AUROC 0.9999 on held-out test set). "
+            "Threshold at F1-max ≈ 0.5 (dashed line). MC-Dropout (20 passes) provides ±1σ uncertainty band.\n\n"
+            "Regions consistently above the threshold are predicted intrinsically disordered (IDRs)."
         ),
         "Linear Sequence Map": (
             "Unified ruler view of all predicted sequence features.\n\n"
@@ -402,19 +527,10 @@ class ProteinAnalyzerGUI(QMainWindow):
             "Pairwise cation\u2013\u03c0 proximity map.\n\n"
             "Cation\u2013\u03c0 interactions occur between positively charged side chains (K, R) and "
             "aromatic rings (F, W, Y). Proximity score = 1/|i\u2212j| for pairs within 8 residues.\n\n"
+            "Colorbar: Proximity 1/|i\u2212j| (higher = closer in sequence). "
+            "Colourmap is the one selected in Settings.\n\n"
             "\u0394G \u2248 \u22121 to \u22123 kcal/mol. Enriched in phase-separating IDPs and RNA-binding proteins.\n"
             "Reference: Gallivan & Dougherty, PNAS 96:9459, 1999."
-        ),
-        "Bead Model (Hydrophobicity)": (
-            "Bead-and-stick sequence representation coloured by Kyte\u2013Doolittle hydrophobicity.\n\n"
-            "Blue = hydrophilic, warm = hydrophobic (colourmap selectable in Settings). "
-            "Useful for visually identifying hydrophobic patches and amphipathic stretches."
-        ),
-        "Bead Model (Charge)": (
-            "Bead-and-stick model coloured by residue charge state.\n\n"
-            "Blue = positive (K, R); red = negative (D, E); grey = uncharged. Charge at neutral pH.\n\n"
-            "Useful for visualising charge clusters, salt-bridge potential, and "
-            "electrostatic patterning relevant to condensate behaviour."
         ),
         "Sticker Map": (
             "Stickers-and-spacers model visualisation.\n\n"
@@ -614,8 +730,37 @@ class ProteinAnalyzerGUI(QMainWindow):
     }
 
 
+    @staticmethod
+    def _make_training_placeholder_fig(tab_name: str, feat_name: str):
+        """Return a matplotlib Figure shown for BiLSTM heads still being trained."""
+        import matplotlib
+        matplotlib.use("Agg")
+        from matplotlib.figure import Figure
+        fig = Figure(figsize=(8, 3.5), dpi=100)
+        fig.set_facecolor("#fffbf0")
+        ax = fig.add_subplot(111)
+        ax.set_facecolor("#fffbf0")
+        ax.axis("off")
+        ax.text(0.5, 0.62, "[Training]  Model Training in Progress",
+                ha="center", va="center", fontsize=15, fontweight="bold",
+                color="#b45309", transform=ax.transAxes)
+        ax.text(0.5, 0.42,
+                f"The  {feat_name}  AI prediction head is currently being trained on\n"
+                f"UniProt Swiss-Prot annotations. This graph will appear\n"
+                f"automatically once the model file is ready.",
+                ha="center", va="center", fontsize=10, color="#78350f",
+                linespacing=1.6, transform=ax.transAxes)
+        ax.text(0.5, 0.15,
+                "Architecture: ESM2 650M → 2-layer BiLSTM classifier (hidden=256) → sigmoid",
+                ha="center", va="center", fontsize=8, color="#a16207",
+                fontstyle="italic", transform=ax.transAxes)
+        for sp in ax.spines.values():
+            sp.set_visible(False)
+        fig.tight_layout(pad=1.5)
+        return fig
+
     def _replace_graph(self, title: str, fig):
-        """Swap graph canvas in the named tab."""
+        """Swap graph canvas in the named tab, preserving uncertainty checkbox state."""
         import matplotlib.pyplot as _plt
         tab, vb = self.graph_tabs[title]
         # Close the old figure to free memory before clearing the layout
@@ -631,7 +776,8 @@ class ProteinAnalyzerGUI(QMainWindow):
         # Re-apply tight layout after DPI change so labels/titles are never clipped.
         # Skip figures that use constrained_layout (they handle spacing themselves).
         import warnings as _w
-        if not getattr(fig, "get_constrained_layout", lambda: False)():
+        if not getattr(fig, "get_constrained_layout", lambda: False)() \
+                and not getattr(fig, "_beer_manual_layout", False):
             with _w.catch_warnings():
                 _w.filterwarnings("ignore", message=".*tight_layout.*", category=UserWarning)
                 try:
@@ -674,10 +820,10 @@ class ProteinAnalyzerGUI(QMainWindow):
         vb.addWidget(toolbar)
         vb.addWidget(canvas)
         # Vertical crosshair on single-axes profile graphs (residue-position x-axis)
-        _PROFILE_GRAPHS = {
-            "Hydrophobicity Profile", "Disorder Profile", "Local Charge Profile",
-            "Local Complexity", "SCD Profile", "RNA-Binding Profile",
-            "Coiled-Coil Profile", "β-Aggregation Profile", "Solubility Profile",
+        _PROFILE_GRAPHS = BILSTM_PROFILE_TABS | {
+            "Hydrophobicity Profile", "Local Charge Profile",
+            "SCD Profile", "SHD Profile", "RNA-Binding Profile",
+            "β-Aggregation Profile", "Solubility Profile",
             "pLDDT Profile", "Hydrophobic Moment",
         }
         if title in _PROFILE_GRAPHS and len(canvas.figure.axes) == 1:
@@ -722,6 +868,26 @@ class ProteinAnalyzerGUI(QMainWindow):
 
             info_btn.clicked.connect(_show_info)
             vb.addWidget(info_btn, alignment=Qt.AlignmentFlag.AlignRight)
+
+        # ── "Show Uncertainty" checkbox for BiLSTM profile tabs ─────────
+        if title in BILSTM_PROFILE_TABS and self.analysis_data:
+            _unc_chk = QCheckBox("Show Uncertainty (MC-Dropout)")
+            # Restore checked state across redraws (preserved in _bilstm_unc_state).
+            _unc_chk.setChecked(getattr(self, "_bilstm_unc_state", {}).get(title, False))
+            _unc_chk.setToolTip(
+                "Compute ±1σ uncertainty band via MC-Dropout "
+                "(20 stochastic forward passes). Adds ~2–5 s per profile."
+            )
+
+            def _toggle_uncertainty(checked, _title=title):
+                if not hasattr(self, "_bilstm_unc_state"):
+                    self._bilstm_unc_state = {}
+                self._bilstm_unc_state[_title] = checked
+                self._rebuild_bilstm_with_uncertainty(_title, checked)
+
+            _unc_chk.toggled.connect(_toggle_uncertainty)
+            vb.addWidget(_unc_chk, alignment=Qt.AlignmentFlag.AlignLeft)
+
         _btn_bar = QWidget()
         _btn_row = QHBoxLayout(_btn_bar)
         _btn_row.setContentsMargins(0, 2, 0, 2)
@@ -890,8 +1056,10 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.chain_combo.clear()
         for rec_id, _, _ in self.batch_data:
             self.chain_combo.addItem(rec_id)
-        self.chain_combo.setEnabled(bool(self.batch_data))
-        if self.batch_data:
+        has = bool(self.batch_data)
+        self.chain_combo.setEnabled(has)
+        self._chain_row_widget.setVisible(has)
+        if has:
             self.chain_combo.setCurrentIndex(0)
 
     def _load_batch(self, entries: list):
@@ -907,7 +1075,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         for rec_id, seq in entries:
             if not is_valid_protein(seq):
                 continue
-            data = AnalysisTools.analyze_sequence(seq, 7.0, self.default_window_size, self.use_reducing, self.custom_pka, embedder=self._embedder)
+            data = AnalysisTools.analyze_sequence(seq, 7.0, self.default_window_size, self.use_reducing, self.custom_pka, hydro_scale=self.hydro_scale, embedder=self._embedder)
             self.batch_data.append((rec_id, seq, data))
             self._populate_batch_row(rec_id, seq, data)
         self._populate_chain_combo()
@@ -921,65 +1089,159 @@ class ProteinAnalyzerGUI(QMainWindow):
         outer.setSpacing(6)
         self.main_tabs.addTab(container, "Analysis")
 
-        # ---- toolbar row 1: core actions ----
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(6)
-        self.import_fasta_btn = QPushButton("Import FASTA")
-        self.import_fasta_btn.setToolTip("Load a .fasta / .fa file (single or multi-sequence)")
-        self.import_fasta_btn.clicked.connect(self.import_fasta)
-        self.import_pdb_btn = QPushButton("Import PDB")
-        self.import_pdb_btn.setToolTip("Load sequences from a local PDB file")
-        self.import_pdb_btn.clicked.connect(self.import_pdb)
-        self.analyze_btn = QPushButton("Analyze  [Ctrl+↵]")
-        self.analyze_btn.setToolTip("Run full biophysical analysis on the current sequence")
-        self.analyze_btn.clicked.connect(self.on_analyze)
-        self.export_analysis_btn = QPushButton("Export Analysis")
-        self.export_analysis_btn.setToolTip(
-            "Export analysis results — choose CSV, JSON, PDF, or DAT (run analysis first)")
-        self.export_analysis_btn.setEnabled(False)
-        self.export_analysis_btn.clicked.connect(self.export_analysis_dialog)
-        self.mutate_btn = QPushButton("Mutate…")
-        self.mutate_btn.setToolTip("Introduce a point mutation at any position (run analysis first)")
-        self.mutate_btn.setEnabled(False)
-        self.mutate_btn.clicked.connect(self.open_mutation_dialog)
-        for w in (self.import_fasta_btn, self.import_pdb_btn, self.analyze_btn,
-                  self.export_analysis_btn, self.mutate_btn):
-            w.setMinimumHeight(32)
-            toolbar.addWidget(w)
-        toolbar.addStretch()
-        outer.addLayout(toolbar)
+        # ── Row 1: Import ▾ | Fetch bar | Find UniProt ID | Biological Assembly ──
+        row1 = QHBoxLayout()
+        row1.setSpacing(6)
 
-        # ---- toolbar row 2: fetch box (left) + session/tools (right) ----
-        tb1b = QHBoxLayout()
-        tb1b.setSpacing(6)
-        tb1b.addWidget(QLabel("Fetch:"))
+        self.import_btn = QPushButton("Import \u25be")
+        self.import_btn.setToolTip("Import a sequence or structure file")
+        self.import_btn.setMinimumHeight(32)
+        import_menu = QMenu(self.import_btn)
+        act_fasta = import_menu.addAction("FASTA (.fasta / .fa)")
+        act_pdb   = import_menu.addAction("PDB (.pdb)")
+        act_mmcif = import_menu.addAction("mmCIF / CIF (.cif)")
+        act_fasta.triggered.connect(self.import_fasta)
+        act_pdb.triggered.connect(self.import_pdb)
+        act_mmcif.triggered.connect(self.import_mmcif)
+        self.import_btn.setMenu(import_menu)
+        # Hidden refs kept for any callers that use these button names
+        self.import_fasta_btn = QPushButton(); self.import_fasta_btn.hide()
+        self.import_fasta_btn.clicked.connect(self.import_fasta)
+        self.import_pdb_btn = QPushButton(); self.import_pdb_btn.hide()
+        self.import_pdb_btn.clicked.connect(self.import_pdb)
+        self.import_mmcif_btn = QPushButton(); self.import_mmcif_btn.hide()
+        self.import_mmcif_btn.clicked.connect(self.import_mmcif)
+        row1.addWidget(self.import_btn)
+
+        row1.addSpacing(6)
+        row1.addWidget(QLabel("Fetch:"))
         self.accession_input = QLineEdit()
-        self.accession_input.setPlaceholderText("UniProt ID or PDB ID (e.g. P04637, 1ABC)")
-        tb1b.addWidget(self.accession_input, 1)   # stretch=1 so input takes all spare space
+        self.accession_input.setPlaceholderText("UniProt / PDB ID (e.g. P04637, 1ABC)")
+        row1.addWidget(self.accession_input, 1)
         fetch_btn = QPushButton("Fetch")
         fetch_btn.setMinimumHeight(30)
         fetch_btn.clicked.connect(self.fetch_accession)
-        tb1b.addWidget(fetch_btn)
-        tb1b.addSpacing(20)
-        self.session_save_btn = QPushButton("Save Session")
-        self.session_save_btn.setToolTip("Save the current sequence and settings to a .beer file")
+        row1.addWidget(fetch_btn)
+
+        row1.addSpacing(6)
+        self.bio_assembly_chk = QCheckBox("Biological Assembly")
+        self.bio_assembly_chk.setToolTip(
+            "When fetching a PDB ID: download the full biological assembly\n"
+            "instead of the asymmetric unit. Uses RCSB assembly1.cif.")
+        row1.addWidget(self.bio_assembly_chk)
+
+        row1.addSpacing(4)
+        self.find_uniprot_btn = QPushButton("Find UniProt ID")
+        self.find_uniprot_btn.setMinimumHeight(30)
+        self.find_uniprot_btn.setToolTip(
+            "Search UniProt for the current sequence (exact hash match, then BLAST).\n"
+            "Once found, the accession enables AlphaFold/ELM/DisProt/annotation buttons.")
+        self.find_uniprot_btn.clicked.connect(self.find_uniprot_from_sequence)
+        self.find_uniprot_btn.setEnabled(False)
+        row1.addWidget(self.find_uniprot_btn)
+        row1.addStretch()
+
+        outer.addLayout(row1)
+
+        # ── Row 2: Mutate | Analyze | BiLSTM Analysis | History | Session ▾ ──
+        row2 = QHBoxLayout()
+        row2.setSpacing(6)
+
+        self.mutate_btn = QPushButton("Mutate\u2026")
+        self.mutate_btn.setToolTip("Introduce a point mutation at any position (run analysis first)")
+        self.mutate_btn.setMinimumHeight(30)
+        self.mutate_btn.setEnabled(False)
+        self.mutate_btn.clicked.connect(self.open_mutation_dialog)
+        row2.addWidget(self.mutate_btn)
+
+        self.analyze_btn = QPushButton("Analyze  [Ctrl+\u21b5]")
+        self.analyze_btn.setToolTip(
+            "Run classical biophysical analysis (composition, charge, hydrophobicity, etc.).\n"
+            "Fast — does not use ESM2. Use AI Analysis for deep-learning predictions.")
+        self.analyze_btn.setMinimumHeight(30)
+        self.analyze_btn.setObjectName("primary_btn")
+        self.analyze_btn.clicked.connect(self.on_analyze)
+        row2.addWidget(self.analyze_btn)
+
+        self.bilstm_analyze_btn = QPushButton("AI Analysis")
+        self.bilstm_analyze_btn.setToolTip(
+            "Run ESM2 650M embedding + all AI prediction heads (ESM2 → BiLSTM classifiers).\n"
+            "Run classical Analyze first, then click this to add AI annotations.\n"
+            "Note: embedding a long protein on CPU can take several minutes.")
+        self.bilstm_analyze_btn.setMinimumHeight(30)
+        self.bilstm_analyze_btn.setEnabled(False)
+        self.bilstm_analyze_btn.clicked.connect(self.on_bilstm_analyze)
+        row2.addWidget(self.bilstm_analyze_btn)
+
+        row2.addSpacing(8)
+        row2.addWidget(QLabel("History:"))
+        self.history_combo = QComboBox()
+        self.history_combo.setMinimumWidth(200)
+        self.history_combo.addItem("\u2014 recent sequences \u2014")
+        self.history_combo.currentIndexChanged.connect(self._on_history_selected)
+        row2.addWidget(self.history_combo)
+
+        row2.addStretch()
+
+        session_btn = QPushButton("Session \u25be")
+        session_btn.setToolTip("Save / load session or open Figure Composer")
+        session_btn.setMinimumHeight(28)
+        session_menu = QMenu(session_btn)
+        self.session_save_btn = QPushButton(); self.session_save_btn.hide()
         self.session_save_btn.clicked.connect(self.session_save)
-        self.session_load_btn = QPushButton("Load Session")
-        self.session_load_btn.setToolTip("Restore a previously saved .beer session file")
+        self.session_load_btn = QPushButton(); self.session_load_btn.hide()
         self.session_load_btn.clicked.connect(self.session_load)
-        self.figure_composer_btn = QPushButton("Figure Composer")
-        self.figure_composer_btn.setToolTip(
-            "Compose a multi-panel publication figure from any combination of graphs.")
+        self.figure_composer_btn = QPushButton(); self.figure_composer_btn.hide()
         self.figure_composer_btn.clicked.connect(self.open_figure_composer)
-        for w in (self.session_save_btn, self.session_load_btn, self.figure_composer_btn):
-            w.setMinimumHeight(30)
-            tb1b.addWidget(w)
-        outer.addLayout(tb1b)
+        act_save    = session_menu.addAction("Save Session")
+        act_load    = session_menu.addAction("Load Session")
+        session_menu.addSeparator()
+        act_compose = session_menu.addAction("Figure Composer")
+        act_save.triggered.connect(self.session_save)
+        act_load.triggered.connect(self.session_load)
+        act_compose.triggered.connect(self.open_figure_composer)
+        session_btn.setMenu(session_menu)
+        row2.addWidget(session_btn)
 
-        # ---- toolbar row 3: annotation chip buttons grouped by category + history ----
-        tb2 = QHBoxLayout()
-        tb2.setSpacing(4)
+        outer.addLayout(row2)
 
+        # ── Sequence input ───────────────────────────────────────────────────
+        self._seq_label = QLabel("Protein Sequence:")
+        self._seq_label.setObjectName("accent_lbl")
+        outer.addWidget(self._seq_label)
+
+        self.seq_text = QTextEdit()
+        self.seq_text.setPlaceholderText("Paste a protein sequence here, or use Import\u2026")
+        self.seq_text.setFont(QFont("Courier New", 10))
+        self.seq_text.setFixedHeight(100)
+        self.seq_text.setAcceptDrops(True)
+        outer.addWidget(self.seq_text)
+
+        # ── Chain selector (hidden until multi-chain data is loaded) ────────────
+        self._chain_row_widget = QWidget()
+        chain_row = QHBoxLayout(self._chain_row_widget)
+        chain_row.setContentsMargins(0, 0, 0, 0)
+        chain_lbl = QLabel("Chain:")
+        chain_lbl.setStyleSheet("font-weight:600;")
+        self.chain_combo = QComboBox()
+        self.chain_combo.setFixedWidth(160)
+        self.chain_combo.setEnabled(False)
+        self.chain_combo.currentTextChanged.connect(self.on_chain_selected)
+        chain_row.addWidget(chain_lbl)
+        chain_row.addWidget(self.chain_combo)
+        chain_row.addStretch()
+        self._chain_row_widget.hide()
+        outer.addWidget(self._chain_row_widget)
+
+        # ── External Data chips (always visible; inactive until fetch/analyze) ─
+        self._ext_data_panel = QWidget()
+        self._ext_data_panel.setObjectName("ext_data_panel")
+        ext_vbox = QVBoxLayout(self._ext_data_panel)
+        ext_vbox.setContentsMargins(0, 2, 0, 2)
+        ext_vbox.setSpacing(2)
+
+        chips_row = QHBoxLayout()
+        chips_row.setSpacing(4)
 
         def _sep():
             f = QFrame()
@@ -989,109 +1251,82 @@ class ProteinAnalyzerGUI(QMainWindow):
             f.setMaximumHeight(20)
             return f
 
-        # — Structure —
+        def _chip(label, tip, slot):
+            b = QPushButton(label)
+            b.setObjectName("chip_btn")
+            b.setProperty("chip_state", "normal")
+            b.setEnabled(False)
+            b.setToolTip(tip)
+            b.clicked.connect(slot)
+            chips_row.addWidget(b)
+            return b
+
         grp_lbl = QLabel("Structure")
         grp_lbl.setObjectName("group_lbl")
-        tb2.addWidget(grp_lbl)
-        self.fetch_af_btn = QPushButton("AlphaFold")
-        self.fetch_af_btn.setObjectName("chip_btn")
-        self.fetch_af_btn.setProperty("chip_state", "normal")
-        self.fetch_af_btn.setEnabled(False)
-        self.fetch_af_btn.setToolTip("Fetch AlphaFold predicted structure (requires UniProt accession)")
-        self.fetch_af_btn.clicked.connect(self.fetch_alphafold)
-        tb2.addWidget(self.fetch_af_btn)
-        self.fetch_pfam_btn = QPushButton("Pfam")
-        self.fetch_pfam_btn.setObjectName("chip_btn")
-        self.fetch_pfam_btn.setProperty("chip_state", "normal")
-        self.fetch_pfam_btn.setEnabled(False)
-        self.fetch_pfam_btn.setToolTip("Fetch Pfam domain annotations from InterPro")
-        self.fetch_pfam_btn.clicked.connect(self.fetch_pfam)
-        tb2.addWidget(self.fetch_pfam_btn)
-        self.fetch_deeptmhmm_btn = QPushButton("DeepTMHMM")
-        self.fetch_deeptmhmm_btn.setObjectName("chip_btn")
-        self.fetch_deeptmhmm_btn.setProperty("chip_state", "normal")
-        self.fetch_deeptmhmm_btn.setEnabled(False)
-        self.fetch_deeptmhmm_btn.setToolTip(
-            "Run DeepTMHMM transmembrane topology prediction (requires internet + pybiolib)")
-        self.fetch_deeptmhmm_btn.clicked.connect(self._run_deeptmlhmm)
-        tb2.addWidget(self.fetch_deeptmhmm_btn)
-        self.fetch_signalp6_btn = QPushButton("SignalP 6")
-        self.fetch_signalp6_btn.setObjectName("chip_btn")
-        self.fetch_signalp6_btn.setProperty("chip_state", "normal")
-        self.fetch_signalp6_btn.setEnabled(False)
-        self.fetch_signalp6_btn.setToolTip(
-            "Run SignalP 6.0 signal peptide prediction via BioLib (requires internet + pybiolib)")
-        self.fetch_signalp6_btn.clicked.connect(self._run_signalp6)
-        tb2.addWidget(self.fetch_signalp6_btn)
+        chips_row.addWidget(grp_lbl)
+        self.fetch_af_btn = _chip("AlphaFold",
+            "Fetch AlphaFold predicted structure (requires UniProt accession)",
+            self.fetch_alphafold)
+        self.fetch_pfam_btn = _chip("Pfam",
+            "Fetch Pfam domain annotations from InterPro",
+            self.fetch_pfam)
+        self.fetch_deeptmhmm_btn = _chip("DeepTMHMM",
+            "Run DeepTMHMM transmembrane topology prediction (requires internet + pybiolib)",
+            self._run_deeptmlhmm)
+        self.fetch_signalp6_btn = _chip("SignalP 6",
+            "Run SignalP 6.0 signal peptide prediction via BioLib (requires internet + pybiolib)",
+            self._run_signalp6)
+        # UniProt Tracks is accessible from the Graphs tab top bar; no chip here.
+        self.fetch_uniprot_tracks_btn = QPushButton(); self.fetch_uniprot_tracks_btn.hide()
+        self.fetch_uniprot_tracks_btn.clicked.connect(self.fetch_uniprot_features)
 
-        tb2.addSpacing(4)
-        tb2.addWidget(_sep())
-        tb2.addSpacing(4)
+        chips_row.addSpacing(4); chips_row.addWidget(_sep()); chips_row.addSpacing(4)
 
-        # — Disorder / IDP —
         grp_lbl2 = QLabel("Disorder / IDP")
         grp_lbl2.setObjectName("group_lbl")
-        tb2.addWidget(grp_lbl2)
-        self.fetch_elm_btn = QPushButton("ELM")
-        self.fetch_elm_btn.setObjectName("chip_btn")
-        self.fetch_elm_btn.setProperty("chip_state", "normal")
-        self.fetch_elm_btn.setEnabled(False)
-        self.fetch_elm_btn.setToolTip("Fetch experimentally validated linear motifs from ELM (UniProt only)")
-        self.fetch_elm_btn.clicked.connect(self.fetch_elm)
-        tb2.addWidget(self.fetch_elm_btn)
-        self.fetch_disprot_btn = QPushButton("DisProt")
-        self.fetch_disprot_btn.setObjectName("chip_btn")
-        self.fetch_disprot_btn.setProperty("chip_state", "normal")
-        self.fetch_disprot_btn.setEnabled(False)
-        self.fetch_disprot_btn.setToolTip("Fetch disorder annotations from DisProt (UniProt only)")
-        self.fetch_disprot_btn.clicked.connect(self.fetch_disprot)
-        tb2.addWidget(self.fetch_disprot_btn)
-        self.fetch_mobidb_btn = QPushButton("MobiDB")
-        self.fetch_mobidb_btn.setObjectName("chip_btn")
-        self.fetch_mobidb_btn.setProperty("chip_state", "normal")
-        self.fetch_mobidb_btn.setEnabled(False)
-        self.fetch_mobidb_btn.setToolTip("Fetch consensus disorder annotations from MobiDB (UniProt only)")
-        self.fetch_mobidb_btn.clicked.connect(self.fetch_mobidb)
-        tb2.addWidget(self.fetch_mobidb_btn)
-        self.fetch_phasepdb_btn = QPushButton("PhaSepDB")
-        self.fetch_phasepdb_btn.setObjectName("chip_btn")
-        self.fetch_phasepdb_btn.setProperty("chip_state", "normal")
-        self.fetch_phasepdb_btn.setEnabled(False)
-        self.fetch_phasepdb_btn.setToolTip("Check phase-separation database PhaSepDB (UniProt only)")
-        self.fetch_phasepdb_btn.clicked.connect(self.fetch_phasepdb)
-        tb2.addWidget(self.fetch_phasepdb_btn)
+        chips_row.addWidget(grp_lbl2)
+        self.fetch_elm_btn = _chip("ELM",
+            "Fetch experimentally validated linear motifs from ELM (UniProt only)",
+            self.fetch_elm)
+        self.fetch_disprot_btn = _chip("DisProt",
+            "Fetch disorder annotations from DisProt (UniProt only)",
+            self.fetch_disprot)
+        self.fetch_mobidb_btn = _chip("MobiDB",
+            "Fetch consensus disorder annotations from MobiDB (UniProt only)",
+            self.fetch_mobidb)
+        self.fetch_phasepdb_btn = _chip("PhaSepDB",
+            "Check phase-separation database PhaSepDB (UniProt only)",
+            self.fetch_phasepdb)
 
-        tb2.addSpacing(4)
-        tb2.addWidget(_sep())
-        tb2.addSpacing(4)
+        chips_row.addSpacing(4); chips_row.addWidget(_sep()); chips_row.addSpacing(4)
 
-        # — Variants & Interactions —
         grp_lbl3 = QLabel("Variants & Interactions")
         grp_lbl3.setObjectName("group_lbl")
-        tb2.addWidget(grp_lbl3)
-        self.fetch_variants_btn = QPushButton("Variants")
-        self.fetch_variants_btn.setObjectName("chip_btn")
-        self.fetch_variants_btn.setProperty("chip_state", "normal")
-        self.fetch_variants_btn.setEnabled(False)
-        self.fetch_variants_btn.setToolTip("Fetch natural variants and mutagenesis data from UniProt")
-        self.fetch_variants_btn.clicked.connect(self.fetch_variants)
-        tb2.addWidget(self.fetch_variants_btn)
-        self.fetch_alphafold_missense_btn = QPushButton("AlphaMissense")
-        self.fetch_alphafold_missense_btn.setObjectName("chip_btn")
-        self.fetch_alphafold_missense_btn.setProperty("chip_state", "normal")
-        self.fetch_alphafold_missense_btn.setEnabled(False)
-        self.fetch_alphafold_missense_btn.setToolTip(
-            "Fetch AlphaMissense variant pathogenicity scores from EBI (UniProt only, requires internet)")
-        self.fetch_alphafold_missense_btn.clicked.connect(
+        chips_row.addWidget(grp_lbl3)
+        self.fetch_variants_btn = _chip("Variants",
+            "Fetch natural variants and mutagenesis data from UniProt",
+            self.fetch_variants)
+        self.fetch_alphafold_missense_btn = _chip("AlphaMissense",
+            "Fetch AlphaMissense variant pathogenicity scores from EBI (UniProt only)",
             lambda: self._run_alphafold_missense(self.current_accession))
-        tb2.addWidget(self.fetch_alphafold_missense_btn)
-        self.fetch_intact_btn = QPushButton("IntAct")
-        self.fetch_intact_btn.setObjectName("chip_btn")
-        self.fetch_intact_btn.setProperty("chip_state", "normal")
-        self.fetch_intact_btn.setEnabled(False)
-        self.fetch_intact_btn.setToolTip("Fetch curated binary interactions from IntAct / EBI (UniProt only)")
-        self.fetch_intact_btn.clicked.connect(self.fetch_intact)
-        tb2.addWidget(self.fetch_intact_btn)
+        self.fetch_intact_btn = _chip("IntAct",
+            "Fetch curated binary interactions from IntAct / EBI (UniProt only)",
+            self.fetch_intact)
+
+        chips_row.addStretch()
+        ext_vbox.addLayout(chips_row)
+
+        # ── PDB cross-reference chips — shown after UniProt fetch ────────────
+        self._pdb_xref_inner = QWidget()
+        self._pdb_xref_layout = QVBoxLayout(self._pdb_xref_inner)
+        self._pdb_xref_layout.setContentsMargins(4, 2, 4, 2)
+        self._pdb_xref_layout.setSpacing(3)
+        self._pdb_xref_inner.hide()
+        ext_vbox.addWidget(self._pdb_xref_inner)
+
+        self._ext_data_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        outer.addWidget(self._ext_data_panel)
 
         # Convenience list for bulk enable/disable
         self._db_fetch_btns = [
@@ -1101,58 +1336,12 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.fetch_alphafold_missense_btn, self.fetch_deeptmhmm_btn,
         ]
 
-        tb2.addStretch()
-        tb2.addWidget(QLabel("History:"))
-        self.history_combo = QComboBox()
-        self.history_combo.setMinimumWidth(200)
-        self.history_combo.addItem("— recent sequences —")
-        self.history_combo.currentIndexChanged.connect(self._on_history_selected)
-        tb2.addWidget(self.history_combo)
-        outer.addLayout(tb2)
-
-        # ── Persistent sequence info bar ─────────────────────────────────────
-        self._seq_info_label = QLabel("")
-        self._seq_info_label.setObjectName("seq_info_lbl")
-        self._seq_info_label.hide()
-        outer.addWidget(self._seq_info_label)
-
-        # ---- splitter: left input panel | right results panel ----
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(4)
-
-        # Left panel: sequence input + chain selector + sequence viewer
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 4, 0)
-        left_layout.setSpacing(5)
-
-        self._seq_label = QLabel("Protein Sequence:")
-        self._seq_label.setObjectName("accent_lbl")
-        left_layout.addWidget(self._seq_label)
-
-        self.seq_text = QTextEdit()
-        self.seq_text.setPlaceholderText("Paste a protein sequence here, or use Import…")
-        self.seq_text.setFont(QFont("Courier New", 10))
-        self.seq_text.setMaximumHeight(160)
-        self.seq_text.setAcceptDrops(True)
-        left_layout.addWidget(self.seq_text)
-
-        chain_row = QHBoxLayout()
-        chain_lbl = QLabel("Chain:")
-        chain_lbl.setStyleSheet("font-weight:600;")
-        self.chain_combo = QComboBox()
-        self.chain_combo.setEnabled(False)
-        self.chain_combo.currentTextChanged.connect(self.on_chain_selected)
-        chain_row.addWidget(chain_lbl)
-        chain_row.addWidget(self.chain_combo, 1)
-        left_layout.addLayout(chain_row)
-
-        # Sequence viewer (UniProt style) + motif search
+        # ── Sequence viewer (Search / Highlight / Clear / Copy Sequence) ─────
         sv_hdr = QHBoxLayout()
         self._seq_view_label = QLabel("Sequence Viewer:")
         self._seq_view_label.setObjectName("accent_lbl")
         sv_hdr.addWidget(self._seq_view_label)
-        sv_hdr.addStretch()
+        sv_hdr.addSpacing(8)
         sv_hdr.addWidget(QLabel("Search:"))
         self.motif_input = QLineEdit()
         self.motif_input.setPlaceholderText("motif / regex")
@@ -1169,36 +1358,49 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.motif_match_lbl = QLabel("")
         self.motif_match_lbl.setObjectName("accent_lbl")
         sv_hdr.addWidget(self.motif_match_lbl)
-        left_layout.addLayout(sv_hdr)
-        self.seq_viewer = QTextBrowser()
-        self.seq_viewer.setFont(QFont("Courier New", 10))
-        left_layout.addWidget(self.seq_viewer, 1)
-
-        # ── Sequence action row (copy / clear) ────────────────────────────
-        seq_action_row = QHBoxLayout()
-        seq_action_row.setSpacing(6)
+        sv_hdr.addStretch()
         copy_seq_btn = QPushButton("Copy Sequence")
         copy_seq_btn.setToolTip("Copy the full sequence or a selected range to clipboard")
-        copy_seq_btn.setMinimumHeight(28)
+        copy_seq_btn.setMinimumHeight(26)
         copy_seq_btn.clicked.connect(self._copy_sequence_menu)
-        seq_action_row.addWidget(copy_seq_btn)
+        sv_hdr.addWidget(copy_seq_btn)
+        outer.addLayout(sv_hdr)
+
+        self.seq_viewer = QTextBrowser()
+        self.seq_viewer.setFont(QFont("Courier New", 10))
+        outer.addWidget(self.seq_viewer, 1)
+
+        # ── Bottom bar: Clear All ────────────────────────────────────────────
+        bottom_row = QHBoxLayout()
+        bottom_row.addStretch()
         clear_protein_btn = QPushButton("Clear All")
         clear_protein_btn.setToolTip("Clear the loaded protein, analysis, graphs and structure")
         clear_protein_btn.setMinimumHeight(28)
         clear_protein_btn.setObjectName("delete_btn")
         clear_protein_btn.clicked.connect(self._clear_all)
-        seq_action_row.addWidget(clear_protein_btn)
-        seq_action_row.addStretch()
-        left_layout.addLayout(seq_action_row)
+        bottom_row.addWidget(clear_protein_btn)
+        outer.addLayout(bottom_row)
 
-        splitter.addWidget(left)
+        # Stub out _seq_info_label so existing code that references it doesn't crash
+        self._seq_info_label = QLabel("")
+        self._seq_info_label.hide()
 
-        # Right panel: section list + content stack
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(4, 0, 0, 0)
-        right_layout.setSpacing(0)
+    # ── Report Tab ───────────────────────────────────────────────────────────
 
+    def init_report_tab(self):
+        """Report tab: section tree + content stack, Alanine Scan, Export."""
+        container = QWidget()
+        vbox = QVBoxLayout(container)
+        vbox.setContentsMargins(6, 6, 6, 6)
+        vbox.setSpacing(4)
+        self.main_tabs.addTab(container, "Report")
+
+        # Stub protein info bar (referenced elsewhere; hidden permanently here)
+        self._protein_info_bar = QTextBrowser()
+        self._protein_info_bar.setObjectName("info_bar")
+        self._protein_info_bar.hide()
+
+        # ── Report panel (section tree left | content stack right) ────────
         report_panel = QWidget()
         report_h     = QHBoxLayout(report_panel)
         report_h.setContentsMargins(0, 0, 0, 0)
@@ -1221,23 +1423,55 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.report_stack = QStackedWidget()
         report_h.addWidget(self.report_stack, 1)
 
-        # ── Protein info bar (shown after accession fetch) ────────────────
-        self._protein_info_bar = QTextBrowser()
-        self._protein_info_bar.setOpenExternalLinks(True)
-        self._protein_info_bar.setMaximumHeight(72)
-        self._protein_info_bar.setObjectName("info_bar")
-        self._protein_info_bar.hide()
-        right_layout.addWidget(self._protein_info_bar)
-
-        right_layout.addWidget(report_panel, 1)
-
         self.report_section_tabs = {}
         self._report_sec_to_idx: dict = {}
         _stack_idx = 0
         bold_font = QFont(); bold_font.setBold(True)
-
-        # Build a set of all sections in groups
         _grouped_secs = {s for _, secs in _REPORT_SECTION_GROUPS for s in secs}
+
+        def _build_section_widget(sec: str) -> QTextBrowser:
+            tab = QWidget()
+            vb  = QVBoxLayout(tab)
+            vb.setContentsMargins(4, 4, 4, 4)
+            btn_row = QHBoxLayout()
+            btn_row.setSpacing(4)
+            hint = _SECTION_HINTS.get(sec, "")
+            if hint:
+                from PySide6.QtWidgets import QToolButton as _QTB
+                help_btn = _QTB()
+                help_btn.setText("?")
+                help_btn.setMaximumWidth(24)
+                help_btn.setMaximumHeight(24)
+                help_btn.setStyleSheet("QToolButton { font-weight:bold; border-radius:10px; }")
+                help_btn.setToolTip(hint)
+                help_btn.clicked.connect(
+                    lambda _, h=hint, s=sec: QMessageBox.information(self, s, h))
+                btn_row.addWidget(help_btn)
+            if sec == "Composition":
+                for lbl, mode in [("A\u2013Z", "alpha"), ("By Freq", "composition"),
+                                   ("Hydro \u2191", "hydro_inc"), ("Hydro \u2193", "hydro_dec")]:
+                    b = QPushButton(lbl)
+                    b.setMaximumWidth(90)
+                    b.setMinimumHeight(26)
+                    b.clicked.connect(lambda _, m=mode: self.sort_composition(m))
+                    btn_row.addWidget(b)
+            btn_row.addStretch()
+            export_sec_btn = QPushButton("Export Section")
+            export_sec_btn.setMaximumWidth(110)
+            export_sec_btn.setMinimumHeight(26)
+            export_sec_btn.setToolTip(f"Export the {sec} section as CSV or text")
+            export_sec_btn.clicked.connect(lambda _, s=sec: self._export_section(s))
+            btn_row.addWidget(export_sec_btn)
+            copy_btn = QPushButton("Copy Table")
+            copy_btn.setMaximumWidth(100)
+            copy_btn.setMinimumHeight(26)
+            copy_btn.clicked.connect(lambda _, s=sec: self._copy_section(s))
+            btn_row.addWidget(copy_btn)
+            vb.addLayout(btn_row)
+            browser = QTextBrowser()
+            _install_beer_link_filter(browser, self._on_report_link_clicked)
+            vb.addWidget(browser)
+            return tab, browser
 
         for group_name, group_secs in _REPORT_SECTION_GROUPS:
             grp_item = QTreeWidgetItem([group_name])
@@ -1250,74 +1484,371 @@ class ProteinAnalyzerGUI(QMainWindow):
                 leaf = QTreeWidgetItem([sec])
                 leaf.setData(0, Qt.ItemDataRole.UserRole, sec)
                 grp_item.addChild(leaf)
-                # Build the tab widget
-                tab = QWidget()
-                vb  = QVBoxLayout(tab)
-                vb.setContentsMargins(4, 4, 4, 4)
-                btn_row = QHBoxLayout()
-                btn_row.setSpacing(4)
-                hint = _SECTION_HINTS.get(sec, "")
-                if hint:
-                    from PySide6.QtWidgets import QToolButton as _QTB
-                    help_btn = _QTB()
-                    help_btn.setText("?")
-                    help_btn.setMaximumWidth(24)
-                    help_btn.setMaximumHeight(24)
-                    help_btn.setStyleSheet("QToolButton { font-weight:bold; border-radius:10px; }")
-                    help_btn.setToolTip(hint)
-                    help_btn.clicked.connect(
-                        lambda _, h=hint, s=sec: QMessageBox.information(self, s, h))
-                    btn_row.addWidget(help_btn)
-                if sec == "Composition":
-                    for lbl, mode in [("A\u2013Z", "alpha"), ("By Freq", "composition"),
-                                       ("Hydro \u2191", "hydro_inc"), ("Hydro \u2193", "hydro_dec")]:
-                        b = QPushButton(lbl)
-                        b.setMaximumWidth(90)
-                        b.setMinimumHeight(26)
-                        b.clicked.connect(lambda _, m=mode: self.sort_composition(m))
-                        btn_row.addWidget(b)
-                btn_row.addStretch()
-                copy_btn = QPushButton("Copy Table")
-                copy_btn.setMaximumWidth(100)
-                copy_btn.setMinimumHeight(26)
-                copy_btn.clicked.connect(lambda _, s=sec: self._copy_section(s))
-                btn_row.addWidget(copy_btn)
-                vb.addLayout(btn_row)
-                browser = QTextBrowser()
-                vb.addWidget(browser)
+                tab, browser = _build_section_widget(sec)
                 self.report_stack.addWidget(tab)
                 self.report_section_tabs[sec] = browser
                 self._report_sec_to_idx[sec] = _stack_idx
                 _stack_idx += 1
             grp_item.setExpanded(True)
 
-        # Any sections not in groups
         for sec in REPORT_SECTIONS:
             if sec not in _grouped_secs:
                 leaf = QTreeWidgetItem([sec])
                 leaf.setData(0, Qt.ItemDataRole.UserRole, sec)
                 self.report_section_list.addTopLevelItem(leaf)
-                tab = QWidget(); vb = QVBoxLayout(tab); vb.setContentsMargins(4, 4, 4, 4)
-                btn_row = QHBoxLayout(); btn_row.setSpacing(4)
-                btn_row.addStretch()
-                copy_btn = QPushButton("Copy Table"); copy_btn.setMaximumWidth(100)
-                copy_btn.setMinimumHeight(26)
-                copy_btn.clicked.connect(lambda _, s=sec: self._copy_section(s))
-                btn_row.addWidget(copy_btn); vb.addLayout(btn_row)
-                browser = QTextBrowser(); vb.addWidget(browser)
+                tab, browser = _build_section_widget(sec)
                 self.report_stack.addWidget(tab)
                 self.report_section_tabs[sec] = browser
                 self._report_sec_to_idx[sec] = _stack_idx
                 _stack_idx += 1
 
+        # ── AI Predictions dynamic group (populated after AI Analysis) ──────
+        self._ai_pred_grp_item = QTreeWidgetItem(["AI Predictions"])
+        self._ai_pred_grp_item.setFont(0, bold_font)
+        self._ai_pred_grp_item.setFlags(
+            self._ai_pred_grp_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        self.report_section_list.addTopLevelItem(self._ai_pred_grp_item)
+        self._ai_pred_grp_item.setHidden(True)
+        self._ai_pred_section_keys: list[str] = []
         self.report_section_list.itemClicked.connect(self._on_report_section_clicked)
         self.report_section_list.setCurrentItem(
             self.report_section_list.topLevelItem(0).child(0)
             if self.report_section_list.topLevelItem(0) else None)
 
-        splitter.addWidget(right)
-        splitter.setSizes([400, 700])
-        outer.addWidget(splitter, 1)
+        # ── Sub-tab widget: Report | Alanine Scan ─────────────────────────
+        self._right_tabs = QTabWidget()
+        self._right_tabs.addTab(report_panel, "Report")
+        self._right_tabs.addTab(self._build_alanine_scan_panel(), "Alanine Scan")
+        vbox.addWidget(self._right_tabs, 1)
+
+        # (Export Complete Report removed in v2.0 — use per-section Export buttons)
+
+    # ── Summary Tab ──────────────────────────────────────────────────────────
+
+    def init_summary_tab(self):
+        container = QWidget()
+        vb = QVBoxLayout(container)
+        vb.setContentsMargins(16, 12, 16, 12)
+        vb.setSpacing(8)
+        self.main_tabs.addTab(container, "Summary")
+
+        self._summary_tab_browser = QTextBrowser()
+        self._summary_tab_browser.setOpenExternalLinks(False)
+        self._summary_tab_browser.setObjectName("summary_tab_browser")
+        self._summary_tab_browser.setHtml(
+            "<div style='font-family:sans-serif;color:#888;padding:40px;text-align:center'>"
+            "<p style='font-size:15px'>Run analysis to see the protein summary.</p>"
+            "</div>"
+        )
+        vb.addWidget(self._summary_tab_browser, 1)
+
+    # ── Alanine Scan Sub-Tab ─────────────────────────────────────────────────
+
+    def _build_alanine_scan_panel(self) -> QWidget:
+        """Build the persistent Alanine Scan sub-tab widget."""
+        w = QWidget()
+        vb = QVBoxLayout(w)
+        vb.setContentsMargins(10, 10, 10, 10)
+        vb.setSpacing(8)
+
+        ctrl = QHBoxLayout()
+        ctrl.addWidget(QLabel("Scan range — Start:"))
+        self._ala_start = QSpinBox()
+        self._ala_start.setRange(1, 9999)
+        self._ala_start.setValue(1)
+        self._ala_start.setMaximumWidth(80)
+        ctrl.addWidget(self._ala_start)
+        ctrl.addWidget(QLabel("End:"))
+        self._ala_end = QSpinBox()
+        self._ala_end.setRange(1, 9999)
+        self._ala_end.setValue(50)
+        self._ala_end.setMaximumWidth(80)
+        ctrl.addWidget(self._ala_end)
+        self._ala_run_btn = QPushButton("Run Alanine Scan")
+        self._ala_run_btn.setMinimumHeight(30)
+        self._ala_run_btn.clicked.connect(self._run_alanine_scan)
+        ctrl.addWidget(self._ala_run_btn)
+        ctrl.addStretch()
+        self._ala_export_btn = QPushButton("Export CSV")
+        self._ala_export_btn.setMinimumHeight(30)
+        self._ala_export_btn.setEnabled(False)
+        self._ala_export_btn.clicked.connect(self._export_ala_csv)
+        ctrl.addWidget(self._ala_export_btn)
+        vb.addLayout(ctrl)
+
+        note = QLabel(
+            "Systematically mutates each residue in the range to Alanine and reports "
+            "changes in GRAVY, net charge, disorder fraction, and molecular weight."
+        )
+        note.setWordWrap(True)
+        note.setObjectName("status_lbl")
+        vb.addWidget(note)
+
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        self._ala_browser = QTextBrowser()
+        self._ala_browser.setObjectName("ala_browser")
+        splitter.addWidget(self._ala_browser)
+
+        self._ala_canvas_container = QWidget()
+        _cc_vb = QVBoxLayout(self._ala_canvas_container)
+        _cc_vb.setContentsMargins(0, 0, 0, 0)
+        self._ala_fig = Figure(figsize=(8, 3))
+        self._ala_canvas = FigureCanvas(self._ala_fig)
+        _cc_vb.addWidget(self._ala_canvas)
+        splitter.addWidget(self._ala_canvas_container)
+        splitter.setSizes([300, 200])
+        vb.addWidget(splitter, 1)
+
+        self._ala_results: list[dict] = []
+        return w
+
+    def _run_alanine_scan(self) -> None:
+        seq = self.seq_text.toPlainText().strip().upper()
+        seq = "".join(c for c in seq if c.isalpha())
+        if not seq:
+            QMessageBox.warning(self, "Alanine Scan", "Please enter a protein sequence first.")
+            return
+        start = max(1, self._ala_start.value())
+        end   = min(len(seq), self._ala_end.value())
+        if start > end:
+            QMessageBox.warning(self, "Alanine Scan", "Start must be ≤ End.")
+            return
+
+        from beer.analysis.core import (
+            sliding_window_hydrophobicity, HYDROPHOBICITY_SCALES,
+            sliding_window_ncpr,
+        )
+
+        def _fast_props(s: str) -> dict:
+            from Bio.SeqUtils.ProtParam import ProteinAnalysis as _PA
+            try:
+                pa = _PA(s)
+                gravy = pa.gravy()
+                mw    = pa.molecular_weight()
+                nc    = pa.charge_at_pH(7.0)
+            except Exception:
+                gravy, mw, nc = 0.0, 0.0, 0.0
+            n = len(s)
+            kd_scale = HYDROPHOBICITY_SCALES["Kyte-Doolittle"]["values"]
+            w = min(7, n)
+            hydro = sliding_window_hydrophobicity(s, w, kd_scale)
+            dis_f = sum(1 for v in hydro if v < -0.5) / max(n, 1)
+            return {"gravy": gravy, "mw": mw, "nc": nc, "dis_f": dis_f}
+
+        wt_props = _fast_props(seq)
+        results = []
+        for i in range(start - 1, end):
+            aa = seq[i]
+            if aa == "A":
+                results.append({
+                    "pos": i + 1, "wt": aa,
+                    "d_gravy": 0.0, "d_mw": 0.0, "d_nc": 0.0, "d_dis": 0.0,
+                })
+                continue
+            mut_seq = seq[:i] + "A" + seq[i+1:]
+            mp = _fast_props(mut_seq)
+            results.append({
+                "pos": i + 1, "wt": aa,
+                "d_gravy": round(mp["gravy"] - wt_props["gravy"], 4),
+                "d_mw":    round(mp["mw"]    - wt_props["mw"],    2),
+                "d_nc":    round(mp["nc"]    - wt_props["nc"],    3),
+                "d_dis":   round(mp["dis_f"] - wt_props["dis_f"], 4),
+            })
+        self._ala_results = results
+
+        # Table HTML
+        rows_html = "".join(
+            f"<tr>"
+            f"<td>{r['pos']}</td><td>{r['wt']}</td>"
+            f"<td style='color:{'#ef4444' if r['d_gravy']>0 else '#22c55e'}'>{r['d_gravy']:+.4f}</td>"
+            f"<td style='color:{'#ef4444' if r['d_mw']>0 else '#22c55e'}'>{r['d_mw']:+.2f}</td>"
+            f"<td style='color:{'#ef4444' if r['d_nc']>0 else '#22c55e'}'>{r['d_nc']:+.3f}</td>"
+            f"<td style='color:{'#ef4444' if r['d_dis']>0 else '#22c55e'}'>{r['d_dis']:+.4f}</td>"
+            f"</tr>"
+            for r in results
+        )
+        html = (
+            "<style>body{{font-family:sans-serif;font-size:12px}}"
+            "table{{border-collapse:collapse;width:100%}}"
+            "th,td{{border:1px solid #e2e8f0;padding:4px 8px;text-align:center}}"
+            "th{{background:#f8fafc;font-weight:600}}</style>"
+            "<h3>Alanine Scan Results</h3>"
+            "<p>Wild-type: GRAVY={gravy:.4f} | MW={mw:.1f} Da | Charge={nc:.3f} | DisF={dis:.4f}</p>"
+            "<table><tr><th>Pos</th><th>WT</th><th>ΔGRAVY</th><th>ΔMW (Da)</th>"
+            "<th>ΔCharge</th><th>ΔDis.Frac</th></tr>"
+            "{rows}</table>"
+        ).format(
+            gravy=wt_props["gravy"], mw=wt_props["mw"],
+            nc=wt_props["nc"], dis=wt_props["dis_f"],
+            rows=rows_html,
+        )
+        self._ala_browser.setHtml(html)
+
+        # Bar chart (ΔGRAVY)
+        self._ala_fig.clear()
+        ax = self._ala_fig.add_subplot(111)
+        positions = [r["pos"] for r in results]
+        d_gravy   = [r["d_gravy"] for r in results]
+        colors = ["#ef4444" if v > 0 else "#22c55e" for v in d_gravy]
+        ax.bar(positions, d_gravy, color=colors, edgecolor="none", width=0.8)
+        ax.axhline(0, color="#64748b", linewidth=0.8, linestyle="--")
+        ax.set_xlabel("Sequence position", fontsize=9)
+        ax.set_ylabel("ΔGRAVY", fontsize=9)
+        ax.set_title(f"Alanine scan ΔGRAVY  ({start}–{end})", fontsize=10)
+        ax.tick_params(labelsize=8)
+        self._ala_fig.tight_layout(pad=0.8)
+        self._ala_canvas.draw()
+        self._ala_export_btn.setEnabled(True)
+
+    def _export_ala_csv(self) -> None:
+        if not self._ala_results:
+            return
+        fn, _ = QFileDialog.getSaveFileName(
+            self, "Export Alanine Scan", "alanine_scan.csv", "CSV (*.csv)",
+            options=QFileDialog.Option.DontUseNativeDialog)
+        if not fn:
+            return
+        if not fn.lower().endswith(".csv"):
+            fn += ".csv"
+        import csv as _csv
+        with open(fn, "w", newline="") as fh:
+            w = _csv.DictWriter(fh, fieldnames=["pos", "wt", "d_gravy", "d_mw", "d_nc", "d_dis"])
+            w.writeheader()
+            w.writerows(self._ala_results)
+        self.statusBar.showMessage(f"Alanine scan exported: {fn}", 4000)
+
+    def _build_summary_tab_html(self, data: dict) -> str:
+        """Generate grouped bullet-point HTML for the Summary tab."""
+        seq = data.get("seq", "")
+        L   = len(seq)
+        mw  = data.get("mol_weight", 0)
+        pI  = data.get("iso_point", 0.0)
+        gravy = data.get("gravy", 0.0)
+        fcr   = data.get("fcr", 0.0)
+        ncpr  = data.get("ncpr", 0.0)
+        kappa = data.get("kappa", 0.0)
+        omega = data.get("omega", 0.0)
+        disorder_scores = data.get("disorder_scores") or []
+        sp_prof  = data.get("sp_bilstm_profile") or []
+        tm_prof  = data.get("tm_bilstm_profile") or []
+        cc_prof  = data.get("cc_bilstm_profile") or []
+        aggr     = data.get("aggr_profile") or []
+        catg     = data.get("catgranule")
+        rbp      = data.get("rbp") or {}
+        larks    = data.get("larks") or []
+        phospho  = data.get("phospho_sites") or {}
+        gpi      = data.get("gpi_result") or {}
+        motifs   = data.get("motifs") or {}
+        pfam     = getattr(self, "pfam_domains", []) or []
+
+        def _sec(title, items):
+            if not items:
+                return ""
+            lis = "".join(f"<li style='margin:3px 0'>{i}</li>" for i in items)
+            return (
+                f"<h3 style='margin:14px 0 4px;color:#1a1a2e;font-size:13px;"
+                f"border-bottom:1px solid #e2e8f0;padding-bottom:3px'>{title}</h3>"
+                f"<ul style='margin:0;padding-left:18px;font-size:12px'>{lis}</ul>"
+            )
+
+        # ── Identity ──────────────────────────────────────────────────────
+        identity = [
+            f"<b>Length:</b> {L} residues",
+            f"<b>Molecular weight:</b> {mw/1000:.2f} kDa",
+            f"<b>Isoelectric point (pI):</b> {pI:.2f}",
+            f"<b>GRAVY:</b> {gravy:+.3f} "
+            f"({'hydrophobic' if gravy > 0 else 'hydrophilic'})",
+        ]
+
+        # ── Disorder & structure ──────────────────────────────────────────
+        struct = []
+        if disorder_scores:
+            d_frac = sum(1 for v in disorder_scores if v > 0.5) / L
+            if d_frac >= 0.5:
+                struct.append(f"<b>Highly disordered</b> — {d_frac*100:.0f}% residues predicted disordered (AI Predictions, AUROC 0.9999)")
+            elif d_frac >= 0.25:
+                struct.append(f"<b>Partially disordered</b> — {d_frac*100:.0f}% disordered regions (AI Predictions)")
+            else:
+                struct.append(f"<b>Predominantly ordered</b> — {d_frac*100:.0f}% disordered (AI Predictions)")
+        if sp_prof:
+            sp_max = max(sp_prof[:35]) if len(sp_prof) >= 10 else 0
+            if sp_max > 0.7:
+                struct.append(f"<b>Signal peptide</b> detected at N-terminus (AI Predictions, score {sp_max:.2f}, AUROC 0.9999)")
+        if gpi.get("has_gpi"):
+            struct.append("<b>GPI anchor</b> signal at C-terminus")
+        if tm_prof:
+            n_tm = sum(1 for v in tm_prof if v > 0.5)
+            if n_tm >= 15:
+                struct.append(f"<b>Transmembrane protein</b> — ~{n_tm} residues in TM helices (AI Predictions, AUROC 0.992)")
+        if cc_prof:
+            n_cc = sum(1 for v in cc_prof if v > 0.5)
+            if n_cc >= 10:
+                struct.append(f"<b>Coiled-coil region</b> — {n_cc} residues (AI Predictions)")
+        if pfam:
+            struct.append(f"<b>Pfam domains:</b> {', '.join(d.get('name','?') for d in pfam[:5])}"
+                          + (" …" if len(pfam) > 5 else ""))
+
+        # ── Charge & IDP ──────────────────────────────────────────────────
+        charge = [
+            f"<b>FCR:</b> {fcr:.3f} · <b>NCPR:</b> {ncpr:+.3f} · "
+            f"<b>κ:</b> {kappa:.3f} · <b>Ω:</b> {omega:.3f}",
+        ]
+        if fcr >= 0.35:
+            charge.append("Strong polyelectrolyte (Das-Pappu FCR ≥ 0.35)")
+        if larks:
+            charge.append(f"<b>{len(larks)} LARKS</b> — potential amyloid-like interaction cores")
+
+        # ── Phase separation & condensates ────────────────────────────────
+        phase = []
+        if catg is not None:
+            sign = "prone" if catg > 0 else "resistant"
+            phase.append(f"<b>catGRANULE score:</b> {catg:+.2f} ({sign} to condensate formation)")
+        if rbp.get("composite_score", 0) > 0:
+            phase.append(f"<b>RNA-binding (catRAPID):</b> ω̄ = {rbp['composite_score']:.2f}")
+            if rbp.get("motifs"):
+                phase.append(f"RNA-binding motifs: {', '.join(rbp['motifs'][:4])}")
+
+        # ── Aggregation ───────────────────────────────────────────────────
+        aggr_items = []
+        if aggr:
+            n_hot = sum(1 for v in aggr if v >= 1.0)
+            if n_hot >= 4:
+                aggr_items.append(f"<b>{n_hot} residues</b> in β-aggregation hotspots (ZYGGREGATOR Z ≥ 1.0)")
+            else:
+                aggr_items.append(f"Low aggregation propensity ({n_hot} hotspot residues)")
+
+        # ── Post-translational modifications ──────────────────────────────
+        ptm = []
+        if phospho:
+            n_p = sum(len(v) for v in phospho.values())
+            if n_p:
+                detail = "; ".join(f"{k}: {len(v)}" for k, v in phospho.items() if v)
+                ptm.append(f"<b>{n_p} phosphorylation site(s)</b> predicted ({detail})")
+        if motifs:
+            n_m = len(motifs)
+            if n_m:
+                names = list(dict.fromkeys(
+                    m.get("name", m.get("motif", "")) for m in motifs
+                ))
+                ptm.append(f"<b>{n_m} linear motif(s)</b> matched "
+                           f"({', '.join(names[:4])}"
+                           + (" …" if len(names) > 4 else "") + ")")
+
+        # ── Assemble ──────────────────────────────────────────────────────
+        html = (
+            "<div style='font-family:sans-serif;max-width:800px'>"
+            f"<h2 style='color:#1a1a2e;margin:0 0 4px'>{self._display_name()}</h2>"
+            f"<p style='color:#64748b;font-size:11px;margin:0 0 10px'>"
+            f"BEER v2.0 · AI Predictions analysis</p>"
+        )
+        html += _sec("Identity", identity)
+        html += _sec("Structure & Folding", struct)
+        html += _sec("Charge & IDP Properties", charge)
+        html += _sec("Aggregation", aggr_items)
+        html += _sec("Phase Separation & RNA Binding", phase)
+        html += _sec("Post-translational Modifications", ptm)
+        html += "</div>"
+        return html
 
     def init_graphs_tab(self):
         container = QWidget()
@@ -1359,14 +1890,46 @@ class ProteinAnalyzerGUI(QMainWindow):
         right_v.setSpacing(4)
         outer.addWidget(right, 1)
 
-        # Top bar: Save All button
+        # Top bar: ROI input + Save All button
         top_bar = QHBoxLayout()
+        top_bar.setSpacing(6)
+        roi_lbl = QLabel("Region of Interest:")
+        roi_lbl.setObjectName("roi_lbl")
+        top_bar.addWidget(roi_lbl)
+        self._roi_input = QLineEdit()
+        self._roi_input.setPlaceholderText("e.g. 50-120")
+        self._roi_input.setMaximumWidth(110)
+        self._roi_input.setMaximumHeight(26)
+        self._roi_input.setToolTip(
+            "Highlight a residue range across all position-based graphs.\n"
+            "Format: start-end (e.g. 50-120). Clear to remove highlight."
+        )
+        self._roi_input.returnPressed.connect(self._apply_roi_highlight)
+        top_bar.addWidget(self._roi_input)
+        roi_btn = QPushButton("Apply")
+        roi_btn.setMinimumWidth(60)
+        roi_btn.setMaximumHeight(26)
+        roi_btn.clicked.connect(self._apply_roi_highlight)
+        top_bar.addWidget(roi_btn)
+        roi_clear = QPushButton("Clear")
+        roi_clear.setMinimumWidth(54)
+        roi_clear.setMaximumHeight(26)
+        roi_clear.clicked.connect(self._clear_roi_highlight)
+        top_bar.addWidget(roi_clear)
         top_bar.addStretch()
-        save_all = QPushButton("Save All Graphs")
-        save_all.setMaximumWidth(160)
-        save_all.clicked.connect(self.save_all_graphs)
-        top_bar.addWidget(save_all)
+        self._graphs_uniprot_btn = QPushButton("UniProt Tracks")
+        self._graphs_uniprot_btn.setMinimumWidth(120)
+        self._graphs_uniprot_btn.setMaximumHeight(26)
+        self._graphs_uniprot_btn.setToolTip(
+            "Fetch UniProt feature annotations and overlay them on AI-head graphs.")
+        self._graphs_uniprot_btn.setEnabled(False)
+        self._graphs_uniprot_btn.clicked.connect(self.fetch_uniprot_features)
+        top_bar.addWidget(self._graphs_uniprot_btn)
+        top_bar.addSpacing(8)
+        # (Save All Graphs removed in v2.0 — use per-graph Save Graph button)
         right_v.addLayout(top_bar)
+        self._roi_start: int | None = None
+        self._roi_end:   int | None = None
 
         self.graph_stack = QStackedWidget()
         right_v.addWidget(self.graph_stack, 1)
@@ -1427,14 +1990,15 @@ class ProteinAnalyzerGUI(QMainWindow):
 
     # ── colour-scheme options per colour mode ────────────────────────────────
     _STRUCT_SCHEMES = {
-        "pLDDT / B-factor":    ["Red-White-Blue", "Blue-White-Red", "Rainbow", "Sinebow"],
+        "pLDDT / B-factor":    ["Red-White-Blue", "Blue-White-Red", "Rainbow", "Sinebow", "Greyscale"],
         "Residue Type":         ["Amino Acid (UniProt)", "Shapely"],
         "Chain":                ["Chain Colors"],
-        "Charge":               ["Blue / Red / Grey"],
-        "Hydrophobicity":       ["Cyan-White-Orange", "Blue-White-Red", "Green-White-Red"],
-        "Mass":                 ["Blue-to-Red", "Rainbow"],
-        "Secondary Structure":  ["JMol", "PyMOL"],
-        "Spectrum (N→C)":       ["Spectrum"],
+        "Charge":               ["Standard", "Vivid", "Pastel", "Monochrome"],
+        "Hydrophobicity":       ["Cyan-White-Orange", "Blue-White-Red", "Green-White-Red", "Thermal", "Purple-White-Green"],
+        "Mass":                 ["Blue-to-Red", "Rainbow", "Sinebow", "Greyscale"],
+        "Secondary Structure":  ["JMol", "PyMOL", "Pastel", "Lesk"],
+        "Spectrum (N→C)":       ["Rainbow (N→C)", "Blue→Red (N→C)", "Sinebow (N→C)", "Greyscale (N→C)", "Reverse (C→N)"],
+        "AI Features":          ["Disorder"],   # populated dynamically in _update_scheme_combo
     }
     _STRUCT_MODE_KEY = {
         "pLDDT / B-factor":    "plddt",
@@ -1445,6 +2009,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         "Mass":                 "mass",
         "Secondary Structure":  "secondary_structure",
         "Spectrum (N→C)":       "spectrum",
+        "AI Features":          "feature",
     }
     _STRUCT_PANEL_CSS_LIGHT = """
         QScrollArea { border: 1px solid #d1d9f0; border-radius: 8px; background: #f4f6fd; }
@@ -1744,6 +2309,31 @@ class ProteinAnalyzerGUI(QMainWindow):
   .cb-entry {{ display:flex; align-items:center; gap:7px; margin-bottom:4px; white-space:nowrap; }}
   .cb-swatch {{ width:12px; height:12px; border-radius:3px; flex-shrink:0; border:1px solid rgba(255,255,255,0.2); }}
 
+  /* ── residue popup ─────────────────────────────────────────────────────── */
+  #residue-popup {{
+    display:none; position:absolute; top:14px; left:14px;
+    background:rgba(10,12,30,0.92); border-radius:8px;
+    padding:10px 13px 8px 13px; font-family:system-ui,sans-serif;
+    font-size:11px; color:#e8eaf0; z-index:200;
+    box-shadow:0 4px 18px rgba(0,0,0,0.65);
+    border:1px solid rgba(255,215,0,0.45); min-width:190px;
+    pointer-events:auto;
+  }}
+  #popup-title {{
+    font-weight:700; font-size:12px; color:#FFD700; margin-bottom:7px;
+    border-bottom:1px solid rgba(255,215,0,0.3); padding-bottom:4px;
+  }}
+  .popup-row {{ display:flex; justify-content:space-between; gap:12px; margin:3px 0; }}
+  .popup-label {{ color:#94a3b8; }}
+  .popup-val {{ color:#e2e8f0; font-weight:600; }}
+  .popup-bar-wrap {{ width:60px; height:8px; background:#1e293b; border-radius:4px; margin-top:1px; overflow:hidden; }}
+  .popup-bar {{ height:100%; border-radius:4px; }}
+  #popup-close {{
+    position:absolute; top:6px; right:8px; cursor:pointer;
+    color:#94a3b8; font-size:13px; line-height:1;
+  }}
+  #popup-close:hover {{ color:#ffd700; }}
+
 </style>
 </head><body>
 <div id="vp">
@@ -1760,6 +2350,11 @@ class ProteinAnalyzerGUI(QMainWindow):
     <div id="cb-unit"></div>
     <div id="cb-entries"></div>
   </div>
+  <div id="residue-popup">
+    <span id="popup-close" onclick="closePopup()">✕</span>
+    <div id="popup-title">—</div>
+    <div id="popup-rows"></div>
+  </div>
 </div>
 <script src="https://3dmol.org/build/3Dmol-min.js"></script>
 <script>
@@ -1772,6 +2367,8 @@ var repOpacity  = 0.90;
 var colorBarVisible = true;
 var surfaceObj  = null;   // numeric surface ID (set in addSurface .then callback)
 var surfaceGen  = 0;      // generation counter — incremented on every applyStyle call
+var allChains   = [];     // all chain IDs present in the current model
+var seqLen      = 0;      // protein length — set by setColorMode for Spectrum mode
 
 // ── Kyte-Doolittle ──────────────────────────────────────────────────────────
 var KD = {{'ILE':4.5,'VAL':4.2,'LEU':3.8,'PHE':2.8,'CYS':2.5,'MET':1.9,'ALA':1.8,
@@ -1820,42 +2417,132 @@ function _mass_RB(atom){{
     return rgb(lerp(cols[i][0],cols[i+1][0],f),lerp(cols[i][1],cols[i+1][1],f),lerp(cols[i][2],cols[i+1][2],f));
 }}
 
-// ── charge colorfunc ───────────────────────────────────────────────────────
-function _charge(atom){{
+// ── charge colorfuncs ─────────────────────────────────────────────────────
+function _charge(atom){{   // Standard
     if(['ARG','LYS','HIS'].indexOf(atom.resn)>=0) return '#5588ff';
     if(['ASP','GLU'].indexOf(atom.resn)>=0)        return '#ff5555';
     return '#aaaaaa';
 }}
+function _charge_vivid(atom){{
+    if(['ARG','LYS','HIS'].indexOf(atom.resn)>=0) return '#0033ff';
+    if(['ASP','GLU'].indexOf(atom.resn)>=0)        return '#ff0000';
+    return '#cccccc';
+}}
+function _charge_pastel(atom){{
+    if(['ARG','LYS','HIS'].indexOf(atom.resn)>=0) return '#99b3ff';
+    if(['ASP','GLU'].indexOf(atom.resn)>=0)        return '#ffaaaa';
+    return '#eeeeee';
+}}
+function _charge_mono(atom){{
+    if(['ARG','LYS','HIS'].indexOf(atom.resn)>=0) return '#ffffff';
+    if(['ASP','GLU'].indexOf(atom.resn)>=0)        return '#222222';
+    return '#888888';
+}}
 
-// ── secondary structure colorfunc (JMol palette) ──────────────────────────
+// ── hydrophobicity extra colorfuncs ───────────────────────────────────────
+function _hydro_thermal(atom){{
+    var kd=KD[atom.resn]!==undefined?KD[atom.resn]:0;
+    var t=(kd+4.5)/9.0;
+    if(t<0.5){{ var s=t*2; return rgb(lerp(0,255,s),lerp(60,200,s),lerp(200,60,s)); }}
+    var s=(t-0.5)*2; return rgb(255,lerp(200,80,s),lerp(60,0,s));
+}}
+function _hydro_PWG(atom){{
+    var kd=KD[atom.resn]!==undefined?KD[atom.resn]:0;
+    var t=(kd+4.5)/9.0;
+    if(t<0.5){{ var s=t*2; return rgb(lerp(128,255,s),lerp(0,255,s),lerp(128,255,s)); }}
+    var s=(t-0.5)*2; return rgb(lerp(255,0,s),lerp(255,128,s),lerp(255,0,s));
+}}
+
+// ── mass extra colorfuncs ─────────────────────────────────────────────────
+function _mass_sinebow(atom){{
+    var m=MASS[atom.resn]!==undefined?MASS[atom.resn]:110;
+    var t=Math.max(0,Math.min(1,(m-75)/129.0));
+    return rgb(
+        Math.round(255*Math.pow(Math.sin(Math.PI*(t+0)),2)),
+        Math.round(255*Math.pow(Math.sin(Math.PI*(t+1/3)),2)),
+        Math.round(255*Math.pow(Math.sin(Math.PI*(t+2/3)),2))
+    );
+}}
+function _mass_grey(atom){{
+    var m=MASS[atom.resn]!==undefined?MASS[atom.resn]:110;
+    var t=Math.max(0,Math.min(1,(m-75)/129.0));
+    var v=Math.round(lerp(30,220,t)); return rgb(v,v,v);
+}}
+
+// ── secondary structure colorfuncs ────────────────────────────────────────
 function _ss_jmol(atom){{
     var s=atom.ss;
-    if(s==='h'||s==='H') return '#FF0080';   // helix  — hot pink
-    if(s==='s'||s==='S') return '#FFFF00';   // sheet  — yellow
-    return '#FFFFFF';                         // coil   — white
+    if(s==='h'||s==='H') return '#FF0080';
+    if(s==='s'||s==='S') return '#FFFF00';
+    return '#FFFFFF';
 }}
-// ── secondary structure colorfunc (PyMOL palette) ─────────────────────────
 function _ss_pymol(atom){{
     var s=atom.ss;
-    if(s==='h'||s==='H') return '#FF6666';   // helix  — salmon
-    if(s==='s'||s==='S') return '#6699FF';   // sheet  — cornflower blue
-    return '#CCCCCC';                         // coil   — grey
+    if(s==='h'||s==='H') return '#FF6666';
+    if(s==='s'||s==='S') return '#6699FF';
+    return '#CCCCCC';
+}}
+function _ss_pastel(atom){{
+    var s=atom.ss;
+    if(s==='h'||s==='H') return '#ffb3c6';
+    if(s==='s'||s==='S') return '#b3d9ff';
+    return '#e8e8e8';
+}}
+function _ss_lesk(atom){{
+    var s=atom.ss;
+    if(s==='h'||s==='H') return '#ff0000';
+    if(s==='s'||s==='S') return '#0000ff';
+    return '#00cc44';
+}}
+
+// ── pLDDT greyscale ───────────────────────────────────────────────────────
+function _plddt_grey(atom){{
+    var t=Math.max(0,Math.min(1,(atom.b||0)/100.0));
+    var v=Math.round(lerp(30,220,t)); return rgb(v,v,v);
+}}
+
+// ── spectrum (N→C) colorfuncs & scheme ────────────────────────────────────
+function _spectrum_grey(atom){{
+    var t=seqLen>1?Math.max(0,Math.min(1,(atom.resi-1)/(seqLen-1))):0;
+    var v=Math.round(lerp(30,220,t)); return rgb(v,v,v);
+}}
+function _spectrumScheme(){{
+    var mx=seqLen>0?seqLen:9999;
+    if(colorScheme==='Blue\u2192Red (N\u2192C)') return {{gradient:'rwb',prop:'resi',min:1,max:mx}};
+    if(colorScheme==='Sinebow (N\u2192C)')        return {{gradient:'sinebow',prop:'resi',min:1,max:mx}};
+    if(colorScheme==='Reverse (C\u2192N)')        return {{gradient:'roygb',prop:'resi',min:mx,max:1}};
+    if(colorScheme==='Greyscale (N\u2192C)')      return null;
+    return 'spectrum';
 }}
 
 function _getColorFunc(){{
     if(colorMode==='hydrophobicity'){{
-        if(colorScheme==='Blue-White-Red')  return _hydro_BWR;
-        if(colorScheme==='Green-White-Red') return _hydro_GWR;
+        if(colorScheme==='Blue-White-Red')      return _hydro_BWR;
+        if(colorScheme==='Green-White-Red')     return _hydro_GWR;
+        if(colorScheme==='Thermal')             return _hydro_thermal;
+        if(colorScheme==='Purple-White-Green')  return _hydro_PWG;
         return _hydro_CWO;
     }}
     if(colorMode==='mass'){{
-        if(colorScheme==='Rainbow') return _mass_RB;
+        if(colorScheme==='Rainbow')   return _mass_RB;
+        if(colorScheme==='Sinebow')   return _mass_sinebow;
+        if(colorScheme==='Greyscale') return _mass_grey;
         return _mass_BR;
     }}
-    if(colorMode==='charge') return _charge;
+    if(colorMode==='charge'){{
+        if(colorScheme==='Vivid')     return _charge_vivid;
+        if(colorScheme==='Pastel')    return _charge_pastel;
+        if(colorScheme==='Monochrome') return _charge_mono;
+        return _charge;
+    }}
     if(colorMode==='secondary_structure'){{
+        if(colorScheme==='Pastel') return _ss_pastel;
+        if(colorScheme==='Lesk')   return _ss_lesk;
         return colorScheme==='PyMOL' ? _ss_pymol : _ss_jmol;
     }}
+    if(colorMode==='plddt' && colorScheme==='Greyscale') return _plddt_grey;
+    if(colorMode==='spectrum' && colorScheme==='Greyscale (N\u2192C)') return _spectrum_grey;
+    if(colorMode==='feature') return _feature_colorfunc;
     return null;
 }}
 
@@ -1875,13 +2562,17 @@ function _styleOpts(rep,opacity){{
     var op=opacity!==undefined?opacity:repOpacity;
     var o={{}};
     if(colorMode==='plddt'){{
-        o[rep]={{colorscheme:_plddtScheme(),opacity:op}};
+        if(colorScheme==='Greyscale') o[rep]={{colorfunc:_plddt_grey,opacity:op}};
+        else o[rep]={{colorscheme:_plddtScheme(),opacity:op}};
     }} else if(colorMode==='residue'){{
         o[rep]={{colorscheme:colorScheme==='Shapely'?'shapely':'amino',opacity:op}};
     }} else if(colorMode==='chain'){{
         o[rep]={{colorscheme:'chain',opacity:op}};
     }} else if(colorMode==='spectrum'){{
-        o[rep]={{colorscheme:'spectrum',opacity:op}};
+        var spec=_spectrumScheme();
+        if(spec===null) o[rep]={{colorfunc:_spectrum_grey,opacity:op}};
+        else if(typeof spec==='string') o[rep]={{colorscheme:spec,opacity:op}};
+        else o[rep]={{colorscheme:spec,opacity:op}};
     }} else {{
         o[rep]={{colorfunc:_getColorFunc(),opacity:op}};
     }}
@@ -1923,13 +2614,24 @@ function applyStyle(){{
         // Hide hidden chains in ghost too
         hiddenList.forEach(function(c){{ viewer.setStyle({{chain:c}},{{}}); }});
         var sOpts={{opacity:repOpacity}};
-        if(colorMode==='plddt')        sOpts.colorscheme=_plddtScheme();
-        else if(colorMode==='residue') sOpts.colorscheme=colorScheme==='Shapely'?'shapely':'amino';
+        if(colorMode==='plddt'){{
+            if(colorScheme==='Greyscale') sOpts.colorfunc=_plddt_grey;
+            else sOpts.colorscheme=_plddtScheme();
+        }} else if(colorMode==='residue') sOpts.colorscheme=colorScheme==='Shapely'?'shapely':'amino';
         else if(colorMode==='chain')   sOpts.colorscheme='chain';
-        else if(colorMode==='spectrum') sOpts.colorscheme='spectrum';
-        else                           sOpts.colorfunc=_getColorFunc();
+        else if(colorMode==='spectrum'){{
+            var spec=_spectrumScheme();
+            if(spec===null) sOpts.colorfunc=_spectrum_grey;
+            else if(typeof spec==='string') sOpts.colorscheme=spec;
+            else sOpts.colorscheme=spec;
+        }} else                           sOpts.colorfunc=_getColorFunc();
+        // Build chain selector: only generate surface for visible chains.
+        var visibleChains = hiddenList.length > 0
+            ? allChains.filter(function(c){{ return !hiddenChains[c]; }})
+            : [];
+        var surfaceSel = (visibleChains.length > 0) ? {{chain: visibleChains}} : {{}};
         // addSurface is async — store the ID only when the Promise resolves.
-        viewer.addSurface($3Dmol.SurfaceType.MS,sOpts).then(function(id){{
+        viewer.addSurface($3Dmol.SurfaceType.MS,sOpts,surfaceSel).then(function(id){{
             if(surfaceGen===myGen){{
                 surfaceObj=id;   // still the current generation — keep it
             }} else {{
@@ -1982,7 +2684,14 @@ var _CB = {{
     {{c:'#FFFFFF',l:'Coil / loop'}}
   ]}},
   spectrum: {{
-    'Spectrum':{{css:'linear-gradient(to top,#0000ff,#00ffff,#00ff00,#ffff00,#ff0000)',min:'N-term',mid:'middle',max:'C-term',unit:'Sequence position'}},
+    'Rainbow (N\u2192C)':   {{css:'linear-gradient(to top,#0000ff,#00ffff,#00ff00,#ffff00,#ff0000)',min:'N-term',mid:'middle',max:'C-term',unit:'Sequence position'}},
+    'Blue\u2192Red (N\u2192C)': {{css:'linear-gradient(to top,#0000ff,#ffffff,#ff0000)',min:'N-term',mid:'middle',max:'C-term',unit:'Sequence position'}},
+    'Sinebow (N\u2192C)':   {{css:'linear-gradient(to top,#4040ff,#40ffff,#40ff40,#ffff40,#ff4040)',min:'N-term',mid:'middle',max:'C-term',unit:'Sequence position'}},
+    'Greyscale (N\u2192C)': {{css:'linear-gradient(to top,#1e1e1e,#dddddd)',min:'N-term',mid:'middle',max:'C-term',unit:'Sequence position'}},
+    'Reverse (C\u2192N)':   {{css:'linear-gradient(to top,#ff0000,#ffff00,#00ff00,#00ffff,#0000ff)',min:'N-term',mid:'middle',max:'C-term',unit:'Sequence position'}},
+  }},
+  feature: {{
+    '_dyn': true,
   }},
 }};
 
@@ -2001,6 +2710,15 @@ function updateColorBar(){{
     var ents =document.getElementById('cb-entries');
     var wrap =document.getElementById('cb-bar-wrap');
 
+    if(colorMode==='feature'){{
+        // build gradient dynamically from featureColor
+        wrap.style.display='flex'; unit.style.display='block';
+        ents.style.display='none'; bar.classList.remove('cb-wide');
+        title.textContent=featureName;
+        grad.style.background='linear-gradient(to top,#ffffff,'+featureColor+')';
+        tmax.textContent='1.0'; tmid.textContent='0.5'; tmin.textContent='0.0';
+        unit.textContent='Probability'; bar.style.display='block'; return;
+    }}
     if(meta.type==='cat'){{
         wrap.style.display='none'; unit.style.display='none';
         ents.style.display='block'; bar.classList.add('cb-wide');
@@ -2017,7 +2735,7 @@ function updateColorBar(){{
         var cfg=meta[colorScheme]||Object.values(meta)[0];
         wrap.style.display='flex'; unit.style.display='block';
         ents.style.display='none'; bar.classList.remove('cb-wide');
-        title.textContent=colorMode==='plddt'?'pLDDT':colorMode==='hydrophobicity'?'Hydrophobicity':'Mass';
+        title.textContent=colorMode==='plddt'?'pLDDT':colorMode==='hydrophobicity'?'Hydrophobicity':colorMode==='spectrum'?'Sequence Position':'Mass';
         grad.style.background=cfg.css;
         tmax.textContent=cfg.max; tmid.textContent=cfg.mid; tmin.textContent=cfg.min;
         unit.textContent=cfg.unit;
@@ -2026,8 +2744,8 @@ function updateColorBar(){{
 
 // ── public API ─────────────────────────────────────────────────────────────
 function setRepresentation(r)  {{ repMode=r; applyStyle(); }}
-function setColorMode(m,s)     {{ colorMode=m; if(s) colorScheme=s; applyStyle(); }}
-function setScheme(s)          {{ colorScheme=s; applyStyle(); }}
+function setColorMode(m,s,extra){{ colorMode=m; if(s) colorScheme=s; if(extra) seqLen=extra; applyStyle(); updateColorBar(); }}
+function setScheme(s,extra)    {{ colorScheme=s; if(extra) seqLen=extra; applyStyle(); updateColorBar(); }}
 function setBackground(c)      {{ document.documentElement.style.background=c; document.body.style.background=c; if(viewer){{ viewer.setBackgroundColor(c); viewer.render(); }} }}
 function setColorBarVisible(v) {{ colorBarVisible=v; updateColorBar(); }}
 function setSpin(on,axis)      {{ if(!viewer) return; if(on) viewer.spin(axis||'y',1); else viewer.spin(false); viewer.render(); }}
@@ -2039,31 +2757,172 @@ function resetView()           {{
     applyStyle();
 }}
 
+// ── Feature score coloring ────────────────────────────────────────────────
+var featureScores = {{}};   // {{resi(1-based): score 0..1}}
+var featureColor  = '#f3722c';
+var featureName   = 'disorder';
+
+function _hexToRgb(h){{
+    var r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);
+    return [r,g,b];
+}}
+function _feature_colorfunc(atom){{
+    var score=featureScores[atom.resi];
+    if(score===undefined) return '#cccccc';
+    var t=Math.max(0,Math.min(1,score));
+    var c=_hexToRgb(featureColor);
+    // interpolate white → featureColor
+    var r=Math.round(255+(c[0]-255)*t);
+    var g=Math.round(255+(c[1]-255)*t);
+    var b=Math.round(255+(c[2]-255)*t);
+    return 'rgb('+r+','+g+','+b+')';
+}}
+function setFeatureData(name, scores, hexColor){{
+    featureName=name; featureScores=scores; featureColor=hexColor||'#f3722c';
+    colorMode='feature';
+    applyStyle();
+    updateColorBar();
+}}
+
 // ── loadPDB: swap in a new structure without reloading the page ────────────
+function _refreshAllChains(){{
+    allChains = [];
+    var _m = viewer.getModel(0);
+    if(!_m) return;
+    var _a = _m.selectedAtoms({{}});
+    var _cs = {{}};
+    _a.forEach(function(a){{ if(a.chain) _cs[a.chain]=true; }});
+    allChains = Object.keys(_cs);
+}}
+
 function loadPDB(data){{
     pdbData = data || null;   // always store first — init() picks this up if viewer not ready yet
     hiddenChains = {{}};       // reset chain visibility on every new structure
+    allChains = [];
     if(!viewer) return;        // CDN still loading; init() will load pdbData when ready
     viewer.clear();
     if(pdbData){{
         viewer.addModel(pdbData, "pdb");
+        _refreshAllChains();
         viewer.zoomTo();   // set camera BEFORE rendering
         applyStyle();      // renders with correct camera
+        _installClickHandler();
     }} else {{
         viewer.render();
         updateColorBar();
     }}
 }}
 
+// ── Per-residue multi-score data (populated from Python) ──────────────────
+var allResScores = {{}};  // {{resi: {{disorder:f, signal:f, tm:f, ...}}}}
+
+function setAllResidueScores(data){{
+    allResScores = data || {{}};
+}}
+
+// ── Residue highlight (gold sphere overlay, PyMOL-style) ──────────────────
+var _hlResi  = null;
+var _hlChain = null;
+
+function highlightResidue(resi, chain){{
+    _hlResi  = resi;
+    _hlChain = chain;
+    _applyHighlight();
+}}
+
+function clearHighlight(){{
+    _hlResi = null; _hlChain = null;
+    applyStyle();
+}}
+
+function _applyHighlight(){{
+    if(!viewer || !_hlResi) return;
+    var sel = {{resi: _hlResi}};
+    if(_hlChain) sel.chain = _hlChain;
+    viewer.setStyle(sel, {{sphere:{{color:'#FFD700', radius:0.85, opacity:0.92}}}});
+    viewer.render();
+}}
+
+// ── Residue popup ─────────────────────────────────────────────────────────
+var _SCORE_LABELS = [
+    ['disorder',  'Disorder',         '#818cf8'],
+    ['signal',    'Signal Peptide',   '#f472b6'],
+    ['tm',        'TM Helix',         '#34d399'],
+    ['intramem',  'Intramembrane',    '#6ee7b7'],
+    ['cc',        'Coiled-Coil',      '#fb923c'],
+    ['dna',       'DNA-Binding',      '#60a5fa'],
+    ['act',       'Active Site',      '#f87171'],
+    ['bnd',       'Binding Site',     '#a78bfa'],
+    ['phos',      'Phosphorylation',  '#fbbf24'],
+    ['lcd',       'Low Complexity',   '#94a3b8'],
+    ['znf',       'Zinc Finger',      '#4ade80'],
+    ['glyc',      'Glycosylation',    '#f9a8d4'],
+    ['ubiq',      'Ubiquitination',   '#fb7185'],
+    ['meth',      'Methylation',      '#a3e635'],
+    ['acet',      'Acetylation',      '#38bdf8'],
+    ['lipid',     'Lipidation',       '#e879f9'],
+    ['plddt',     'pLDDT',            '#fde68a'],
+];
+
+function showResiduePopup(resi, resn, chain){{
+    var popup = document.getElementById('residue-popup');
+    var title = document.getElementById('popup-title');
+    var rows  = document.getElementById('popup-rows');
+    title.textContent = resn + ' ' + resi + '  (Chain ' + chain + ')';
+    var scores = allResScores[resi] || {{}};
+    var html = '';
+    var hasAny = false;
+    _SCORE_LABELS.forEach(function(t){{
+        var key=t[0], label=t[1], color=t[2];
+        var v = scores[key];
+        if(v === undefined || v === null) return;
+        hasAny = true;
+        var pct = Math.round(v * 100);
+        html += '<div class="popup-row">'
+              + '<span class="popup-label">' + label + '</span>'
+              + '<span class="popup-val">' + v.toFixed(3) + '</span>'
+              + '</div>'
+              + '<div class="popup-bar-wrap"><div class="popup-bar" style="width:'+pct+'%;background:'+color+'"></div></div>';
+    }});
+    if(!hasAny){{
+        html = '<div style="color:#64748b;font-size:10px">No prediction scores available.<br>Run analysis first.</div>';
+    }}
+    rows.innerHTML = html;
+    popup.style.display = 'block';
+}}
+
+function closePopup(){{
+    document.getElementById('residue-popup').style.display='none';
+    clearHighlight();
+}}
+
+// ── Patch applyStyle to re-apply highlight after style change ─────────────
+var _origApplyStyle = applyStyle;
+applyStyle = function(){{
+    _origApplyStyle();
+    if(_hlResi) _applyHighlight();
+}};
+
+// ── Install click handler once viewer is ready ────────────────────────────
+function _installClickHandler(){{
+    if(!viewer) return;
+    viewer.setClickable({{}}, true, function(atom, _v, _event, _container){{
+        highlightResidue(atom.resi, atom.chain);
+        showResiduePopup(atom.resi, atom.resn || atom.elem, atom.chain);
+    }});
+}}
+
 function init(){{
     viewer=$3Dmol.createViewer("vp",{{backgroundColor:"#ffffff",antialias:true}});
     if(pdbData){{          // null on the initial empty-page load
         viewer.addModel(pdbData,"pdb");
+        _refreshAllChains();
         viewer.zoomTo();   // set camera BEFORE rendering
         applyStyle();      // renders with correct camera
     }}
     viewer.render();
     updateColorBar();
+    _installClickHandler();
 }}
 window.addEventListener("load",init);
 </script>
@@ -2074,12 +2933,71 @@ window.addEventListener("load",init);
         if self.structure_viewer is not None:
             self.structure_viewer.page().runJavaScript(code)
 
+    # Feature name → analysis_data key mapping (keys must match core.py return dict)
+    _FEATURE_SCORE_KEYS = {
+        "Disorder":        "disorder_scores",
+        "Signal Peptide":  "sp_bilstm_profile",
+        "Transmembrane":   "tm_bilstm_profile",
+        "Intramembrane":   "intramem_bilstm_profile",
+        "Coiled-Coil":     "cc_bilstm_profile",
+        "DNA-Binding":     "dna_bilstm_profile",
+        "Active Site":     "act_bilstm_profile",
+        "Binding Site":    "bnd_bilstm_profile",
+        "Phosphorylation": "phos_bilstm_profile",
+        "Low Complexity":  "lcd_bilstm_profile",
+        "Zinc Finger":     "znf_bilstm_profile",
+        "Glycosylation":   "glyc_bilstm_profile",
+        "Ubiquitination":  "ubiq_bilstm_profile",
+        "Methylation":     "meth_bilstm_profile",
+        "Acetylation":     "acet_bilstm_profile",
+        "Lipidation":      "lipid_bilstm_profile",
+        "Disulfide Bond":  "disulf_bilstm_profile",
+        "Functional Motif":"motif_bilstm_profile",
+        "Propeptide":      "prop_bilstm_profile",
+        "Repeat Region":        "rep_bilstm_profile",
+        "RNA-Binding":          "rnabind_bilstm_profile",
+        "Nucleotide-Binding":   "nucbind_bilstm_profile",
+        "Transit Peptide":      "transit_bilstm_profile",
+        "Aggregation":          "agg_bilstm_profile",
+    }
+
+    def _available_feature_schemes(self) -> list[str]:
+        """Return all AI feature names (all 24 heads). Uncomputed ones show a popup on select."""
+        return list(self._FEATURE_SCORE_KEYS.keys())
+
     def _update_scheme_combo(self, mode: str) -> None:
-        schemes = self._STRUCT_SCHEMES.get(mode, ["Default"])
+        if mode == "AI Features":
+            schemes = self._available_feature_schemes()
+        else:
+            schemes = self._STRUCT_SCHEMES.get(mode, ["Default"])
         self.struct_scheme_combo.blockSignals(True)
         self.struct_scheme_combo.clear()
         self.struct_scheme_combo.addItems(schemes)
         self.struct_scheme_combo.blockSignals(False)
+
+    def _push_feature_scores(self, feature_label: str) -> None:
+        """Send per-residue scores for feature_label to the 3Dmol JS layer."""
+        from beer.graphs._style import FEATURE_COLORS
+        ad = self.analysis_data or {}
+        key = self._FEATURE_SCORE_KEYS.get(feature_label, "disorder_scores")
+        scores = ad.get(key) or []
+        if not scores:
+            QMessageBox.information(
+                self, "AI Feature Not Yet Computed",
+                f"'{feature_label}' predictions are not available yet.\n\n"
+                "Click the feature in the AI Predictions sidebar to compute it first, "
+                "or run a full AI Analysis.")
+            return
+        feat_key = feature_label.lower().replace(" ", "_")
+        color = FEATURE_COLORS.get(feat_key, "#f3722c")
+        # Build {resi: score} dict (1-based residue index)
+        scores_dict = {i + 1: float(v) for i, v in enumerate(scores)}
+        import json as _json
+        self._js(
+            f"setFeatureData({_json.dumps(feature_label)},"
+            f"{_json.dumps(scores_dict)},"
+            f"{_json.dumps(color)});"
+        )
 
     def _on_struct_rep_changed(self, rep_label: str) -> None:
         self._js(f"setRepresentation('{rep_label.lower()}');")
@@ -2088,10 +3006,24 @@ window.addEventListener("load",init);
         self._update_scheme_combo(mode)
         key = self._STRUCT_MODE_KEY.get(mode, "plddt")
         scheme = self.struct_scheme_combo.currentText()
-        self._js(f"setColorMode('{key}','{scheme}');")
+        if mode == "AI Features":
+            self._push_feature_scores(scheme)
+        elif mode == "Spectrum (N→C)":
+            seq_len = len((self.analysis_data or {}).get("seq", "")) or 9999
+            self._js(f"setColorMode('{key}','{scheme}',{seq_len});")
+        else:
+            self._js(f"setColorMode('{key}','{scheme}');")
 
     def _on_struct_scheme_changed(self, scheme: str) -> None:
-        if scheme:
+        if not scheme:
+            return
+        mode = self.struct_color_mode_combo.currentText()
+        if mode == "AI Features":
+            self._push_feature_scores(scheme)
+        elif mode == "Spectrum (N→C)":
+            seq_len = len((self.analysis_data or {}).get("seq", "")) or 9999
+            self._js(f"setScheme('{scheme}',{seq_len});")
+        else:
             self._js(f"setScheme('{scheme}');")
 
     def _on_struct_colorbar_toggled(self, checked: bool) -> None:
@@ -2268,6 +3200,56 @@ window.addEventListener("load",init);
             self._js("".join(js_parts))
         except Exception:
             pass
+        self._push_all_residue_scores()
+
+    def _push_all_residue_scores(self) -> None:
+        """Push per-residue multi-feature scores to the 3Dmol popup layer."""
+        if not _WEBENGINE_AVAILABLE or self.structure_viewer is None:
+            return
+        ad = self.analysis_data or {}
+        _KEY_MAP = [
+            ("disorder",  "disorder_scores"),
+            ("signal",    "sp_bilstm_profile"),
+            ("tm",        "tm_bilstm_profile"),
+            ("intramem",  "intramem_bilstm_profile"),
+            ("cc",        "cc_bilstm_profile"),
+            ("dna",       "dna_bilstm_profile"),
+            ("act",       "act_bilstm_profile"),
+            ("bnd",       "bnd_bilstm_profile"),
+            ("phos",      "phos_bilstm_profile"),
+            ("lcd",       "lcd_bilstm_profile"),
+            ("znf",       "znf_bilstm_profile"),
+            ("glyc",      "glyc_bilstm_profile"),
+            ("ubiq",      "ubiq_bilstm_profile"),
+            ("meth",      "meth_bilstm_profile"),
+            ("acet",      "acet_bilstm_profile"),
+            ("lipid",     "lipid_bilstm_profile"),
+            ("disulf",    "disulf_bilstm_profile"),
+            ("motif",     "motif_bilstm_profile"),
+            ("prop",      "prop_bilstm_profile"),
+            ("rep",       "rep_bilstm_profile"),
+            ("rnabind",   "rnabind_bilstm_profile"),
+            ("nucbind",   "nucbind_bilstm_profile"),
+            ("transit",   "transit_bilstm_profile"),
+        ]
+        all_scores: dict[int, dict] = {}
+        for js_key, data_key in _KEY_MAP:
+            arr = ad.get(data_key) or []
+            for i, v in enumerate(arr):
+                resi = i + 1
+                if resi not in all_scores:
+                    all_scores[resi] = {}
+                all_scores[resi][js_key] = round(float(v), 4)
+        # pLDDT from alphafold_data
+        af = self.alphafold_data or {}
+        plddt_arr = af.get("plddt") or []
+        for i, v in enumerate(plddt_arr):
+            resi = i + 1
+            if resi not in all_scores:
+                all_scores[resi] = {}
+            all_scores[resi]["plddt"] = round(float(v) / 100.0, 4)
+        if all_scores:
+            self._js(f"setAllResidueScores({json.dumps(all_scores)});")
 
     def _save_pdb(self):
         if not self.alphafold_data:
@@ -2447,7 +3429,7 @@ window.addEventListener("load",init);
 
         self.hydro_scale_combo = QComboBox()
         self.hydro_scale_combo.addItems(list(HYDROPHOBICITY_SCALES.keys()))
-        self.hydro_scale_combo.setCurrentText("Kyte-Doolittle")
+        self.hydro_scale_combo.setCurrentText(self.hydro_scale)
         self._set_tooltip(self.hydro_scale_combo,
             "Hydrophobicity scale for sliding-window profiles and GRAVY calculation.\n"
             "Kyte-Doolittle is the standard general-purpose scale.\n"
@@ -2495,12 +3477,6 @@ window.addEventListener("load",init);
         self.graph_format_combo.addItems(["PNG", "SVG", "PDF"])
         self._set_tooltip(self.graph_format_combo, "Default file format when saving graphs.")
         form3.addRow("Default Graph Format:", self.graph_format_combo)
-
-        self.colormap_combo = QComboBox()
-        self.colormap_combo.addItems(NAMED_COLORMAPS)
-        self.colormap_combo.setCurrentText(self.colormap)
-        self._set_tooltip(self.colormap_combo, "Colour map for the bead hydrophobicity model.")
-        form3.addRow("Bead Colormap:", self.colormap_combo)
 
         self.heatmap_cmap_combo = QComboBox()
         self.heatmap_cmap_combo.addItems(NAMED_COLORMAPS)
@@ -2550,42 +3526,6 @@ window.addEventListener("load",init);
         self.tooltips_checkbox.setChecked(self.enable_tooltips)
         form4.addRow("", self.tooltips_checkbox)
         layout.addLayout(form4)
-
-        # ── ESM2 model selector ───────────────────────────────────────────
-        form5 = QFormLayout()
-        form5.setHorizontalSpacing(20)
-        form5.setVerticalSpacing(8)
-        form5.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        _section("ESM2 Embeddings (optional)")
-        self.esm2_combo = QComboBox()
-        self.esm2_combo.addItems([
-            "esm2_t6_8M_UR50D",
-            "esm2_t12_35M_UR50D",
-            "esm2_t30_150M_UR50D",
-            "esm2_t33_650M_UR50D",
-        ])
-        self.esm2_combo.setCurrentText("esm2_t6_8M_UR50D")
-        self._set_tooltip(
-            self.esm2_combo,
-            "ESM2 model for per-residue embeddings (disorder, variant effect). "
-            "Requires 'pip install fair-esm torch'. Larger models are more accurate but slower."
-        )
-        form5.addRow("ESM2 model:", self.esm2_combo)
-
-        self.esm2_aggr_checkbox = QCheckBox(
-            "Use ESM2 logistic probe for \u03b2-aggregation (requires ESM2)"
-        )
-        self.esm2_aggr_checkbox.setChecked(self.use_esm2_aggregation)
-        self._set_tooltip(
-            self.esm2_aggr_checkbox,
-            "When enabled, the \u03b2-Aggregation Profile uses the ESM2 logistic probe "
-            "instead of ZYGGREGATOR.\n"
-            "Default (unchecked): ZYGGREGATOR (Tartaglia & Vendruscolo 2008) — "
-            "peer-reviewed, no ML install required.\n"
-            "ESM2 option: in-house logistic probe; requires ESM2 to be installed."
-        )
-        form5.addRow("", self.esm2_aggr_checkbox)
-        layout.addLayout(form5)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
@@ -2638,7 +3578,14 @@ window.addEventListener("load",init);
   <li><b>Fetch</b> — enter a <b>UniProt ID</b> (e.g. <tt>P04637</tt>) or a 4-character <b>PDB ID</b> (e.g. <tt>1ABC</tt>) and click <b>Fetch</b>.
     UniProt IDs automatically set the accession for <b>Fetch AlphaFold</b>, <b>Fetch Pfam</b>, and other databases, and trigger analysis immediately.
     PDB IDs download all chains and the coordinate file from RCSB; structural graphs (Ramachandran, distance map, etc.) are shown immediately.</li>
+  <li><b>Find UniProt ID</b> — paste any sequence and BEER will attempt to identify the matching UniProt Swiss-Prot entry by parsing FASTA headers or matching by exact sequence length. If found, the accession is set automatically and all external databases are populated.</li>
 </ul>
+<h2>UniProt Tracks</h2>
+<p>After fetching a UniProt accession, click <b>UniProt Tracks</b> (Structure toolbar) to download all UniProt feature annotations for this protein.
+Once loaded, BEER automatically adds dual-track graph panels that overlay the BEER AI Predictions (top) with the curated UniProt reference (bottom) for features including disorder, signal peptide, transmembrane helices, and more.</p>
+<h2>Feature Coloring on 3D Structure</h2>
+<p>In the Structure tab, select <b>Feature Score</b> from the color mode dropdown to color the protein by any per-residue AI prediction score.
+Choose the feature (Disorder, Signal Peptide, etc.) from the adjacent selector; residues are colored white→feature color according to their predicted probability.</p>
 <h2>Navigation</h2>
 <p>Use the <b>left sidebar</b> to switch between sections. Keyboard shortcuts:</p>
 <table>
@@ -2649,7 +3596,6 @@ window.addEventListener("load",init);
   <tr><td>Ctrl+3</td><td>Switch to BLAST tab</td></tr>
   <tr><td>Ctrl+7</td><td>Switch to MSA tab</td></tr>
   <tr><td>Ctrl+Z</td><td>Undo last mutation</td></tr>
-  <tr><td>Ctrl+E</td><td>Export PDF report</td></tr>
   <tr><td>Ctrl+S</td><td>Save session</td></tr>
   <tr><td>Ctrl+O</td><td>Load session</td></tr>
   <tr><td>Ctrl+F</td><td>Focus motif search</td></tr>
@@ -2829,18 +3775,16 @@ in rapid succession. For batch analyses use NCBI standalone BLAST locally.</p>
             ("Graphs Reference", """
 <h1>Graphs Reference</h1>
 <p>All graphs are in the <b>Graphs</b> section. Use the category tree on the left to navigate.
-Each graph has a <b>Save Graph</b> button; <b>Save All Graphs</b> exports every graph
-to a chosen directory in the format configured in Settings.</p>
+Each graph has a <b>Save Graph</b> button to save that graph individually.</p>
 <h2>Composition</h2>
 <ul>
-  <li><b>AA Composition (Bar / Pie)</b> — amino acid counts and frequencies. Bar sort order matches the report buttons.</li>
+  <li><b>AA Composition (Bar)</b> — amino acid counts and frequencies, sortable by name, frequency, or hydrophobicity.</li>
 </ul>
 <h2>Profiles</h2>
 <ul>
   <li><b>Hydrophobicity Profile</b> — Kyte-Doolittle sliding-window average (window set in Settings).</li>
   <li><b>Local Charge Profile</b> — sliding-window NCPR.</li>
-  <li><b>Local Complexity</b> — sliding-window Shannon entropy; dashed line = LC threshold (2.0 bits).</li>
-  <li><b>Disorder Profile</b> — IUPred-inspired per-residue score; orange fill = disordered (&gt;0.5).</li>
+  <li><b>Disorder Profile</b> — AI Predictions per-residue disorder probability (ESM2 → BiLSTM); fill = disordered (&gt;0.5).</li>
   <li><b>Linear Sequence Map</b> — four-track overview: hydrophobicity, NCPR, disorder, helix propensity.</li>
 </ul>
 <h2>Charge &amp; π-Interactions</h2>
@@ -2852,8 +3796,6 @@ to a chosen directory in the format configured in Settings.</p>
 </ul>
 <h2>Structure &amp; Folding</h2>
 <ul>
-  <li><b>Bead Model (Hydrophobicity)</b> — per-residue KD score; colourmap selectable in Settings.</li>
-  <li><b>Bead Model (Charge)</b> — K/R blue, D/E red, H cyan, neutral grey.</li>
   <li><b>Sticker Map</b> — aromatic (amber), basic (blue), acidic (pink), spacer (grey).</li>
   <li><b>Helical Wheel</b> — Cartesian projection of first 18 residues at 100°/step; connecting lines between sequential residues; KD coloured with luminance-contrast labels.</li>
   <li><b>TM Topology</b> — snake-plot of predicted transmembrane helices (see Transmembrane Helices).</li>
@@ -2871,7 +3813,6 @@ to a chosen directory in the format configured in Settings.</p>
 <h2>Phase Separation / IDP</h2>
 <ul>
   <li><b>Uversky Phase Plot</b> — mean |net charge| vs mean normalised hydrophobicity; Uversky boundary line separates IDP from ordered proteins.</li>
-  <li><b>Coiled-Coil Profile</b> — heptad-weighted propensity profile; score is normalised relative to the sequence maximum. Not a validated coiled-coil predictor — interpret as a relative propensity indicator only.</li>
   <li><b>Single-Residue Perturbation Map</b> — 20×n heatmap of |ΔGRAVY| + |ΔNCPR| for every possible single-residue substitution; white dot = wild type. Highlights positions where amino acid identity most strongly influences global hydrophobicity and charge. Available for sequences ≤500 aa.</li>
 </ul>
 """),
@@ -2928,6 +3869,61 @@ using regular-expression matching.</p>
 <p class="note">All motifs are regex-based consensus patterns and require experimental validation.
 For comprehensive SLiM prediction use ELM (elm.eu.org) or SLiMFinder.</p>
 """),
+            ("AI Predictions", """
+<h1>AI Predictions</h1>
+<p>BEER v2.0 includes 23 per-residue AI prediction heads. Each head uses ESM2 650M embeddings
+fed into a 2-layer BiLSTM classifier trained on curated UniProt Swiss-Prot annotations.
+Every head produces a per-residue probability in [0, 1].
+After running <b>AI Analysis</b>, the Report tab shows an <b>AI Predictions</b> section with one
+entry per head that ran, including predicted regions with residue ranges and the threshold used.</p>
+<h2>Architecture</h2>
+<p>ESM2 650M (1280-dim, frozen) → 2-layer Bidirectional LSTM (hidden = 256) → Linear(512 → 1) → Sigmoid.
+All heads share the same architecture and are trained independently on task-specific labels.
+Classification threshold is set at the F1-maximising point on the validation set (≈ 0.5 for most heads).</p>
+<h2>All 23 Heads</h2>
+<table>
+  <tr><th>Head</th><th>UniProt Training Labels</th><th>Graph Tab</th></tr>
+  <tr><td>Disorder</td><td>"Disordered region" (Swiss-Prot)</td><td>Disorder Profile</td></tr>
+  <tr><td>Signal Peptide</td><td>"Signal" (ft_signal)</td><td>Signal Peptide Profile</td></tr>
+  <tr><td>Transmembrane</td><td>"Transmembrane" (ft_transmem)</td><td>Transmembrane Profile</td></tr>
+  <tr><td>Intramembrane</td><td>"Intramembrane" (ft_intramem)</td><td>Intramembrane Profile</td></tr>
+  <tr><td>Coiled-Coil</td><td>"Coiled coil" (ft_coiled)</td><td>Coiled-Coil Profile</td></tr>
+  <tr><td>DNA-Binding</td><td>"DNA binding" (ft_dna_bind)</td><td>DNA-Binding Profile</td></tr>
+  <tr><td>Active Site</td><td>"Active site" (ft_act_site)</td><td>Active Site Profile</td></tr>
+  <tr><td>Binding Site</td><td>"Binding site" (ft_binding)</td><td>Binding Site Profile</td></tr>
+  <tr><td>Phosphorylation</td><td>"Phospho-Ser/Thr/Tyr" (ft_mod_res)</td><td>Phosphorylation Profile</td></tr>
+  <tr><td>Low-Complexity</td><td>"Compositionally biased" (ft_compbias)</td><td>Low-Complexity Profile</td></tr>
+  <tr><td>Zinc Finger</td><td>"Zinc finger" (ft_zn_fing)</td><td>Zinc Finger Profile</td></tr>
+  <tr><td>Glycosylation</td><td>N/O-linked glycan (ft_carbohyd)</td><td>Glycosylation Profile</td></tr>
+  <tr><td>Ubiquitination</td><td>"Ubiquitin" (ft_mod_res)</td><td>Ubiquitination Profile</td></tr>
+  <tr><td>Methylation</td><td>"Methyl" (ft_mod_res)</td><td>Methylation Profile</td></tr>
+  <tr><td>Acetylation</td><td>"Acetyl" (ft_mod_res)</td><td>Acetylation Profile</td></tr>
+  <tr><td>Lipidation</td><td>GPI/myristoyl/palmitoyl (ft_lipid)</td><td>Lipidation Profile</td></tr>
+  <tr><td>Disulfide Bond</td><td>"Disulfide bond" (ft_disulfid)</td><td>Disulfide Bond Profile</td></tr>
+  <tr><td>Functional Motif</td><td>"Motif" (ft_motif)</td><td>Functional Motif Profile</td></tr>
+  <tr><td>Propeptide</td><td>"Propeptide" (ft_propep)</td><td>Propeptide Profile</td></tr>
+  <tr><td>Repeat Region</td><td>"Repeat" (ft_repeat)</td><td>Repeat Region Profile</td></tr>
+  <tr><td>RNA Binding</td><td>"RNA binding" (ft_binding / RBP annotations)</td><td>RNA Binding Profile</td></tr>
+  <tr><td>Nucleotide-Binding</td><td>"Nucleotide binding" (ft_binding)</td><td>Nucleotide-Binding Profile</td></tr>
+  <tr><td>Transit Peptide</td><td>"Transit peptide" (ft_transit)</td><td>Transit Peptide Profile</td></tr>
+</table>
+<h2>UniProt Annotation Overlay</h2>
+<p>Each graph tab shows the AI prediction probability curve as the primary element.
+When <b>UniProt Tracks</b> are fetched (Structure toolbar), the curated Swiss-Prot annotation
+for that feature is overlaid on the same axes as a semi-transparent background span and a rug strip.
+A stats box shows sensitivity and precision of the AI prediction vs the UniProt reference.</p>
+<h2>MC-Dropout Uncertainty</h2>
+<p>For profile graphs, enable <b>Show Uncertainty (MC-Dropout)</b> to run 20 stochastic forward passes
+(Gal &amp; Ghahramani 2016), producing per-residue mean ± 1σ confidence intervals shown as a shaded band.</p>
+<h2>Classical Methods</h2>
+<p>Classical Analyze (no ESM2) is always available as a fast fallback:
+Disorder — Uversky sliding-window propensity; Signal Peptide — von Heijne D-score;
+TM helices — Kyte-Doolittle w=19; Coiled-coil — heptad-weighted propensity.
+Classical results are always shown in the Report tab regardless of AI Analysis status.</p>
+<h2>ESM2 Status Indicator</h2>
+<p>The <b>ESM2</b> status badge (top-right of the main window) shows: Ready, Busy, or Offline.
+When offline, BEER falls back to classical sequence-based methods automatically.</p>
+"""),
             ("Multichain & Compare", """
 <h1>Multichain Analysis</h1>
 <p>When a multi-FASTA file or PDB with multiple chains is imported, all sequences are
@@ -2952,7 +3948,7 @@ length, MW, pI, GRAVY, FCR, NCPR, net charge, instability, aromaticity, and exti
 <h2>Graph Appearance</h2>
 <ul>
   <li><b>Label / Tick Font Size</b> — point size of axis titles and tick labels.</li>
-  <li><b>Default Graph Format</b> — PNG, SVG, or PDF for Save Graph and Save All Graphs.</li>
+  <li><b>Default Graph Format</b> — PNG, SVG, or PDF for Save Graph.</li>
   <li><b>Bead Colormap</b> — 30+ matplotlib colourmap choices for the Bead Hydrophobicity model.</li>
   <li><b>Graph Accent Colour</b> — 24 named colours for the primary line/fill of most graphs.
       Applying this setting immediately re-renders all graphs.</li>
@@ -3002,12 +3998,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         cite_btn.setToolTip("Copy BibTeX citation for BEER to clipboard")
         cite_btn.clicked.connect(self._copy_beer_citation)
         cite_bar.addWidget(cite_btn)
-
-        methods_btn = QPushButton("Generate Methods Paragraph")
-        methods_btn.setMinimumHeight(32)
-        methods_btn.setToolTip("Auto-generate a methods paragraph for your paper")
-        methods_btn.clicked.connect(self._generate_methods)
-        cite_bar.addWidget(methods_btn)
 
         about_btn = QPushButton("About BEER")
         about_btn.setMinimumHeight(32)
@@ -3220,6 +4210,58 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.statusBar.showMessage(
             f"Loaded {os.path.basename(file_name)}  —  {n_chains} {chain_word}", 4000)
 
+    def import_mmcif(self):
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, "Open mmCIF File", "",
+            "mmCIF Files (*.cif *.mmcif);;All Files (*)")
+        if not file_name:
+            return
+        try:
+            chains = import_mmcif_sequence(file_name)
+        except Exception as e:
+            QMessageBox.critical(self, "mmCIF Error", f"Failed to parse file: {e}")
+            return
+        if not chains:
+            QMessageBox.warning(self, "No Chains", "No valid chains found in mmCIF file.")
+            return
+        try:
+            with open(file_name, "r") as fh:
+                cif_str = fh.read()
+        except OSError:
+            cif_str = None
+        cif_base = os.path.splitext(os.path.basename(file_name))[0]
+        entries  = [(f"{cif_base}_{cid}", seq) for cid, seq in chains.items()]
+        self._load_batch(entries)
+        if cif_str:
+            chain_structs = extract_chain_structures_mmcif(cif_str)
+            for cid_letter, struct in chain_structs.items():
+                rec_id = f"{cif_base}_{cid_letter}"
+                self.batch_struct[rec_id] = struct
+            first_id = entries[0][0]
+            if first_id in self.batch_struct:
+                self.alphafold_data = self.batch_struct[first_id]
+            self._load_structure_viewer(cif_str)
+            self.export_structure_btn.setEnabled(True)
+            n_res = sum(len(seq) for _, seq in entries)
+            self.af_status_lbl.setText(
+                f"Loaded {os.path.basename(file_name)}  —  "
+                f"{len(chain_structs)} chain(s), {n_res} residues total"
+            )
+            self.af_status_lbl.setProperty("status_state", "success")
+            self.af_status_lbl.style().unpolish(self.af_status_lbl)
+            self.af_status_lbl.style().polish(self.af_status_lbl)
+        self.sequence_name = entries[0][0] if entries else cif_base
+        if self.batch_data:
+            first_id, first_seq, first_data = self.batch_data[0]
+            self.seq_text.setPlainText(first_seq)
+            self.analysis_data = first_data
+            self._update_seq_viewer()
+            self.update_graph_tabs()
+        n_chains = len(self.batch_data)
+        chain_word = "chain" if n_chains == 1 else "chains"
+        self.statusBar.showMessage(
+            f"Loaded {os.path.basename(file_name)}  —  {n_chains} {chain_word}", 4000)
+
     # --- Analysis ---
 
     def sort_composition(self, mode: str):
@@ -3350,22 +4392,114 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self.chain_combo.clear()
             self.chain_combo.setEnabled(False)
 
+        # ── One-time ESM2 download warning ───────────────────────────────────
+        from beer.embeddings import ESM2_AVAILABLE
+        if ESM2_AVAILABLE and self._embedder is not None:
+            import pathlib
+            _mn = getattr(self._embedder, "model_name", "esm2_t33_650M_UR50D")
+            _cache_pt = (pathlib.Path.home() / ".cache/torch/hub/checkpoints"
+                         / f"{_mn}.pt")
+            if not _cache_pt.exists() and not getattr(self, "_esm2_download_warned", False):
+                self._esm2_download_warned = True
+                _sizes = {
+                    "esm2_t6_8M_UR50D": "~30 MB", "esm2_t12_35M_UR50D": "~140 MB",
+                    "esm2_t30_150M_UR50D": "~580 MB", "esm2_t33_650M_UR50D": "~2.6 GB",
+                }
+                _sz = _sizes.get(_mn, "~2.6 GB")
+                reply = QMessageBox.information(
+                    self, "First-time ESM2 Setup",
+                    f"<b>One-time model download required</b><br><br>"
+                    f"The ESM2 650M language model ({_sz}) will be downloaded "
+                    f"from Meta's model hub on the first analysis.<br><br>"
+                    f"<b>Estimated time:</b> 2–15 minutes depending on your connection.<br>"
+                    f"<b>Location:</b> <code>~/.cache/torch/hub/checkpoints/</code><br><br>"
+                    f"BEER will appear frozen during the download — this is normal. "
+                    f"The model is cached permanently; subsequent runs are instant.",
+                    QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+                )
+                if reply == QMessageBox.StandardButton.Cancel:
+                    return
+
+        self._last_was_bilstm = False
         self.analyze_btn.setEnabled(False)
+        self.bilstm_analyze_btn.setEnabled(False)
         self.statusBar.showMessage("Analyzing…")
 
-        _model_tag = ""
-        if self._embedder is not None:
-            _mn = getattr(self._embedder, "model_name", "")
-            _parts = _mn.split("_")
-            try:
-                _model_tag = f"  ·  ESM2 {next(p for p in _parts if p.endswith('M') or p.endswith('B'))}"
-            except StopIteration:
-                _model_tag = "  ·  ESM2"
         self._progress_dlg = QProgressDialog(
-            f"Running analysis{_model_tag}…", "Cancel", 0, 0, self)
+            "Running classical analysis…", "Cancel", 0, 0, self)
         self._progress_dlg.setWindowTitle("BEER Analysis")
         self._progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
         self._progress_dlg.setMinimumDuration(500)
+        self._progress_dlg.canceled.connect(self._cancel_analysis)
+        self._progress_dlg.show()
+
+        # Classical analysis: embedder=None skips ESM2 and all BiLSTM heads
+        self._analysis_worker = AnalysisWorker(
+            seq, pH, self.default_window_size, self.use_reducing, self.custom_pka,
+            hydro_scale=self.hydro_scale,
+            embedder=None,
+        )
+        self._analysis_worker.finished.connect(self._on_worker_finished)
+        self._analysis_worker.error.connect(self._on_worker_error)
+        self._analysis_worker.start()
+
+    def on_bilstm_analyze(self):
+        """Run ESM2 embedding + all AI prediction heads on the current sequence."""
+        if not self.analysis_data:
+            QMessageBox.warning(self, "AI Analysis",
+                                "Run classical Analyze first.")
+            return
+        seq = self.analysis_data["seq"]
+
+        try:
+            pH = float(self.ph_input.text())
+        except ValueError:
+            pH = self.default_pH
+
+        # One-time download warning (same as before, but only shown for BiLSTM)
+        from beer.embeddings import ESM2_AVAILABLE
+        if ESM2_AVAILABLE and self._embedder is not None:
+            import pathlib
+            _mn = getattr(self._embedder, "model_name", "esm2_t33_650M_UR50D")
+            _cache_pt = (pathlib.Path.home() / ".cache/torch/hub/checkpoints"
+                         / f"{_mn}.pt")
+            if not _cache_pt.exists() and not getattr(self, "_esm2_download_warned", False):
+                self._esm2_download_warned = True
+                _sizes = {
+                    "esm2_t6_8M_UR50D": "~30 MB", "esm2_t12_35M_UR50D": "~140 MB",
+                    "esm2_t30_150M_UR50D": "~580 MB", "esm2_t33_650M_UR50D": "~2.6 GB",
+                }
+                _sz = _sizes.get(_mn, "~2.6 GB")
+                reply = QMessageBox.information(
+                    self, "First-time ESM2 Setup",
+                    f"<b>One-time model download required</b><br><br>"
+                    f"The ESM2 650M language model ({_sz}) will be downloaded "
+                    f"from Meta's model hub on the first run.<br><br>"
+                    f"<b>Estimated time:</b> 2–15 minutes depending on your connection.<br>"
+                    f"<b>Location:</b> <code>~/.cache/torch/hub/checkpoints/</code><br><br>"
+                    f"BEER will appear frozen during download — this is normal. "
+                    f"The model is cached permanently; subsequent runs are instant.",
+                    QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+                )
+                if reply == QMessageBox.StandardButton.Cancel:
+                    return
+
+        self._last_was_bilstm = True
+        self.bilstm_analyze_btn.setEnabled(False)
+        self.analyze_btn.setEnabled(False)
+        self.statusBar.showMessage("Running AI Analysis (ESM2 650M)…")
+
+        _mn = getattr(self._embedder, "model_name", "") if self._embedder else ""
+        _parts = _mn.split("_")
+        try:
+            _tag = f"ESM2 {next(p for p in _parts if p.endswith('M') or p.endswith('B'))}"
+        except StopIteration:
+            _tag = "ESM2 650M"
+        self._progress_dlg = QProgressDialog(
+            f"Running AI Analysis ({_tag})…", "Cancel", 0, 0, self)
+        self._progress_dlg.setWindowTitle("BEER AI Analysis")
+        self._progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        self._progress_dlg.setMinimumDuration(300)
         self._progress_dlg.canceled.connect(self._cancel_analysis)
         self._progress_dlg.show()
 
@@ -3373,7 +4507,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             seq, pH, self.default_window_size, self.use_reducing, self.custom_pka,
             hydro_scale=self.hydro_scale,
             embedder=self._embedder,
-            use_esm2_aggregation=self.use_esm2_aggregation,
         )
         self._analysis_worker.finished.connect(self._on_worker_finished)
         self._analysis_worker.error.connect(self._on_worker_error)
@@ -3519,37 +4652,80 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                     ax.set_axisbelow(True)
                 else:
                     ax.grid(False)
+            # Provenance watermark
+            _prov = f"BEER v2.0  |  {sn}" if sn else "BEER v2.0"
+            fig.text(0.99, 0.01, _prov, ha="right", va="bottom",
+                     fontsize=7, color="#adb5bd",
+                     transform=fig.transFigure)
+            # Apply ROI highlight if set
+            self._apply_roi_to_figure(fig)
             return fig
 
         gens = {}
         gens["Amino Acid Composition (Bar)"] = lambda: _wrap(lambda: create_amino_acid_composition_figure(
             ad["aa_counts"], ad["aa_freq"], label_font=lf, tick_font=tf))
-        gens["Amino Acid Composition (Pie)"] = lambda: _wrap(lambda: create_amino_acid_composition_pie_figure(
-            ad["aa_counts"], label_font=lf))
         gens["Hydrophobicity Profile"] = lambda: _wrap(lambda: create_hydrophobicity_figure(
             ad["hydro_profile"], ad["window_size"], hs, label_font=lf, tick_font=tf))
-        gens["Bead Model (Hydrophobicity)"] = lambda: _wrap(lambda: create_bead_model_hydrophobicity_figure(
-            seq, sbl, label_font=lf, tick_font=tf, cmap=cm))
-        gens["Bead Model (Charge)"] = lambda: _wrap(lambda: create_bead_model_charge_figure(
-            seq, sbl, label_font=lf, tick_font=tf))
         gens["Sticker Map"] = lambda: _wrap(lambda: create_sticker_map_figure(
             seq, sbl, label_font=lf, tick_font=tf))
         gens["Local Charge Profile"] = lambda: _wrap(lambda: create_local_charge_figure(
             ad["ncpr_profile"], ad["window_size"], label_font=lf, tick_font=tf))
-        gens["Local Complexity"] = lambda: _wrap(lambda: create_local_complexity_figure(
-            ad["entropy_profile"], ad["window_size"], label_font=lf, tick_font=tf))
         gens["Cation\u2013\u03c0 Map"] = lambda: _wrap(lambda: create_cation_pi_map_figure(
             seq, label_font=lf, tick_font=tf, cmap=hcm))
         gens["Isoelectric Focus"] = lambda: _wrap(lambda: create_isoelectric_focus_figure(
             seq, label_font=lf, tick_font=tf, pka=pk))
-        gens["Helical Wheel"] = lambda: _wrap(lambda: create_helical_wheel_figure(seq, label_font=lf))
+        gens["Helical Wheel"] = lambda: _wrap(lambda: create_helical_wheel_figure(seq, label_font=lf, hydro_scale=hs))
         gens["Charge Decoration"] = lambda: _wrap(lambda: create_charge_decoration_figure(
             ad["fcr"], ad["ncpr"], label_font=lf, tick_font=tf))
         gens["Linear Sequence Map"] = lambda: _wrap(lambda: create_linear_sequence_map_figure(
             seq, ad["hydro_profile"], ad["ncpr_profile"], ad["disorder_scores"],
             label_font=lf, tick_font=tf))
-        gens["Disorder Profile"] = lambda: _wrap(lambda: create_disorder_profile_figure(
-            ad["disorder_scores"], label_font=lf, tick_font=tf))
+        # Overview — always registered; shows placeholders for uncomputed heads.
+        from beer.graphs.profiles import create_ai_overview_figure
+        gens["Overview"] = lambda: _wrap(
+            lambda: create_ai_overview_figure(ad, label_font=lf, tick_font=tf))
+
+        # BiLSTM heads — registered whenever the data key is present in analysis_data.
+        # This covers both full AI Analysis and lazy per-head computation.
+        _uniprot_feats = getattr(self, "_uniprot_features", {})
+        _ALL_BILSTM_HEADS: list[tuple[str, str, str]] = [
+            ("disorder_scores",         "disorder",          "Disorder Profile"),
+            ("sp_bilstm_profile",       "signal_peptide",    "Signal Peptide Profile"),
+            ("tm_bilstm_profile",       "transmembrane",     "Transmembrane Profile"),
+            ("intramem_bilstm_profile", "intramembrane",     "Intramembrane Profile"),
+            ("cc_bilstm_profile",       "coiled_coil",       "Coiled-Coil Profile"),
+            ("dna_bilstm_profile",      "dna_binding",       "DNA-Binding Profile"),
+            ("act_bilstm_profile",      "active_site",       "Active Site Profile"),
+            ("bnd_bilstm_profile",      "binding_site",      "Binding Site Profile"),
+            ("phos_bilstm_profile",     "phosphorylation",   "Phosphorylation Profile"),
+            ("lcd_bilstm_profile",      "lcd",               "Low-Complexity Profile"),
+            ("znf_bilstm_profile",      "zinc_finger",       "Zinc Finger Profile"),
+            ("glyc_bilstm_profile",     "glycosylation",     "Glycosylation Profile"),
+            ("ubiq_bilstm_profile",     "ubiquitination",    "Ubiquitination Profile"),
+            ("meth_bilstm_profile",     "methylation",       "Methylation Profile"),
+            ("acet_bilstm_profile",     "acetylation",       "Acetylation Profile"),
+            ("lipid_bilstm_profile",    "lipidation",        "Lipidation Profile"),
+            ("disulf_bilstm_profile",   "disulfide",         "Disulfide Bond Profile"),
+            ("motif_bilstm_profile",    "motif",             "Functional Motif Profile"),
+            ("prop_bilstm_profile",     "propeptide",        "Propeptide Profile"),
+            ("rep_bilstm_profile",      "repeat",            "Repeat Region Profile"),
+            ("rnabind_bilstm_profile",  "rna_binding",       "RNA Binding Profile"),
+            ("nucbind_bilstm_profile",  "nucleotide_binding","Nucleotide-Binding Profile"),
+            ("transit_bilstm_profile",  "transit_peptide",   "Transit Peptide Profile"),
+            ("agg_bilstm_profile",      "aggregation",       "Aggregation Propensity Profile"),
+        ]
+        for _ad_key, _feat, _tab_name in _ALL_BILSTM_HEADS:
+            if ad.get(_ad_key):
+                _extra_kw = {}
+                if _ad_key == "disorder_scores":
+                    _extra_kw["uncertainty"] = ad.get("disorder_uncertainty")
+                gens[_tab_name] = (
+                    lambda f=_feat, s=ad[_ad_key], kw=_extra_kw:
+                    _wrap(lambda: create_bilstm_profile_figure(
+                        f, s,
+                        uniprot_regions=_uniprot_feats.get(f) or None,
+                        label_font=lf, tick_font=tf, **kw))
+                )
         gens["TM Topology"] = lambda: _wrap(lambda: create_tm_topology_figure(
             seq, ad.get("tm_helices", []), label_font=lf, tick_font=tf))
         gens["Uversky Phase Plot"] = lambda: _wrap(lambda: create_uversky_phase_plot(
@@ -3561,10 +4737,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             disorder_scores=ad.get("disorder_scores"),
             tm_helices=ad.get("tm_helices"),
             label_font=lf, tick_font=tf))
-        # Use ESM2 aggregation profile for Annotation Track when available
-        _annot_aggr = ad.get("aggr_profile_esm2") if (
-            self.use_esm2_aggregation and ad.get("aggr_profile_esm2")
-        ) else ad.get("aggr_profile", calc_aggregation_profile(seq))
+        _annot_aggr = ad.get("aggr_profile", calc_aggregation_profile(seq))
         gens["Annotation Track"] = lambda: _wrap(lambda: create_annotation_track_figure(
             seq, ad.get("disorder_scores", []), ad.get("hydro_profile", []),
             _annot_aggr,
@@ -3573,14 +4746,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             label_font=lf, tick_font=tf))
         gens["Cleavage Map"] = lambda: _wrap(lambda: create_cleavage_map_figure(
             seq, ad.get("prot_sites", {}), label_font=lf, tick_font=tf))
-        if ad.get("cc_profile"):
-            gens["Coiled-Coil Profile"] = lambda: _wrap(lambda: create_coiled_coil_profile_figure(
-                ad["cc_profile"], label_font=lf, tick_font=tf))
         if _HAS_AGGREGATION:
-            # Use ESM2 profile if enabled in settings and available, else ZYGGREGATOR
-            _aggr_prof = ad.get("aggr_profile_esm2") if (
-                self.use_esm2_aggregation and ad.get("aggr_profile_esm2")
-            ) else ad.get("aggr_profile", calc_aggregation_profile(seq))
+            _aggr_prof = ad.get("aggr_profile", calc_aggregation_profile(seq))
             gens["\u03b2-Aggregation Profile"] = lambda: _wrap(lambda: create_aggregation_profile_figure(
                 seq, _aggr_prof, predict_aggregation_hotspots(seq),
                 label_font=lf, tick_font=tf))
@@ -3617,6 +4784,11 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if _HAS_SCD:
             gens["SCD Profile"] = lambda: _wrap(lambda: create_scd_profile_figure(
                 seq, ad.get("scd_profile", []), window=20, label_font=lf, tick_font=tf))
+        if ad.get("shd_profile"):
+            _shd = ad["shd_profile"]
+            _hs_shd = ad.get("hydro_scale", hs)
+            gens["SHD Profile"] = lambda: _wrap(lambda: create_shd_profile_figure(
+                seq, _shd, window=20, scale_name=_hs_shd, label_font=lf, tick_font=tf))
         if ad.get("plaac"):
             gens["PLAAC Profile"] = lambda: _wrap(lambda: create_plaac_profile_figure(
                 ad["plaac"], label_font=lf, tick_font=tf))
@@ -3700,8 +4872,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 self.seq_text.setPlainText(seq)
                 self.analysis_data  = data
                 self.sequence_name  = cid
+                secs = data.get("report_sections", {})
                 for sec, browser in self.report_section_tabs.items():
-                    browser.setHtml(data["report_sections"][sec])
+                    if sec in secs:
+                        browser.setHtml(secs[sec])
                 self._restore_chain_structure(cid)
                 self._update_seq_viewer()
                 self.update_graph_tabs()
@@ -3722,9 +4896,21 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_graph_tree_clicked(self, item: QTreeWidgetItem, _col: int):
         title = item.data(0, Qt.ItemDataRole.UserRole)
-        if title and title in self._graph_title_to_stack_idx:
-            self.graph_stack.setCurrentIndex(self._graph_title_to_stack_idx[title])
-            self._render_graph(title)  # lazy: no-op if already rendered
+        if not title or title not in self._graph_title_to_stack_idx:
+            return
+        self.graph_stack.setCurrentIndex(self._graph_title_to_stack_idx[title])
+        # If this is a BiLSTM graph and the data isn't ready yet, trigger it.
+        data_key = _GRAPH_TITLE_TO_AI_DATA_KEY.get(title)
+        sec_key  = _GRAPH_TITLE_TO_AI_SEC.get(title)
+        if (data_key and sec_key
+                and self.analysis_data
+                and not self.analysis_data.get(data_key)
+                and sec_key not in self._ai_computed_sections):
+            self._trigger_ai_section(sec_key)
+            # Also navigate the report sidebar to the matching section.
+            self._select_report_section(sec_key)
+            return  # graph will render when _on_ai_section_finished fires
+        self._render_graph(title)  # lazy: no-op if already rendered
 
     def _graph_nav_next(self) -> None:
         """Select the next leaf in the graph tree."""
@@ -3754,93 +4940,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._on_graph_tree_clicked(new_item, 0)
 
     # --- Export ---
-
-    def export_analysis_dialog(self):
-        """Show format chooser then export analysis data (CSV / JSON / PDF / DAT)."""
-        if not self.analysis_data:
-            QMessageBox.warning(self, "Export Analysis", "Run analysis first.")
-            return
-        dlg = FormatChooserDialog(
-            "Export Analysis",
-            [
-                ("CSV — comma-separated values (.csv)",  "csv",  True),
-                ("JSON — structured key-value file (.json)", "json", True),
-                ("PDF — formatted report (.pdf)",         "pdf",  True),
-                ("DAT — tab-separated text (.dat)",       "dat",  True),
-            ],
-            self,
-        )
-        if dlg.exec() != QDialog.Accepted:
-            return
-        self._export_analysis_as(dlg.selected_key())
-
-    def _export_analysis_as(self, fmt: str):
-        """Dispatch analysis export to the chosen format."""
-        name = self.sequence_name or "analysis"
-        filters = {
-            "csv":  ("CSV Files (*.csv)",  f"{name}.csv"),
-            "json": ("JSON Files (*.json)", f"{name}.json"),
-            "pdf":  ("PDF Files (*.pdf)",   f"{name}.pdf"),
-            "dat":  ("DAT Files (*.dat)",   f"{name}.dat"),
-        }
-        flt, default = filters[fmt]
-        fn, _ = QFileDialog.getSaveFileName(self, "Export Analysis", default, flt)
-        if not fn:
-            return
-
-        d = self.analysis_data
-        rows = [
-            ("Sequence Name",                  self.sequence_name or ""),
-            ("Length (aa)",                    len(d.get("seq", ""))),
-            ("Molecular Weight (Da)",          f"{d.get('mol_weight', 0):.2f}"),
-            ("Isoelectric Point",              f"{d.get('iso_point', 0):.2f}"),
-            ("GRAVY",                          f"{d.get('gravy', 0):.3f}"),
-            ("Net Charge (pH 7)",              f"{d.get('net_charge_7', 0):.2f}"),
-            ("FCR",                            f"{d.get('fcr', 0):.3f}"),
-            ("NCPR",                           f"{d.get('ncpr', 0):+.3f}"),
-            ("Aromaticity",                    f"{d.get('aromaticity', 0):.3f}"),
-            ("Extinction Coeff. (reduced)",    d.get('extinction', ('', ''))[0]
-                                               if isinstance(d.get('extinction'), tuple)
-                                               else d.get('extinction', '')),
-            ("Extinction Coeff. (non-reduced)", d.get('extinction', ('', ''))[1]
-                                                if isinstance(d.get('extinction'), tuple)
-                                                else ''),
-            ("Kappa (κ)",                      f"{d.get('kappa', 0):.4f}"),
-            ("Omega (Ω)",                      f"{d.get('omega', 0):.4f}"),
-            ("SCD",                            f"{d.get('scd', 0):.3f}"),
-            ("Fraction Disorder",              f"{d.get('disorder_f', 0):.3f}"),
-            ("% Aggregation-prone",            f"{d.get('solub_stats', {}).get('pct_aggregation_prone', 0):.1f}"),
-            ("RNA-binding propensity",         f"{d.get('rbp', {}).get('mean_propensity', 0):.3f}"),
-            ("Signal peptide h-region KD",     f"{d.get('sp_result', {}).get('h_region_score', 0):.3f}"),
-        ]
-
-        try:
-            if fmt == "csv":
-                with open(fn, "w", newline="") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["Metric", "Value"])
-                    writer.writerows(rows)
-
-            elif fmt == "json":
-                with open(fn, "w") as f:
-                    json.dump({"sequence_name": self.sequence_name,
-                               "metrics": {k: v for k, v in rows}}, f, indent=2)
-
-            elif fmt == "pdf":
-                ExportTools.export_pdf(self.analysis_data, fn, self,
-                                       seq_name=self.sequence_name)
-                return  # ExportTools shows its own success dialog
-
-            elif fmt == "dat":
-                with open(fn, "w") as f:
-                    f.write("Metric\tValue\n")
-                    for k, v in rows:
-                        f.write(f"{k}\t{v}\n")
-
-            self.statusBar.showMessage(
-                f"Analysis exported as {fmt.upper()} to {os.path.basename(fn)}", 4000)
-        except OSError as e:
-            QMessageBox.critical(self, "Export Error", str(e))
+    # (Export Complete Report removed in v2.0 — use per-section Export buttons in Report tab)
 
     def export_structure_dialog(self):
         """Show format chooser then export structure or sequence."""
@@ -3970,29 +5070,195 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 fh.write(content)
             self.statusBar.showMessage(f"Data exported to {os.path.basename(fn)}", 2000)
 
-    def save_all_graphs(self):
-        d = QFileDialog.getExistingDirectory(self, "Select Directory")
-        if not d:
+    # ── BiLSTM uncertainty ───────────────────────────────────────────────────
+
+    _TAB_TO_KEY: dict = {
+        "Disorder Profile":        ("disorder_scores",         "disorder"),
+        "Signal Peptide Profile":  ("sp_bilstm_profile",       "signal_peptide"),
+        "Transmembrane Profile":   ("tm_bilstm_profile",       "transmembrane"),
+        "Intramembrane Profile":   ("intramem_bilstm_profile", "intramembrane"),
+        "Coiled-Coil Profile":     ("cc_bilstm_profile",       "coiled_coil"),
+        "DNA-Binding Profile":     ("dna_bilstm_profile",      "dna_binding"),
+        "Active Site Profile":     ("act_bilstm_profile",      "active_site"),
+        "Binding Site Profile":    ("bnd_bilstm_profile",      "binding_site"),
+        "Phosphorylation Profile": ("phos_bilstm_profile",     "phosphorylation"),
+        "Low-Complexity Profile":  ("lcd_bilstm_profile",      "lcd"),
+        "Zinc Finger Profile":     ("znf_bilstm_profile",      "zinc_finger"),
+        "Glycosylation Profile":   ("glyc_bilstm_profile",     "glycosylation"),
+        "Ubiquitination Profile":  ("ubiq_bilstm_profile",     "ubiquitination"),
+        "Methylation Profile":     ("meth_bilstm_profile",     "methylation"),
+        "Acetylation Profile":     ("acet_bilstm_profile",     "acetylation"),
+        "Lipidation Profile":      ("lipid_bilstm_profile",    "lipidation"),
+        "Disulfide Bond Profile":  ("disulf_bilstm_profile",   "disulfide"),
+        "Functional Motif Profile":("motif_bilstm_profile",    "motif"),
+        "Propeptide Profile":      ("prop_bilstm_profile",     "propeptide"),
+        "Repeat Region Profile":   ("rep_bilstm_profile",      "repeat"),
+        "RNA Binding Profile":               ("rnabind_bilstm_profile",  "rna_binding"),
+        "Nucleotide-Binding Profile":        ("nucbind_bilstm_profile",  "nucleotide_binding"),
+        "Transit Peptide Profile":           ("transit_bilstm_profile",  "transit_peptide"),
+        "Aggregation Propensity Profile":    ("agg_bilstm_profile",      "aggregation"),
+    }
+
+    def _rebuild_bilstm_with_uncertainty(self, title: str, show_unc: bool):
+        """Recompute the named BiLSTM profile with/without MC-Dropout uncertainty.
+
+        When show_unc is True the heavy computation runs in MCDropoutWorker
+        (a QThread) to avoid blocking the main thread and causing a segfault.
+        When show_unc is False the graph is redrawn immediately without a band.
+        """
+        if not self.analysis_data:
             return
-        ext = self.default_graph_format.lower()
-        try:
-            # Ensure every registered graph is rendered before saving
-            for title in list(self._graph_generators.keys()):
-                self._render_graph(title)
-            use_transparent = self.transparent_bg and ext in ("png", "svg")
-            for title, (tab, vb) in self.graph_tabs.items():
-                canvas = self._find_canvas(vb)
-                if canvas:
-                    safe = re.sub(r'[^\w\-]', '_', title)
-                    path = os.path.join(d, safe + f".{ext}")
-                    canvas.figure.savefig(
-                        path, format=ext, dpi=200, bbox_inches="tight",
-                        facecolor="none" if use_transparent else "white",
-                        transparent=use_transparent,
-                    )
-            QMessageBox.information(self, "Saved", "All graphs exported.")
-        except OSError as e:
-            QMessageBox.critical(self, "Export Error", f"Could not save graphs: {e}")
+        if title not in self._TAB_TO_KEY:
+            return
+        ad_key, feat = self._TAB_TO_KEY[title]
+        scores = self.analysis_data.get(ad_key)
+        if not scores:
+            return
+
+        if not show_unc:
+            # Redraw without uncertainty band immediately on the main thread.
+            self._render_bilstm_figure(title, feat, scores, uncertainty=None)
+            return
+
+        # Heavy path: run MC-Dropout in a worker thread.
+        from beer.network.workers import MCDropoutWorker
+        seq = self.analysis_data.get("seq", "")
+        self.statusBar.showMessage(
+            f"Computing MC-Dropout uncertainty for {title}…", 0)
+        self._progress_dlg = QProgressDialog(
+            f"MC-Dropout uncertainty for {title}…", None, 0, 0, self)
+        self._progress_dlg.setWindowTitle("BEER MC-Dropout")
+        self._progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        self._progress_dlg.setMinimumDuration(300)
+        self._progress_dlg.show()
+
+        worker = MCDropoutWorker(title, feat, seq, self._embedder)
+        worker.result_ready.connect(self._on_mc_dropout_done)
+        worker.error.connect(self._on_mc_dropout_error)
+        worker.finished.connect(worker.deleteLater)
+        self._mc_dropout_worker = worker
+        worker.start()
+
+    def _on_mc_dropout_done(self, title: str, uncertainty: list) -> None:
+        if hasattr(self, "_progress_dlg") and self._progress_dlg:
+            self._progress_dlg.close()
+            self._progress_dlg = None
+        if not self.analysis_data or title not in self._TAB_TO_KEY:
+            return
+        ad_key, feat = self._TAB_TO_KEY[title]
+        scores = self.analysis_data.get(ad_key) or []
+        self.statusBar.showMessage(f"Uncertainty ready for {title}.", 3000)
+        self._render_bilstm_figure(title, feat, scores, uncertainty=uncertainty)
+
+    def _on_mc_dropout_error(self, title: str, msg: str) -> None:
+        if hasattr(self, "_progress_dlg") and self._progress_dlg:
+            self._progress_dlg.close()
+            self._progress_dlg = None
+        self.statusBar.showMessage(
+            f"MC-Dropout failed for {title}: {msg[:80]}", 6000)
+
+    def _render_bilstm_figure(self, title: str, feat: str, scores: list,
+                               uncertainty=None) -> None:
+        from beer.graphs.profiles import create_bilstm_profile_figure
+        lf = self.label_font_size
+        tf = self.tick_font_size
+        _uniprot_feats = getattr(self, "_uniprot_features", {})
+        fig = create_bilstm_profile_figure(
+            feat, scores, uncertainty=uncertainty,
+            uniprot_regions=_uniprot_feats.get(feat) or None,
+            label_font=lf, tick_font=tf,
+        )
+        # Apply the same heading/grid/provenance settings as _wrap() in _build_graph_generators.
+        if not self.show_heading:
+            fig.suptitle("")
+            for ax in fig.axes:
+                ax.set_title("")
+        for ax in fig.axes:
+            if self.show_grid:
+                ax.grid(True, linestyle="--", linewidth=0.3, alpha=0.5, color="#c8cdd8")
+                ax.set_axisbelow(True)
+            else:
+                ax.grid(False)
+        _prov = f"BEER v2.0  |  {self.sequence_name}" if self.sequence_name else "BEER v2.0"
+        fig.text(0.99, 0.01, _prov, ha="right", va="bottom",
+                 fontsize=7, color="#9ca3af", alpha=0.7,
+                 transform=fig.transFigure)
+        self._apply_roi_to_figure(fig)
+        self._generated_graphs.discard(title)
+        self._replace_graph(title, fig)
+        self._generated_graphs.add(title)
+
+    # ── Region-of-Interest highlight ─────────────────────────────────────────
+
+    def _apply_roi_highlight(self):
+        """Parse ROI input, store bounds, and redraw the current graph."""
+        text = self._roi_input.text().strip()
+        if not text:
+            self._clear_roi_highlight()
+            return
+        import re
+        m = re.match(r"(\d+)\s*[-–]\s*(\d+)", text)
+        if not m:
+            self.statusBar.showMessage("ROI format: start-end  (e.g. 50-120)", 3000)
+            return
+        self._roi_start = int(m.group(1))
+        self._roi_end   = int(m.group(2))
+        if self._roi_start >= self._roi_end:
+            self.statusBar.showMessage("ROI start must be less than end.", 3000)
+            self._roi_start = self._roi_end = None
+            return
+        self._refresh_current_graph_roi()
+        self.statusBar.showMessage(
+            f"ROI highlight: residues {self._roi_start}–{self._roi_end}", 3000)
+
+    def _clear_roi_highlight(self):
+        self._roi_start = self._roi_end = None
+        self._roi_input.clear()
+        self._refresh_current_graph_roi()
+        self.statusBar.showMessage("ROI highlight cleared.", 2000)
+
+    def _refresh_current_graph_roi(self):
+        """Re-render the currently visible graph so ROI band is added/removed."""
+        cur = self.graph_stack.currentWidget()
+        if cur is None:
+            return
+        for canvas in cur.findChildren(FigureCanvas):
+            self._apply_roi_to_figure(canvas.figure)
+            canvas.draw_idle()
+            break
+
+    def apply_roi_to_figure(self, fig):
+        """Public alias used by _wrap() — apply stored ROI to any new figure."""
+        self._apply_roi_to_figure(fig)
+
+    def _apply_roi_to_figure(self, fig):
+        """Draw (or remove) the ROI axvspan on every positional axis in fig."""
+        import numpy as np
+        ROI_TAG = "_beer_roi_span"
+        for ax in fig.get_axes():
+            # Remove any previous ROI patches (ArtistList doesn't support slice assignment)
+            for p in [p for p in ax.patches if getattr(p, ROI_TAG, False)]:
+                p.remove()
+            for ln in [ln for ln in ax.lines if getattr(ln, ROI_TAG, False)]:
+                ln.remove()
+            if self._roi_start is None:
+                continue
+            xlim = ax.get_xlim()
+            xspan = abs(xlim[1] - xlim[0])
+            # Only draw on axes whose x-range looks like residue positions (>= 10)
+            if xspan < 10:
+                continue
+            span = ax.axvspan(
+                self._roi_start - 0.5, self._roi_end + 0.5,
+                alpha=0.18, color="#f59e0b", zorder=1, lw=0)
+            setattr(span, ROI_TAG, True)
+            # Add a thin edge line at both boundaries
+            for xv in (self._roi_start - 0.5, self._roi_end + 0.5):
+                ln = ax.axvline(xv, color="#d97706", lw=0.8,
+                                linestyle="--", alpha=0.6, zorder=2)
+                setattr(ln, ROI_TAG, True)
+
+    # save_all_graphs removed in v2.0 — use per-graph Save Graph button
 
     def export_batch_csv(self):
         if not self.batch_data:
@@ -4138,7 +5404,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             pass
         self.show_bead_labels = self.label_checkbox.isChecked()
         self.transparent_bg   = self.transparent_bg_checkbox.isChecked()
-        self.colormap         = self.colormap_combo.currentText()
         self.heatmap_cmap     = self.heatmap_cmap_combo.currentText()
         try:
             self.label_font_size = int(self.label_font_input.text())
@@ -4158,10 +5423,11 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.use_reducing         = self.reducing_checkbox.isChecked()
         self.hydro_scale          = self.hydro_scale_combo.currentText()
 
-        # Sequence name override
+        # Sequence name override — propagate immediately everywhere
         name_override = self.seq_name_input.text().strip()
-        if name_override:
+        if name_override and name_override != self.sequence_name:
             self.sequence_name = name_override
+            self._propagate_name_change()
 
         raw_pka = [p.strip() for p in self.pka_input.text().split(",") if p.strip()]
         self.custom_pka = None
@@ -4178,29 +5444,20 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
         self.enable_tooltips = self.tooltips_checkbox.isChecked()
         self._apply_tooltips()
-        self.use_esm2_aggregation = self.esm2_aggr_checkbox.isChecked()
-
-        # Re-initialise ESM2 embedder if model changed
-        new_esm2_model = self.esm2_combo.currentText()
-        current_model = getattr(self._embedder, "model_name", None)
-        if new_esm2_model != current_model:
-            try:
-                from beer.embeddings import get_embedder
-                self._embedder = get_embedder(new_esm2_model)
-                self._update_esm2_indicator("ready")
-            except Exception:
-                pass
-
         if self.theme_toggle.isChecked():
             self.setStyleSheet(DARK_THEME_CSS)
         else:
             self.setStyleSheet(LIGHT_THEME_CSS)
+        self._apply_browser_palette()
 
         if self.analysis_data:
             for sec, browser in self.report_section_tabs.items():
-                browser.setHtml(self.analysis_data["report_sections"][sec])
+                if sec in self.analysis_data["report_sections"]:
+                    browser.setHtml(self.analysis_data["report_sections"][sec])
             self._update_seq_viewer()
             self.update_graph_tabs()
+            self._sparkline_links_wired = False  # re-wire after theme reset
+            self._append_sparklines(self.analysis_data)
 
         # Persist settings to disk
         _config.save({
@@ -4223,8 +5480,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             "app_font_size":    self.app_font_size,
             "enable_tooltips":      self.enable_tooltips,
             "colorblind_safe":      getattr(self, "colorblind_safe", False),
-            "esm2_model":           self.esm2_combo.currentText(),
-            "use_esm2_aggregation": self.use_esm2_aggregation,
+            "esm2_model":           "esm2_t33_650M_UR50D",
+            "hydro_scale":          self.hydro_scale,
         })
         self.statusBar.showMessage("Settings applied and saved.", 5000)
 
@@ -4235,7 +5492,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.pka_input.setText("")
         self.reducing_checkbox.setChecked(False)
         self.label_checkbox.setChecked(True)
-        self.colormap_combo.setCurrentText("coolwarm")
         self.heatmap_cmap_combo.setCurrentText("viridis")
         self.label_font_input.setText("11")
         self.tick_font_input.setText("9")
@@ -4247,7 +5503,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.transparent_bg_checkbox.setChecked(True)
         self.theme_toggle.setChecked(False)
         self.tooltips_checkbox.setChecked(True)
-        self.esm2_aggr_checkbox.setChecked(False)
         self.apply_settings()
 
     # --- DeepTMHMM / AlphaMissense ---
@@ -4425,8 +5680,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 self.seq_text.setPlainText(seq)
                 self.analysis_data = data
                 self.sequence_name = cid
+                secs = data.get("report_sections", {})
                 for sec, browser in self.report_section_tabs.items():
-                    browser.setHtml(data["report_sections"][sec])
+                    if sec in secs:
+                        browser.setHtml(secs[sec])
                 self._restore_chain_structure(cid)
                 self._update_seq_viewer()
                 self.update_graph_tabs()
@@ -4478,7 +5735,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _setup_shortcuts(self):
         QShortcut(QKeySequence("Ctrl+Return"), self, self.on_analyze)
-        QShortcut(QKeySequence("Ctrl+E"),      self, self.export_analysis_dialog)
         QShortcut(QKeySequence("Ctrl+G"),      self,
                   lambda: self.main_tabs.setCurrentIndex(1))
         QShortcut(QKeySequence("Ctrl+2"), self,
@@ -4500,7 +5756,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         """Show keyboard shortcut reference overlay."""
         shortcuts = [
             ("Ctrl+Return", "Analyze sequence"),
-            ("Ctrl+E",      "Export PDF report"),
             ("Ctrl+G",      "Switch to Graphs tab"),
             ("Ctrl+2",      "Switch to Structure tab"),
             ("Ctrl+3",      "Switch to BLAST tab"),
@@ -4559,29 +5814,47 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         seq  = data["seq"]
         self._run_plugins(seq, data)
         self.analysis_data = data
-        self._add_to_history(self.sequence_name, seq)
+        if not getattr(self, "_restoring_snapshot", False):
+            self._add_to_history(self.sequence_name, seq, data)
+        # ── Populate Summary tab ──────────────────────────────────────────
+        self._summary_tab_browser.setHtml(self._build_summary_tab_html(data))
         for sec, browser in self.report_section_tabs.items():
             if sec in data["report_sections"]:
                 browser.setHtml(data["report_sections"][sec])
         self._update_seq_viewer()
         self.update_graph_tabs()
+        self._append_sparklines(data)
+        if self._last_was_bilstm:
+            # Full AI Analysis completed — populate all sections with real data.
+            self._populate_ai_report_sections(data)
+            self._ai_computed_sections = {
+                f"AI:{name}"
+                for name, dk, _, _ in _AI_HEAD_SPECS
+                if data.get(dk)
+            }
+        else:
+            # Classical analysis — populate sidebar with lazy-load placeholders.
+            self._ai_computed_sections.clear()
+            self._setup_ai_section_placeholders()
+        # Refresh AI Features scheme combo so newly available heads appear
+        if hasattr(self, "struct_color_mode_combo"):
+            cur_mode = self.struct_color_mode_combo.currentText()
+            if cur_mode == "AI Features":
+                self._update_scheme_combo("AI Features")
         self.analyze_btn.setEnabled(True)
+        self.bilstm_analyze_btn.setEnabled(True)
         # Enable all analysis-dependent buttons
-        for btn in (self.export_analysis_btn, self.mutate_btn, self.trunc_run_btn,
-                    self.fetch_deeptmhmm_btn, self.fetch_signalp6_btn):
+        for btn in (self.mutate_btn, self.trunc_run_btn,
+                    self.fetch_deeptmhmm_btn, self.fetch_signalp6_btn,
+                    self.find_uniprot_btn):
             btn.setEnabled(True)
+        self.fetch_uniprot_tracks_btn.setEnabled(bool(self.current_accession))
+        self._graphs_uniprot_btn.setEnabled(bool(self.current_accession))
         self.trunc_run_btn.setToolTip("Run truncation series analysis")
-        # Update window title with current sequence name
-        title = self.sequence_name or "Untitled"
-        self.setWindowTitle(f"BEER — {title}")
+        self.setWindowTitle(f"BEER — {self._display_name()}")
         self.statusBar.showMessage(
             f"Analysis complete  |  {len(seq)} aa  |  {self.sequence_name}", 4000
         )
-        mw   = self.analysis_data.get("mol_weight", 0)
-        pi   = self.analysis_data.get("iso_point", 0)
-        info = f"{self.sequence_name or 'Sequence'}  \u00b7  {len(seq)} aa  \u00b7  MW {mw:.1f} Da  \u00b7  pI {pi:.2f}"
-        self._seq_info_label.setText(info)
-        self._seq_info_label.show()
         self._prepend_section_summaries()
 
     def _on_worker_error(self, msg: str):
@@ -4600,31 +5873,134 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     # --- History ---
 
-    def _add_to_history(self, name: str, seq: str):
-        # Avoid duplicates by sequence
-        self._history = [(n, s) for n, s in self._history if s != seq]
-        self._history.insert(0, (name or "Sequence", seq))
+    def _display_name(self) -> str:
+        """Return 'Name (ID)' where ID is the UniProt accession or PDB ID, if known."""
+        name = self.sequence_name or "Protein"
+        src = self._source_id or self.current_accession
+        return f"{name} ({src})" if src else name
+
+    def _propagate_name_change(self) -> None:
+        """Re-render every UI element that shows the protein name."""
+        if not self.analysis_data:
+            return
+        self.setWindowTitle(f"BEER — {self._display_name()}")
+        self._summary_tab_browser.setHtml(
+            self._build_summary_tab_html(self.analysis_data))
+        if self._history:
+            self._history[0]["name"] = self.sequence_name or "Sequence"
+            self._rebuild_history_combo()
+        self.statusBar.showMessage(
+            f"Name updated: {self._display_name()}", 3000)
+
+    def _make_snapshot(self, data: dict) -> dict:
+        """Capture the current full session state as a restorable snapshot."""
+        return {
+            "name":             self.sequence_name or "Sequence",
+            "seq":              data.get("seq", ""),
+            "analysis_data":    data,
+            "accession":        self.current_accession,
+            "source_id":        self._source_id,
+            "last_was_bilstm":  self._last_was_bilstm,
+            "alphafold_data":   self.alphafold_data,
+            "pfam_domains":     list(self.pfam_domains),
+            "uniprot_features": dict(self._uniprot_features),
+        }
+
+    def _add_to_history(self, name: str, seq: str, data: dict):
+        snap = self._make_snapshot(data)
+        snap["name"] = name or "Sequence"
+        # deduplicate by sequence
+        self._history = [s for s in self._history if s["seq"] != seq]
+        self._history.insert(0, snap)
         self._history = self._history[:10]
-        # Rebuild combo and show the just-analyzed sequence as selected
+        self._rebuild_history_combo()
+
+    def _update_current_snapshot(self):
+        """Update history[0] with latest structure/annotation state."""
+        if not self._history or not self.analysis_data:
+            return
+        snap = self._history[0]
+        snap["alphafold_data"]   = self.alphafold_data
+        snap["pfam_domains"]     = list(self.pfam_domains)
+        snap["uniprot_features"] = dict(self._uniprot_features)
+        snap["accession"]        = self.current_accession
+        snap["source_id"]        = self._source_id
+
+    def _rebuild_history_combo(self):
         self.history_combo.blockSignals(True)
         self.history_combo.clear()
         self.history_combo.addItem("— recent sequences —")
-        for n, _ in self._history:
-            self.history_combo.addItem(n)
-        self.history_combo.setCurrentIndex(1)  # show current sequence name
+        for snap in self._history:
+            self.history_combo.addItem(snap["name"])
+        self.history_combo.setCurrentIndex(1)
         self.history_combo.blockSignals(False)
 
     def _on_history_selected(self, idx: int):
         if idx <= 0:
             return
-        name, seq = self._history[idx - 1]
-        self.seq_text.setPlainText(seq)
-        self.sequence_name = name
-        # Clear any previously loaded structure since it belongs to a different protein
-        self._js("loadPDB(null);")
-        self.alphafold_data = None
-        self.current_accession = ""
-        self.on_analyze()
+        self._restore_snapshot(self._history[idx - 1])
+
+    def _restore_snapshot(self, snap: dict):
+        """Restore a full session snapshot without running new analysis."""
+        self._do_reset()
+
+        # Restore core state
+        self.sequence_name      = snap["name"]
+        self.current_accession  = snap.get("accession", "")
+        self._source_id         = snap.get("source_id", snap.get("accession", ""))
+        self._last_was_bilstm   = snap.get("last_was_bilstm", False)
+        self.alphafold_data     = snap.get("alphafold_data")
+        self.pfam_domains       = list(snap.get("pfam_domains", []))
+        self._uniprot_features  = dict(snap.get("uniprot_features", {}))
+
+        data = snap.get("analysis_data")
+        if data:
+            self.seq_text.setPlainText(data.get("seq", ""))
+            # Re-render reports and graphs from stored data
+            self._restoring_snapshot = True
+            try:
+                self._on_worker_finished(data)
+            finally:
+                self._restoring_snapshot = False
+        else:
+            self.seq_text.setPlainText(snap.get("seq", ""))
+
+        # Restore 3D structure
+        if self.alphafold_data:
+            pdb_str = self.alphafold_data.get("pdb_str", "")
+            if pdb_str:
+                self._load_structure_viewer(pdb_str)
+            self.export_structure_btn.setEnabled(True)
+            n_res = len(self.alphafold_data.get("plddt", []))
+            mean_plddt = (sum(self.alphafold_data["plddt"]) / n_res
+                         if n_res else 0)
+            src = self.alphafold_data.get("accession", self.sequence_name)
+            self.af_status_lbl.setText(
+                f"Structure: {src}  ({n_res} residues, mean pLDDT = {mean_plddt:.1f})")
+            self.af_status_lbl.setProperty("status_state", "success")
+            self.af_status_lbl.style().unpolish(self.af_status_lbl)
+            self.af_status_lbl.style().polish(self.af_status_lbl)
+
+        # Restore chip button states
+        has_acc   = bool(self.current_accession)
+        has_af    = bool(self.alphafold_data)
+        has_pfam  = bool(self.pfam_domains)
+        has_feats = bool(self._uniprot_features)
+        for btn in self._db_fetch_btns:
+            btn.setEnabled(has_acc)
+            btn.setProperty("chip_state", "normal")
+            btn.style().unpolish(btn); btn.style().polish(btn)
+        if has_af:
+            self._mark_chip_fetched(self.fetch_af_btn)
+        if has_pfam:
+            self.fetch_pfam_btn.setEnabled(True)
+            self._mark_chip_fetched(self.fetch_pfam_btn)
+        if has_feats:
+            self.fetch_uniprot_tracks_btn.setEnabled(True)
+            self._mark_chip_fetched(self.fetch_uniprot_tracks_btn)
+        self.statusBar.showMessage(
+            f"Restored: {snap['name']}  ({len(data.get('seq',''))} aa)"
+            if data else f"Restored: {snap['name']}", 3000)
 
     def closeEvent(self, event):
         """On close, wipe history from config so next session starts clean."""
@@ -4638,6 +6014,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if not acc:
             QMessageBox.warning(self, "Fetch", "Enter a UniProt ID or PDB ID.")
             return
+        # Reset previous protein state before loading a new one
+        if self.analysis_data or self.seq_text.toPlainText().strip():
+            self._do_reset()
         # Detect PDB ID: exactly 4 alphanumeric chars, first char is a digit
         is_pdb = (len(acc) == 4 and acc[0].isdigit() and acc.isalnum())
         self.statusBar.showMessage(f"Fetching {acc}…")
@@ -4664,10 +6043,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             rid, seq = tagged[0]
             # Also fetch the actual PDB coordinate file so structure-dependent
             # graphs (Ramachandran, distance map, pLDDT, 3D viewer) are available.
-            self.statusBar.showMessage(f"Downloading PDB structure for {acc.upper()}…")
+            self.statusBar.showMessage(f"Downloading structure for {acc.upper()}…")
             try:
-                pdb_str = self._fetch_pdb_structure(acc)
-                chain_structs = extract_chain_structures(pdb_str)
+                struct_str, is_cif = self._fetch_pdb_structure(acc)
+                chain_structs = (extract_chain_structures_mmcif(struct_str)
+                                 if is_cif else extract_chain_structures(struct_str))
+                pdb_str = struct_str  # used for 3D viewer below
                 # Map RCSB chain letter → tagged rec_id  (tagged labels are "4HHB_1", "4HHB_2"…)
                 # The FASTA headers tell us which chain letters correspond to each entity.
                 # We build the mapping by matching tagged index to chain order.
@@ -4697,6 +6078,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.sequence_name = rid
         # Store accession; AlphaFold/Pfam/ELM/DisProt/PhaSepDB need a UniProt ID
         self.current_accession = acc if not is_pdb else ""
+        self._source_id        = acc   # always preserve the original fetch ID
         # Enable structure chips always; disorder/interaction chips require UniProt
         self.fetch_af_btn.setEnabled(True)
         self.fetch_pfam_btn.setEnabled(True)
@@ -4707,6 +6089,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.fetch_variants_btn.setEnabled(not is_pdb)
         self.fetch_intact_btn.setEnabled(not is_pdb)
         self.fetch_alphafold_missense_btn.setEnabled(not is_pdb)
+        self.fetch_uniprot_tracks_btn.setEnabled(not is_pdb)
         self.accession_input.clear()
         src = "PDB" if is_pdb else "UniProt"
         msg = f"Fetched {rid} from {src}  ({len(seq)} aa)"
@@ -4714,16 +6097,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             msg += f"  \u2014 {len(entries)} chains loaded"
         self.statusBar.showMessage(msg, 4000)
 
-        if is_pdb:
-            # Analysis was done inside _load_batch; activate the first chain immediately.
-            if self.batch_data:
-                _, _, first_data = self.batch_data[0]
-                self.analysis_data = first_data
-                self._update_seq_viewer()
-                self.update_graph_tabs()
-        else:
-            # UniProt single sequence: start the analysis worker.
-            self.on_analyze()
+        # Sequence is now in the text box — user presses Analyze when ready.
 
         # Fetch and display protein summary (best-effort, non-blocking)
         self._fetch_and_show_protein_summary(acc, is_pdb)
@@ -4775,11 +6149,75 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 if func:
                     parts.append(func)
                 html = " &nbsp;·&nbsp; ".join(parts)
-            if html:
-                self._protein_info_bar.setHtml(html)
-                self._protein_info_bar.show()
+            # ── PDB cross-reference chips (UniProt only) ──────────────────
+            if not is_pdb:
+                self._populate_pdb_xref_chips(acc)
         except Exception:
             pass  # summary is informational only
+
+    def _populate_pdb_xref_chips(self, uniprot_id: str) -> None:
+        """Fetch PDB xrefs for *uniprot_id* and show as clickable chips in a grid."""
+        while self._pdb_xref_layout.count():
+            item = self._pdb_xref_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                while item.layout().count():
+                    sub = item.layout().takeAt(0)
+                    if sub.widget():
+                        sub.widget().deleteLater()
+
+        xrefs = fetch_uniprot_pdb_xrefs(uniprot_id)
+        if not xrefs:
+            self._pdb_xref_inner.hide()
+            return
+
+        refs_capped = xrefs[:40]
+        header_row = QHBoxLayout()
+        header_row.setSpacing(4)
+        header_row.setContentsMargins(0, 0, 0, 0)
+        lbl = QLabel(f"PDB structures ({len(refs_capped)}):")
+        lbl.setStyleSheet("font-size:9pt; color:#4a5568; font-weight:600;")
+        header_row.addWidget(lbl)
+        header_row.addStretch()
+        self._pdb_xref_layout.addLayout(header_row)
+
+        # Grid layout: all columns equal-stretch so every chip shares the same width.
+        _COLS = 8
+        from PySide6.QtWidgets import QGridLayout as _QGL
+        grid = _QGL()
+        grid.setSpacing(4)
+        grid.setContentsMargins(0, 0, 0, 0)
+        for c in range(_COLS):
+            grid.setColumnStretch(c, 1)
+
+        for i, ref in enumerate(refs_capped):
+            r, c = divmod(i, _COLS)
+            pdb_id = ref["id"]
+            method = ref.get("method", "")
+            res    = ref.get("resolution", "")
+            tip    = f"{pdb_id}  |  {method}"
+            if res and res != "-":
+                tip += f"  {res}"
+            chains = ref.get("chains", "")
+            if chains:
+                tip += f"\nChains: {chains}"
+            btn = QPushButton(pdb_id)
+            btn.setToolTip(tip)
+            btn.setFixedHeight(24)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            btn.setObjectName("chip_btn")
+            btn.clicked.connect(lambda _=False, pid=pdb_id: self._load_pdb_from_chip(pid))
+            grid.addWidget(btn, r, c)
+
+        self._pdb_xref_layout.addLayout(grid)
+
+        self._pdb_xref_inner.show()
+
+    def _load_pdb_from_chip(self, pdb_id: str) -> None:
+        """Load a PDB ID from a cross-reference chip (respects Bio. Assembly checkbox)."""
+        self.accession_input.setText(pdb_id)
+        self.fetch_accession()
 
     def _fetch_pdb_fasta(self, pdb_id: str) -> str:
         """Fetch FASTA sequence(s) from RCSB PDB for a given 4-char PDB ID."""
@@ -4788,12 +6226,25 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         with urllib.request.urlopen(req, timeout=15) as resp:
             return resp.read().decode()
 
-    def _fetch_pdb_structure(self, pdb_id: str) -> str:
-        """Download the PDB coordinate file from RCSB for a given 4-char PDB ID."""
-        url = f"https://files.rcsb.org/download/{pdb_id.upper()}.pdb"
+    def _fetch_pdb_structure(self, pdb_id: str) -> tuple[str, bool]:
+        """Download coordinate file from RCSB.
+
+        Returns (structure_string, is_cif).  When the Bio. Assembly checkbox
+        is checked, fetches the assembly1 mmCIF; otherwise the asymmetric-unit PDB.
+        Falls back to asymmetric-unit PDB if the assembly CIF fetch fails.
+        """
+        pdb_id = pdb_id.upper()
+        if getattr(self, "bio_assembly_chk", None) and self.bio_assembly_chk.isChecked():
+            try:
+                cif_str = fetch_rcsb_assembly_cif(pdb_id, assembly=1)
+                return cif_str, True
+            except Exception:
+                self.statusBar.showMessage(
+                    f"Assembly CIF not found for {pdb_id}; falling back to asymmetric unit.", 4000)
+        url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
         req = urllib.request.Request(url, headers={"User-Agent": "BEER/2.0"})
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return resp.read().decode()
+            return resp.read().decode(), False
 
     # --- AlphaFold ---
 
@@ -4821,10 +6272,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_alphafold_finished(self, data: dict):
         self.alphafold_data = data
-        # Register in batch_struct so the structure persists when the user switches
-        # chains and then switches back to this sequence.
         if self.sequence_name:
             self.batch_struct[self.sequence_name] = data
+        self._update_current_snapshot()
         self.fetch_af_btn.setEnabled(True)
         self._mark_chip_fetched(self.fetch_af_btn)
         self.export_structure_btn.setEnabled(True)
@@ -4874,6 +6324,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_pfam_finished(self, domains: list):
         self.pfam_domains = domains
+        self._update_current_snapshot()
         self.fetch_pfam_btn.setEnabled(True)
         if not domains:
             self._mark_chip_normal(self.fetch_pfam_btn)
@@ -5072,6 +6523,110 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 f"Residues {start}–{end} ({len(subseq)} aa) copied to clipboard.", 2500)
 
     # ── Clear All ──────────────────────────────────────────────────────────
+    def _do_reset(self):
+        """Perform a full UI reset without asking for confirmation."""
+        self._protein_info_bar.hide()
+        self._seq_info_label.setText("")
+        self._seq_info_label.hide()
+        self._undo_seq  = None
+        self._undo_name = None
+
+        self.seq_text.clear()
+        self.seq_viewer.clear()
+        self.sequence_name = ""
+        self.analysis_data = None
+        self.batch_data.clear()
+        self.current_accession = ""
+        self._source_id = ""
+        self.alphafold_data = None
+        self.pfam_domains = []
+        self.motif_input.clear()
+        self.motif_match_lbl.setText("")
+
+        self.chain_combo.blockSignals(True)
+        self.chain_combo.clear()
+        self.chain_combo.setEnabled(False)
+        self.chain_combo.blockSignals(False)
+        self._chain_row_widget.hide()
+
+        while self._pdb_xref_layout.count():
+            _item = self._pdb_xref_layout.takeAt(0)
+            if _item.widget():
+                _item.widget().deleteLater()
+            elif _item.layout():
+                while _item.layout().count():
+                    _sub = _item.layout().takeAt(0)
+                    if _sub.widget():
+                        _sub.widget().deleteLater()
+        self._pdb_xref_inner.hide()
+
+        for browser in self.report_section_tabs.values():
+            browser.clear()
+
+        for key in list(self._ai_pred_section_keys):
+            browser = self.report_section_tabs.pop(key, None)
+            self._report_sec_to_idx.pop(key, None)
+            if browser is not None:
+                parent_widget = browser.parent()
+                if parent_widget is not None:
+                    self.report_stack.removeWidget(parent_widget)
+                    parent_widget.deleteLater()
+        self._ai_pred_section_keys.clear()
+        while self._ai_pred_grp_item.childCount() > 0:
+            self._ai_pred_grp_item.removeChild(self._ai_pred_grp_item.child(0))
+        self._ai_pred_grp_item.setHidden(True)
+        self._last_was_bilstm = False
+        self._ai_computed_sections.clear()
+        if self._active_ai_worker and self._active_ai_worker.isRunning():
+            self._active_ai_worker.terminate()
+            self._active_ai_worker = None
+
+        for _tab, vb in self.graph_tabs.values():
+            self._clear_layout(vb)
+
+        if self.structure_viewer is not None:
+            self._js("loadPDB(null);")
+
+        self._msa_sequences = []
+        self._msa_names     = []
+        self._msa_mi_apc    = None
+
+        self.elm_data          = []
+        self.disprot_data      = {}
+        self.phasepdb_data     = {}
+        self.mobidb_data       = {}
+        self.variants_data     = []
+        self.intact_data       = {}
+        self._uniprot_features = {}
+
+        for _w in (self._uniprot_feat_worker, self._seq_search_worker):
+            if _w and _w.isRunning():
+                _w.terminate()
+        self._uniprot_feat_worker = None
+        self._seq_search_worker   = None
+
+        for btn in (self.mutate_btn,
+                    self.export_structure_btn, self.find_uniprot_btn,
+                    self.trunc_run_btn, self.fetch_signalp6_btn,
+                    self.bilstm_analyze_btn, self._graphs_uniprot_btn):
+            btn.setEnabled(False)
+        chip_buttons = self._db_fetch_btns + [
+            self.fetch_uniprot_tracks_btn, self.fetch_deeptmhmm_btn,
+            self.fetch_signalp6_btn,
+        ]
+        seen = set()
+        for btn in chip_buttons:
+            if id(btn) in seen:
+                continue
+            seen.add(id(btn))
+            btn.setEnabled(False)
+            btn.setProperty("chip_state", "normal")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+        self.setWindowTitle("BEER")
+        self._update_esm2_indicator("ready")
+
     def _clear_all(self):
         """Reset the entire session: sequence, analysis, graphs, structure."""
         reply = QMessageBox.question(
@@ -5083,71 +6638,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-
-        # ── Protein info bar ──────────────────────────────────────────────
-        self._protein_info_bar.hide()
-
-        # ── Sequence info label ───────────────────────────────────────────
-        self._seq_info_label.setText("")
-        self._seq_info_label.hide()
-
-        # ── Undo state ────────────────────────────────────────────────────
-        self._undo_seq  = None
-        self._undo_name = None
-
-        # ── Sequence & identity ───────────────────────────────────────────
-        self.seq_text.clear()
-        self.seq_viewer.clear()
-        self.sequence_name = ""
-        self.analysis_data = None
-        self.batch_data.clear()
-        self.current_accession = ""
-        self.alphafold_data = None
-        self.pfam_domains = []
-        self.motif_input.clear()
-        self.motif_match_lbl.setText("")
-
-        # ── Chain selector ────────────────────────────────────────────────
-        self.chain_combo.blockSignals(True)
-        self.chain_combo.clear()
-        self.chain_combo.setEnabled(False)
-        self.chain_combo.blockSignals(False)
-
-        # ── Analysis report browsers ──────────────────────────────────────
-        for browser in self.report_section_tabs.values():
-            browser.clear()
-
-        # ── Graphs ───────────────────────────────────────────────────────
-        for _tab, vb in self.graph_tabs.values():
-            self._clear_layout(vb)
-
-        # ── Structure viewer ──────────────────────────────────────────────
-        if self.structure_viewer is not None:
-            self._js("loadPDB(null);")
-
-        # ── MSA state ─────────────────────────────────────────────────────
-        self._msa_sequences = []
-        self._msa_names     = []
-        self._msa_mi_apc    = None
-
-        # ── Annotation data ───────────────────────────────────────────────
-        self.elm_data       = []
-        self.disprot_data   = {}
-        self.phasepdb_data  = {}
-        self.mobidb_data    = {}
-        self.variants_data  = []
-        self.intact_data    = {}
-
-        # ── Toolbar buttons ───────────────────────────────────────────────
-        self.export_analysis_btn.setEnabled(False)
-        self.mutate_btn.setEnabled(False)
-        self.export_structure_btn.setEnabled(False)
-        for btn in self._db_fetch_btns:
-            btn.setEnabled(False)
-            btn.setProperty("chip_state", "normal")
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
-
+        self._do_reset()
+        self.accession_input.clear()
         self.statusBar.showMessage("Session cleared.", 2500)
 
     # --- Sequence comparison ---
@@ -5243,6 +6735,24 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         text = browser.toPlainText()
         QApplication.clipboard().setText(text)
         self.statusBar.showMessage(f"'{sec}' copied to clipboard", 2000)
+
+    def _export_section(self, sec: str):
+        browser = self.report_section_tabs.get(sec)
+        if not browser:
+            return
+        text = browser.toPlainText()
+        if not text.strip():
+            QMessageBox.information(self, "Export Section", "Run analysis first.")
+            return
+        fn, _ = QFileDialog.getSaveFileName(
+            self, f"Export {sec}", f"{sec.replace(' ', '_')}.txt",
+            "Text Files (*.txt);;CSV Files (*.csv)"
+        )
+        if not fn:
+            return
+        with open(fn, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        self.statusBar.showMessage(f"'{sec}' exported to {fn}", 3000)
 
     # --- Session save / load ---
 
@@ -5859,6 +7369,109 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.statusBar.showMessage("MobiDB fetch failed.", 2000)
         QMessageBox.warning(self, "MobiDB Error", msg)
 
+    # ── UniProt Feature Tracks (dual-track visualization) ─────────────────────
+
+    def fetch_uniprot_features(self):
+        acc = self.current_accession
+        if not acc:
+            QMessageBox.warning(self, "UniProt Tracks",
+                "Fetch a UniProt accession first (or use 'Find UniProt ID').")
+            return
+        if self._uniprot_feat_worker and self._uniprot_feat_worker.isRunning():
+            return
+        self.fetch_uniprot_tracks_btn.setEnabled(False)
+        self._mark_chip_loading(self.fetch_uniprot_tracks_btn)
+        self.statusBar.showMessage(f"Fetching UniProt feature annotations for {acc}…")
+        self._uniprot_feat_worker = UniProtFeaturesWorker(acc, parent=self)
+        self._uniprot_feat_worker.finished.connect(self._on_uniprot_features_finished)
+        self._uniprot_feat_worker.error.connect(self._on_uniprot_features_error)
+        self._uniprot_feat_worker.start()
+
+    def _on_uniprot_features_finished(self, data: dict):
+        self._uniprot_features = data
+        self._update_current_snapshot()
+        self.fetch_uniprot_tracks_btn.setEnabled(True)
+        n = sum(len(v) for v in data.values())
+        # Map UniProt feature keys → graph tab names for the status message
+        _feat_to_tab = {
+            "signal_peptide": "Signal Peptide Profile", "transmembrane": "Transmembrane Profile",
+            "intramembrane": "Intramembrane Profile",   "coiled_coil": "Coiled-Coil Profile",
+            "dna_binding": "DNA-Binding Profile",       "rna_binding": "RNA Binding Profile",
+            "active_site": "Active Site Profile",       "binding_site": "Binding Site Profile",
+            "zinc_finger": "Zinc Finger Profile",       "disulfide": "Disulfide Bond Profile",
+            "glycosylation": "Glycosylation Profile",   "phosphorylation": "Phosphorylation Profile",
+            "propeptide": "Propeptide Profile",         "repeat": "Repeat Region Profile",
+            "motif": "Functional Motif Profile",        "transit_peptide": "Transit Peptide Profile",
+            "lipidation": "Lipidation Profile",
+        }
+        if n:
+            self._mark_chip_fetched(self.fetch_uniprot_tracks_btn)
+            tabs_with_overlay = [_feat_to_tab[k] for k in data if k in _feat_to_tab]
+            if tabs_with_overlay:
+                msg = ("UniProt overlay available on: "
+                       + ", ".join(tabs_with_overlay[:5])
+                       + ("…" if len(tabs_with_overlay) > 5 else "")
+                       + " — navigate to those profile graphs to see annotations.")
+            else:
+                msg = f"UniProt features loaded ({n} annotation(s)) — navigate to profile graphs."
+            self.statusBar.showMessage(msg, 8000)
+        else:
+            self._mark_chip_normal(self.fetch_uniprot_tracks_btn)
+            self.statusBar.showMessage("UniProt features: no annotations found.", 3000)
+        # Always rebuild graph generators with the new UniProt data so overlays appear
+        if self.analysis_data:
+            self.update_graph_tabs()
+
+    def _on_uniprot_features_error(self, msg: str):
+        self.fetch_uniprot_tracks_btn.setEnabled(True)
+        self._mark_chip_normal(self.fetch_uniprot_tracks_btn)
+        self.statusBar.showMessage("UniProt features fetch failed.", 2000)
+
+    # ── Sequence → UniProt ID lookup ──────────────────────────────────────────
+
+    def find_uniprot_from_sequence(self):
+        """Search UniProt for the current sequence and populate current_accession."""
+        if not self.analysis_data:
+            return
+        seq = self.analysis_data.get("seq", "")
+        if not seq:
+            return
+        if self._seq_search_worker and self._seq_search_worker.isRunning():
+            return
+        self.find_uniprot_btn.setEnabled(False)
+        self.statusBar.showMessage("Searching UniProt for sequence…")
+        self._seq_search_worker = UniProtSequenceSearchWorker(
+            seq, name_hint=self.sequence_name or "", parent=self)
+        self._seq_search_worker.finished.connect(self._on_seq_search_finished)
+        self._seq_search_worker.error.connect(self._on_seq_search_error)
+        self._seq_search_worker.progress.connect(
+            lambda msg: self.statusBar.showMessage(msg))
+        self._seq_search_worker.start()
+
+    def _on_seq_search_finished(self, acc: str):
+        self.find_uniprot_btn.setEnabled(True)
+        if not acc:
+            self.statusBar.showMessage("No UniProt match found.", 4000)
+            QMessageBox.information(
+                self, "UniProt Search — Not Found",
+                "No UniProt Swiss-Prot entry could be matched to this sequence.\n\n"
+                "This can happen if the sequence:\n"
+                "  • is not in UniProt Swiss-Prot (e.g. TrEMBL-only or novel)\n"
+                "  • contains non-canonical residues or modifications\n"
+                "  • is a fragment of a longer canonical entry\n\n"
+                "You can enter the accession manually in the Fetch field."
+            )
+            return
+        # Delegate to fetch_accession — populates name, info bar, all chip buttons
+        self.accession_input.setText(acc)
+        self.fetch_accession()
+
+    def _on_seq_search_error(self, msg: str):
+        self.find_uniprot_btn.setEnabled(True)
+        self.statusBar.showMessage("UniProt sequence search failed.", 3000)
+        QMessageBox.warning(self, "UniProt Search Error",
+                            f"Sequence search encountered an error:\n\n{msg}")
+
     # ── UniProt Variants ───────────────────────────────────────────────────────
 
     def fetch_variants(self):
@@ -6131,8 +7744,33 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_report_section_clicked(self, item, _col=0):
         sec = item.data(0, Qt.ItemDataRole.UserRole)
-        if sec and sec in self._report_sec_to_idx:
+        if not sec:
+            return
+        if sec in self._report_sec_to_idx:
             self.report_stack.setCurrentIndex(self._report_sec_to_idx[sec])
+        # Trigger lazy computation for AI sections that haven't been computed yet.
+        if sec.startswith("AI:") and sec not in self._ai_computed_sections:
+            self._trigger_ai_section(sec)
+
+    def _select_graph_tree_item(self, graph_title: str) -> None:
+        """Highlight the graph tree leaf for *graph_title* without switching tabs."""
+        for i in range(self.graph_tree.topLevelItemCount()):
+            cat = self.graph_tree.topLevelItem(i)
+            for j in range(cat.childCount()):
+                leaf = cat.child(j)
+                if leaf.data(0, Qt.ItemDataRole.UserRole) == graph_title:
+                    self.graph_tree.setCurrentItem(leaf)
+                    return
+
+    def _select_report_section(self, sec_key: str) -> None:
+        """Highlight *sec_key* in the report tree and show its stack page."""
+        for i in range(self._ai_pred_grp_item.childCount()):
+            leaf = self._ai_pred_grp_item.child(i)
+            if leaf.data(0, Qt.ItemDataRole.UserRole) == sec_key:
+                self.report_section_list.setCurrentItem(leaf)
+                if sec_key in self._report_sec_to_idx:
+                    self.report_stack.setCurrentIndex(self._report_sec_to_idx[sec_key])
+                break
 
     def _filter_graph_tree(self, text: str):
         text = text.strip().lower()
@@ -6189,9 +7827,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if sp:
             has_sp = sp.get("has_signal_peptide", False)
             prob   = sp.get("signal_peptide_prob", 0)
+            _sp_src = "BiLSTM" if d.get("sp_bilstm_profile") is not None else "D-score"
             summaries["Signal Peptide & GPI"] = (
                 ("Signal peptide detected" if has_sp else "No signal peptide predicted")
-                + f" (ESM2 score {prob:.2f}).")
+                + f" ({_sp_src} score {prob:.2f}).")
         for sec, summary in summaries.items():
             browser = self.report_section_tabs.get(sec)
             if browser:
@@ -6201,6 +7840,556 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                           f"<b>Summary:</b> {summary}</p>")
                 if "Summary:" not in current_html:
                     browser.setHtml(banner + current_html)
+
+    # ── Inline sparklines ────────────────────────────────────────────────────
+
+    # Maps each report-section name to: data key in analysis_data, full graph
+    # title (for navigation), sparkline colour, optional threshold value.
+    _SPARKLINE_MAP: dict[str, tuple[str, str, str, float | None]] = {
+        # section                     data_key                    graph_title                       colour     threshold
+        "Disorder":               ("disorder_scores",         "Disorder Profile", "#4361ee", 0.5),
+        "Hydrophobicity":         ("hydro_profile",           "Hydrophobicity Profile",         "#f77f00", 0.0),
+        "Charge":                 ("ncpr_profile",            "Local Charge Profile",            "#e63946", 0.0),
+        "Charge Decoration (SCD)":("scd_profile",             "SCD Profile",                    "#9b5de5", None),
+        "Hydrophobicity Decoration (SHD)": ("shd_profile",   "SHD Profile",                    "#f77f00", None),
+        "RNA Binding":            ("rbp_profile",             "RNA-Binding Profile",             "#2dc653", None),
+        "β-Aggregation & Solubility": ("aggr_profile",        "β-Aggregation Profile",          "#e07a5f", 1.0),
+        "Signal Peptide & GPI":   ("sp_bilstm_profile",       "Signal Peptide Profile",          "#f72585", 0.5),
+        "TM Helices":             ("tm_bilstm_profile",       "Transmembrane Profile",           "#34d399", 0.5),
+        "Intramembrane":          ("intramem_bilstm_profile", "Intramembrane Profile",           "#6ee7b7", 0.5),
+        "Coiled-Coil":            ("cc_bilstm_profile",       "Coiled-Coil Profile",             "#fb923c", 0.5),
+        "DNA-Binding":            ("dna_bilstm_profile",      "DNA-Binding Profile",             "#60a5fa", 0.5),
+        "Active Site":            ("act_bilstm_profile",      "Active Site Profile",             "#f87171", 0.5),
+        "Binding Site":           ("bnd_bilstm_profile",      "Binding Site Profile",            "#a78bfa", 0.5),
+        "Phosphorylation":        ("phos_bilstm_profile",     "Phosphorylation Profile",         "#fbbf24", 0.5),
+        "Low-Complexity":         ("lcd_bilstm_profile",      "Low-Complexity Profile",          "#94a3b8", 0.5),
+        "Zinc Finger":            ("znf_bilstm_profile",      "Zinc Finger Profile",             "#4ade80", 0.5),
+        "Glycosylation":          ("glyc_bilstm_profile",     "Glycosylation Profile",           "#f9a8d4", 0.5),
+        "Ubiquitination":         ("ubiq_bilstm_profile",     "Ubiquitination Profile",          "#fb7185", 0.5),
+        "Methylation":            ("meth_bilstm_profile",     "Methylation Profile",             "#a3e635", 0.5),
+        "Acetylation":            ("acet_bilstm_profile",     "Acetylation Profile",             "#38bdf8", 0.5),
+        "Lipidation":             ("lipid_bilstm_profile",    "Lipidation Profile",              "#e879f9", 0.5),
+        "Disulfide Bonds":        ("disulf_bilstm_profile",   "Disulfide Bond Profile",          "#fde68a", 0.5),
+        "Functional Motifs":      ("motif_bilstm_profile",    "Functional Motif Profile",        "#c4b5fd", 0.5),
+        "Propeptide":             ("prop_bilstm_profile",     "Propeptide Profile",              "#fdba74", 0.5),
+        "Repeat Regions":         ("rep_bilstm_profile",      "Repeat Region Profile",           "#67e8f9", 0.5),
+    }
+
+    @staticmethod
+    def _make_sparkline_png(
+        values: list[float],
+        color: str,
+        threshold: float | None = None,
+        width_px: int = 520,
+        height_px: int = 72,
+    ) -> str:
+        """Return a base64 data-URI PNG of a stripped-down sparkline.
+
+        No axes, no labels, no ticks — just the filled profile shape and an
+        optional threshold line.  Designed to sit directly below the report
+        HTML text at a glance-friendly height.
+        """
+        import io, base64
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as _plt
+        import numpy as _np
+
+        dpi = 96
+        fig, ax = _plt.subplots(
+            figsize=(width_px / dpi, height_px / dpi), dpi=dpi)
+        fig.patch.set_facecolor("#ffffff")
+        ax.set_facecolor("#fafafa")
+
+        x = _np.arange(len(values))
+        y = _np.array(values, dtype=float)
+
+        # Determine y-bounds with a small pad
+        ymin, ymax = float(_np.nanmin(y)), float(_np.nanmax(y))
+        pad = max((ymax - ymin) * 0.08, 0.02)
+        ax.set_ylim(ymin - pad, ymax + pad)
+        ax.set_xlim(0, max(len(values) - 1, 1))
+
+        # Fill below (or between zero and line for signed data)
+        if threshold is not None and threshold == 0.0:
+            ax.fill_between(x, 0, y, where=(y >= 0),
+                            color=color, alpha=0.28, linewidth=0)
+            ax.fill_between(x, y, 0, where=(y < 0),
+                            color="#e63946", alpha=0.22, linewidth=0)
+        else:
+            ax.fill_between(x, ymin - pad, y,
+                            color=color, alpha=0.22, linewidth=0)
+
+        ax.plot(x, y, color=color, linewidth=0.9, solid_capstyle="round")
+
+        if threshold is not None:
+            ax.axhline(threshold, color="#64748b",
+                       linewidth=0.7, linestyle="--", alpha=0.7)
+
+        # Strip all decorations
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.set_xticks([]); ax.set_yticks([])
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.01,
+                    facecolor=fig.get_facecolor())
+        _plt.close(fig)
+        buf.seek(0)
+        b64 = base64.b64encode(buf.read()).decode()
+        return f"data:image/png;base64,{b64}"
+
+    def _append_sparklines(self, data: dict) -> None:
+        """Append a sparkline + 'View Full Graph' link to each relevant section."""
+        for sec, (data_key, graph_title, color, threshold) in self._SPARKLINE_MAP.items():
+            browser = self.report_section_tabs.get(sec)
+            if browser is None:
+                continue
+            values = data.get(data_key) or []
+            if not values:
+                # Untrained BiLSTM head — append a muted badge only
+                badge = (
+                    "<div style='margin:8px 0 4px;padding:5px 10px;"
+                    "background:#fafafa;border:1px solid #e2e8f0;border-radius:6px;"
+                    "display:inline-block;font-family:sans-serif;font-size:10px;"
+                    "color:#94a3b8'>AI head not yet trained — run training to "
+                    "enable this profile.</div>"
+                )
+                current = browser.toHtml()
+                if "AI head not yet trained" not in current:
+                    browser.setHtml(current + badge)
+                continue
+
+            uri = self._make_sparkline_png(values, color, threshold)
+            # URL-encode the graph title for the anchor href
+            import urllib.parse as _up
+            href = "beer://graph/" + _up.quote(graph_title)
+            html_block = (
+                f"<div style='margin:10px 0 6px;'>"
+                f"<img src='{uri}' style='width:100%;height:72px;"
+                f"border-radius:6px;display:block;'/>"
+                f"<div style='text-align:right;margin-top:3px;'>"
+                f"<a href='{href}' style='font-family:sans-serif;font-size:10px;"
+                f"color:#4361ee;text-decoration:none;'>→ Full Graph</a>"
+                f"</div></div>"
+            )
+            current = browser.toHtml()
+            if "beer://graph/" not in current:
+                browser.setHtml(current + html_block)
+
+
+    # ── AI Predictions report sections ───────────────────────────────────────
+
+    @staticmethod
+    def _get_predicted_regions(scores: list[float], threshold: float = 0.5) -> list[tuple[int, int]]:
+        """Return list of (start, end) 1-based residue ranges above threshold."""
+        regions: list[tuple[int, int]] = []
+        in_region = False
+        start = 0
+        for i, v in enumerate(scores):
+            if v > threshold and not in_region:
+                in_region = True
+                start = i
+            elif v <= threshold and in_region:
+                in_region = False
+                regions.append((start + 1, i))
+        if in_region:
+            regions.append((start + 1, len(scores)))
+        return regions
+
+    def _build_ai_head_html(
+        self,
+        display_name: str,
+        scores: list[float],
+        graph_title: str,
+        auroc: str,
+        threshold: float = 0.5,
+        sparkline_uri: str = "",
+    ) -> str:
+        """Return HTML for one AI Predictions head section."""
+        import urllib.parse as _up
+        mean_score = sum(scores) / len(scores) if scores else 0.0
+        regions = self._get_predicted_regions(scores, threshold)
+        graph_href = "beer://graph/" + _up.quote(graph_title)
+        # Build regions table
+        if regions:
+            region_rows = "".join(
+                f"<tr><td>{k}</td><td>{s}–{e}</td><td>{e - s + 1}</td></tr>"
+                for k, (s, e) in enumerate(regions, 1)
+            )
+            regions_html = (
+                f"<h3 style='margin:10px 0 4px;font-size:12px'>Predicted Regions</h3>"
+                f"<table><tr><th>#</th><th>Residues</th><th>Length (aa)</th></tr>"
+                f"{region_rows}</table>"
+                f"<p class='note'>{len(regions)} region(s) above threshold {threshold:.2f}.</p>"
+            )
+        else:
+            regions_html = f"<p class='note'>No regions predicted above threshold {threshold:.2f}.</p>"
+        auroc_str = f"AUROC {auroc}" if auroc != "—" else "AUROC: training in progress"
+        if sparkline_uri:
+            sparkline_html = (
+                f"<div style='margin:10px 0 6px;'>"
+                f"<img src='{sparkline_uri}' style='width:100%;height:72px;"
+                f"border-radius:6px;display:block;'/>"
+                f"<div style='text-align:right;margin-top:3px;'>"
+                f"<a href='{graph_href}' style='font-family:sans-serif;font-size:10px;"
+                f"color:#4361ee;text-decoration:none;'>→ Full Graph</a>"
+                f"</div></div>"
+            )
+        else:
+            sparkline_html = (
+                f"<p style='margin:6px 0;'>"
+                f"<a href='{graph_href}' style='color:#4361ee;font-size:10px;'>→ View full graph</a></p>"
+            )
+        return (
+            f"<h2>{display_name} <span style='font-size:10px;font-weight:normal;"
+            f"color:#64748b'>AI Predictions · {auroc_str}</span></h2>"
+            f"<table>"
+            f"<tr><th>Property</th><th>Value</th></tr>"
+            f"<tr><td>Mean score</td><td>{mean_score:.3f}</td></tr>"
+            f"<tr><td>Classification threshold</td><td>{threshold:.2f}</td></tr>"
+            f"<tr><td>Sequence length</td><td>{len(scores)} aa</td></tr>"
+            f"</table>"
+            f"{regions_html}"
+            f"{sparkline_html}"
+            f"<p class='note'>Method: ESM2 650M embeddings → 2-layer BiLSTM classifier → sigmoid. "
+            f"Trained on UniProt Swiss-Prot annotations.</p>"
+        )
+
+    # ── Lazy AI section loading ───────────────────────────────────────────────
+
+    def _setup_ai_section_placeholders(self) -> None:
+        """Populate the AI Predictions sidebar with 'click to compute' placeholders.
+
+        Called after a classical (no-embedder) analysis so that all 23 AI heads
+        appear in the sidebar immediately.  Clicking any entry triggers
+        `_trigger_ai_section`, which launches an `AISectionWorker` for that head.
+        """
+        from beer.reports.css import make_style_tag
+        _style = make_style_tag(dark=getattr(self, "_is_dark", False))
+
+        # Tear down any previous AI section widgets.
+        for key in list(self._ai_pred_section_keys):
+            browser = self.report_section_tabs.pop(key, None)
+            idx     = self._report_sec_to_idx.pop(key, None)
+            if browser is not None:
+                pw = browser.parent()
+                if pw is not None:
+                    self.report_stack.removeWidget(pw)
+                    pw.deleteLater()
+        self._ai_pred_section_keys.clear()
+        while self._ai_pred_grp_item.childCount() > 0:
+            self._ai_pred_grp_item.removeChild(self._ai_pred_grp_item.child(0))
+
+        _embedder_ready = (
+            self._embedder is not None and self._embedder.is_available()
+        )
+        _placeholder_html = _style + (
+            "<h2>AI Prediction — not yet computed</h2>"
+            "<div style='background:#f0f4ff;border-left:4px solid #4361ee;"
+            "padding:16px;border-radius:4px;margin:12px 0'>"
+            "<b>Click this section in the sidebar to compute the prediction.</b>"
+            "<p style='margin:6px 0 0'>BEER will run the ESM2 650M embedding and "
+            "the corresponding BiLSTM head for this feature only. "
+            "The embedding is cached after the first computation, so subsequent "
+            "sections are fast.</p>"
+            + (""
+               if _embedder_ready
+               else "<p style='color:#b45309'><b>⚠ ESM2 not loaded.</b> "
+                    "The AI Analysis button will attempt to load it on first use.</p>")
+            + "</div>"
+        )
+
+        for display_name, data_key, graph_title, auroc in _AI_HEAD_SPECS:
+            sec_key = f"AI:{display_name}"
+
+            tab = QWidget()
+            vb  = QVBoxLayout(tab)
+            vb.setContentsMargins(4, 4, 4, 4)
+            browser = QTextBrowser()
+            _install_beer_link_filter(browser, self._on_report_link_clicked)
+            browser.setHtml(_placeholder_html)
+            vb.addWidget(browser)
+
+            idx = self.report_stack.addWidget(tab)
+            self.report_section_tabs[sec_key] = browser
+            self._report_sec_to_idx[sec_key]  = idx
+            self._ai_pred_section_keys.append(sec_key)
+
+            leaf = QTreeWidgetItem([display_name])
+            leaf.setData(0, Qt.ItemDataRole.UserRole, sec_key)
+            self._ai_pred_grp_item.addChild(leaf)
+
+        self._ai_pred_grp_item.setHidden(False)
+        self._ai_pred_grp_item.setExpanded(True)
+
+    def _trigger_ai_section(self, sec_key: str) -> None:
+        """Launch an `AISectionWorker` for *sec_key* (e.g. 'AI:Disorder').
+
+        Guards:
+        - Does nothing if the section is already computed.
+        - Does nothing if no analysis has been run yet.
+        - If another AI section is already computing, shows a status message and
+          returns; the user can click again once the current job finishes.
+        """
+        if sec_key in self._ai_computed_sections:
+            return
+        if not self.analysis_data:
+            return
+
+        if self._active_ai_worker is not None and self._active_ai_worker.isRunning():
+            self.statusBar.showMessage(
+                "AI computation already in progress — please wait.", 3000)
+            return
+
+        # Find the matching spec entry.
+        display_name = sec_key[3:]  # strip "AI:"
+        spec = next(
+            ((dn, dk, gt, au) for dn, dk, gt, au in _AI_HEAD_SPECS
+             if dn == display_name),
+            None,
+        )
+        if spec is None:
+            return
+        _, data_key, graph_title, auroc = spec
+
+        # Show a "computing" placeholder in the section browser.
+        browser = self.report_section_tabs.get(sec_key)
+        if browser:
+            from beer.reports.css import make_style_tag
+            _style = make_style_tag(dark=getattr(self, "_is_dark", False))
+            browser.setHtml(_style + (
+                f"<h2>{display_name} — computing…</h2>"
+                "<div style='background:#fff8e1;border-left:4px solid #f59e0b;"
+                "padding:16px;border-radius:4px;margin:12px 0'>"
+                f"<b>⏳ Running ESM2 BiLSTM for <em>{display_name}</em>…</b>"
+                "<p style='margin:6px 0 0'>This may take a moment on first use "
+                "(the embedding is cached for subsequent sections).</p>"
+                "</div>"
+            ))
+
+        seq = self.analysis_data.get("seq", "")
+        self.statusBar.showMessage(
+            f"Computing AI prediction: {display_name}…")
+
+        self._progress_dlg = QProgressDialog(
+            f"Computing {display_name}…", "Cancel", 0, 0, self)
+        self._progress_dlg.setWindowTitle("BEER AI Prediction")
+        self._progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        self._progress_dlg.setMinimumDuration(400)
+        self._progress_dlg.canceled.connect(self._cancel_analysis)
+        self._progress_dlg.show()
+
+        worker = AISectionWorker(sec_key, data_key, seq, self._embedder)
+        worker.result_ready.connect(self._on_ai_section_finished)
+        worker.error.connect(self._on_ai_section_error)
+        worker.finished.connect(self._on_ai_worker_thread_done)
+        self._active_ai_worker = worker
+        worker.start()
+
+    def _on_ai_worker_thread_done(self) -> None:
+        """Release the worker only after the OS thread has fully stopped."""
+        self._active_ai_worker = None
+
+    def _on_ai_section_finished(self, sec_key: str, scores: list) -> None:
+        """Handle successful completion of a single AI section worker."""
+        if hasattr(self, "_progress_dlg") and self._progress_dlg:
+            self._progress_dlg.close()
+            self._progress_dlg = None
+        if not self.analysis_data:
+            return
+
+        display_name = sec_key[3:]
+        spec = next(
+            ((dn, dk, gt, au) for dn, dk, gt, au in _AI_HEAD_SPECS
+             if dn == display_name),
+            None,
+        )
+        if spec is None:
+            return
+        _, data_key, graph_title, auroc = spec
+
+        # Persist scores in analysis_data so graphs and downstream sections can use them.
+        self.analysis_data[data_key] = scores
+
+        # Mark as computed before building HTML (prevents re-trigger on re-click).
+        self._ai_computed_sections.add(sec_key)
+
+        # Build sparkline and section HTML.
+        color, threshold = {
+            v[0]: (v[2], v[3]) for v in self._SPARKLINE_MAP.values()
+        }.get(data_key, ("#4361ee", 0.5))
+        sparkline_uri = self._make_sparkline_png(scores, color, threshold)
+
+        from beer.reports.css import make_style_tag
+        _style = make_style_tag(dark=getattr(self, "_is_dark", False))
+        html = _style + self._build_ai_head_html(
+            display_name, scores, graph_title, auroc, sparkline_uri=sparkline_uri)
+
+        browser = self.report_section_tabs.get(sec_key)
+        if browser:
+            browser.setHtml(html)
+
+        # Register the graph generator for this head now that data is available,
+        # then schedule graph rendering and tree sync on the next event loop tick
+        # (avoids segfault from creating Qt widgets inside a signal handler).
+        self._build_graph_generators()
+        self._generated_graphs.discard(graph_title)
+        self._generated_graphs.discard("Overview")
+
+        def _deferred_graph_update():
+            self._select_graph_tree_item(graph_title)
+            expected_graph_idx = self._graph_title_to_stack_idx.get(graph_title)
+            if (expected_graph_idx is not None
+                    and self.graph_stack.currentIndex() == expected_graph_idx):
+                self._render_graph(graph_title)
+
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, _deferred_graph_update)
+
+        # Refresh AI Features structure coloring: update combo list and push scores
+        # if this newly computed feature happens to be the active one.
+        if hasattr(self, "struct_color_mode_combo"):
+            if self.struct_color_mode_combo.currentText() == "AI Features":
+                self._update_scheme_combo("AI Features")
+                feature_label = _AI_DISPLAY_TO_FEATURE_LABEL.get(display_name, "")
+                if feature_label and self.struct_scheme_combo.currentText() == feature_label:
+                    self._push_feature_scores(feature_label)
+
+        self.statusBar.showMessage(
+            f"AI prediction complete: {display_name}", 3000)
+
+    def _on_ai_section_error(self, sec_key: str, msg: str) -> None:
+        """Handle a failed AI section computation."""
+        if hasattr(self, "_progress_dlg") and self._progress_dlg:
+            self._progress_dlg.close()
+            self._progress_dlg = None
+        display_name = sec_key[3:]
+        browser = self.report_section_tabs.get(sec_key)
+        if browser:
+            from beer.reports.css import make_style_tag
+            _style = make_style_tag(dark=getattr(self, "_is_dark", False))
+            browser.setHtml(_style + (
+                f"<h2>{display_name} — error</h2>"
+                "<div style='background:#fff0f0;border-left:4px solid #ef4444;"
+                "padding:16px;border-radius:4px;margin:12px 0'>"
+                f"<b>Computation failed.</b><pre style='font-size:9pt;"
+                f"white-space:pre-wrap'>{msg}</pre>"
+                "<p>Check that ESM2 and the model file are installed correctly, "
+                "then click this section again to retry.</p>"
+                "</div>"
+            ))
+        self.statusBar.showMessage(
+            f"AI prediction failed: {display_name} — {msg[:80]}", 6000)
+
+    # ── (end lazy AI section loading) ─────────────────────────────────────────
+
+    def _populate_ai_report_sections(self, data: dict) -> None:
+        """Build/rebuild the AI Predictions tree node with one child per head that ran."""
+        from beer.reports.css import make_style_tag
+        _style = make_style_tag(dark=getattr(self, "_is_dark", False))
+
+        # Remove previous AI section widgets from the stack
+        for key in self._ai_pred_section_keys:
+            browser = self.report_section_tabs.pop(key, None)
+            idx = self._report_sec_to_idx.pop(key, None)
+            if browser is not None:
+                parent_widget = browser.parent()
+                if parent_widget is not None:
+                    self.report_stack.removeWidget(parent_widget)
+                    parent_widget.deleteLater()
+
+        self._ai_pred_section_keys.clear()
+
+        # Remove old children from tree
+        while self._ai_pred_grp_item.childCount() > 0:
+            self._ai_pred_grp_item.removeChild(self._ai_pred_grp_item.child(0))
+
+        bold_font = QFont()
+        bold_font.setBold(True)
+
+        # Reverse-map data_key → (color, threshold) from the sparkline map.
+        _dk_to_color: dict[str, tuple[str, float | None]] = {
+            v[0]: (v[2], v[3]) for v in self._SPARKLINE_MAP.values()
+        }
+
+        for display_name, data_key, graph_title, auroc in _AI_HEAD_SPECS:
+            scores = data.get(data_key) or []
+            if not scores:
+                continue
+            sec_key = f"AI:{display_name}"
+
+            # Generate inline sparkline for this head.
+            color, threshold = _dk_to_color.get(data_key, ("#4361ee", 0.5))
+            sparkline_uri = self._make_sparkline_png(scores, color, threshold)
+
+            # Build section widget (tab + browser)
+            tab = QWidget()
+            vb = QVBoxLayout(tab)
+            vb.setContentsMargins(4, 4, 4, 4)
+            btn_row = QHBoxLayout()
+            btn_row.setSpacing(4)
+            btn_row.addStretch()
+            copy_btn = QPushButton("Copy Table")
+            copy_btn.setMaximumWidth(100)
+            copy_btn.setMinimumHeight(26)
+            copy_btn.clicked.connect(lambda _, s=sec_key: self._copy_section(s))
+            btn_row.addWidget(copy_btn)
+            vb.addLayout(btn_row)
+            browser = QTextBrowser()
+            _install_beer_link_filter(browser, self._on_report_link_clicked)
+            html = _style + self._build_ai_head_html(
+                display_name, scores, graph_title, auroc, sparkline_uri=sparkline_uri)
+            browser.setHtml(html)
+            vb.addWidget(browser)
+
+            idx = self.report_stack.addWidget(tab)
+            self.report_section_tabs[sec_key] = browser
+            self._report_sec_to_idx[sec_key] = idx
+            self._ai_pred_section_keys.append(sec_key)
+
+            leaf = QTreeWidgetItem([display_name])
+            leaf.setData(0, Qt.ItemDataRole.UserRole, sec_key)
+            self._ai_pred_grp_item.addChild(leaf)
+
+        if self._ai_pred_section_keys:
+            self._ai_pred_grp_item.setHidden(False)
+            self._ai_pred_grp_item.setExpanded(True)
+        else:
+            self._ai_pred_grp_item.setHidden(True)
+
+    def _on_report_link_clicked(self, url) -> None:
+        """Handle 'beer://graph/<title>' links from inline sparklines."""
+        import urllib.parse as _up
+        raw = url.toString() if hasattr(url, "toString") else str(url)
+        if not raw.startswith("beer://graph/"):
+            return
+        graph_title = _up.unquote(raw[len("beer://graph/"):])
+        self._navigate_to_graph(graph_title)
+
+    def _navigate_to_graph(self, graph_title: str) -> None:
+        """Switch to the Graphs tab and select the named graph."""
+        # NavTabWidget stores tab names in nav_list items as "  {icon}  {name}"
+        graphs_idx = -1
+        for i in range(self.main_tabs.nav_list.count()):
+            if "Graphs" in self.main_tabs.nav_list.item(i).text():
+                graphs_idx = i
+                break
+        if graphs_idx >= 0:
+            self.main_tabs.setCurrentIndex(graphs_idx)
+
+        # Find the leaf in the graph tree, expand its parent, and render.
+        for i in range(self.graph_tree.topLevelItemCount()):
+            cat = self.graph_tree.topLevelItem(i)
+            for j in range(cat.childCount()):
+                leaf = cat.child(j)
+                if leaf.data(0, Qt.ItemDataRole.UserRole) == graph_title:
+                    cat.setExpanded(True)
+                    self.graph_tree.setCurrentItem(leaf)
+                    self.graph_tree.scrollToItem(leaf)
+                    self._on_graph_tree_clicked(leaf, 0)
+                    return
 
     def _use_compare_seq(self, attr: str):
         te = getattr(self, attr, None)

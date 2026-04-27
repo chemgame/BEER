@@ -21,7 +21,7 @@ class ESM2Embedder(SequenceEmbedder):
         Torch device string (``'cpu'`` or ``'cuda'``).
     """
 
-    def __init__(self, model_name: str = "esm2_t6_8M_UR50D", device: str = "cpu") -> None:
+    def __init__(self, model_name: str = "esm2_t33_650M_UR50D", device: str = "cpu") -> None:
         self._model_name = model_name
         self._device = device
         self._model = None

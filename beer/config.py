@@ -26,7 +26,7 @@ _DEFAULTS: dict = {
     "app_font_size":       12,
     "enable_tooltips":     True,
     "colorblind_safe":     False,
-    "esm2_model":          "esm2_t6_8M_UR50D",
+    "esm2_model":          "esm2_t33_650M_UR50D",
     "recent_sequences":    [],
 }
 

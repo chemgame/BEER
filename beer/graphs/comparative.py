@@ -214,11 +214,9 @@ def create_truncation_series_figure(
         cx, cy = extract(c_trunc, key)
 
         if nx:
-            ax.plot(nx, ny, color="#4361ee", linewidth=1.4, marker="o",
-                    markersize=3.5, label="N-term")
+            ax.plot(nx, ny, color="#4361ee", linewidth=1.4, label="N-terminal")
         if cx:
-            ax.plot(cx, cy, color="#f72585", linewidth=1.4, marker="s",
-                    markersize=3.5, label="C-term")
+            ax.plot(cx, cy, color="#f72585", linewidth=1.4, label="C-terminal")
 
         _pub_style_ax(ax, title="", xlabel="Truncation (%)", ylabel=ylabel,
                       grid=True, title_size=label_font - 2,
@@ -407,14 +405,12 @@ def create_uversky_phase_plot(
 
     _pub_style_ax(ax,
                   title="Uversky Phase Diagram",
-                  xlabel="|Mean Charge|",
+                  xlabel="Absolute Mean Charge",
                   ylabel="Mean Hydrophobicity",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(0, 0.5)
     ax.set_ylim(0, 1.0)
-    ax.legend(fontsize=tick_font - 3, framealpha=0.85,
-              edgecolor="#d0d4e0", loc="upper right", borderpad=0.6)
     fig.tight_layout(pad=1.8)
     return fig
 
