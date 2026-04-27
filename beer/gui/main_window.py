@@ -3871,41 +3871,45 @@ For comprehensive SLiM prediction use ELM (elm.eu.org) or SLiMFinder.</p>
 """),
             ("AI Predictions", """
 <h1>AI Predictions</h1>
-<p>BEER v2.0 includes 23 per-residue AI prediction heads. Each head uses ESM2 650M embeddings
-fed into a 2-layer BiLSTM classifier trained on curated UniProt Swiss-Prot annotations.
+<p>BEER v2.0 includes 24 per-residue AI prediction heads. Each head uses ESM2 650M embeddings
+fed into a 2-layer BiLSTM classifier trained on curated structural databases and UniProt Swiss-Prot annotations.
 Every head produces a per-residue probability in [0, 1].
 After running <b>AI Analysis</b>, the Report tab shows an <b>AI Predictions</b> section with one
-entry per head that ran, including predicted regions with residue ranges and the threshold used.</p>
+entry per head that ran, including predicted regions with residue ranges and the threshold used.
+Heads without a trained model file are silently skipped.</p>
 <h2>Architecture</h2>
 <p>ESM2 650M (1280-dim, frozen) → 2-layer Bidirectional LSTM (hidden = 256) → Linear(512 → 1) → Sigmoid.
-All heads share the same architecture and are trained independently on task-specific labels.
+Transmembrane head uses a BiLSTM-CRF decoder (Viterbi decoding, enforces valid outside→helix→inside topology).
+Aggregation head uses a BiLSTM-Window architecture (9-residue average-pool before sigmoid).
+All heads are trained with focal loss and MMseqs2-clustered train/val/test splits.
 Classification threshold is set at the F1-maximising point on the validation set (≈ 0.5 for most heads).</p>
-<h2>All 23 Heads</h2>
+<h2>All 24 Heads</h2>
 <table>
-  <tr><th>Head</th><th>UniProt Training Labels</th><th>Graph Tab</th></tr>
-  <tr><td>Disorder</td><td>"Disordered region" (Swiss-Prot)</td><td>Disorder Profile</td></tr>
-  <tr><td>Signal Peptide</td><td>"Signal" (ft_signal)</td><td>Signal Peptide Profile</td></tr>
-  <tr><td>Transmembrane</td><td>"Transmembrane" (ft_transmem)</td><td>Transmembrane Profile</td></tr>
-  <tr><td>Intramembrane</td><td>"Intramembrane" (ft_intramem)</td><td>Intramembrane Profile</td></tr>
-  <tr><td>Coiled-Coil</td><td>"Coiled coil" (ft_coiled)</td><td>Coiled-Coil Profile</td></tr>
-  <tr><td>DNA-Binding</td><td>"DNA binding" (ft_dna_bind)</td><td>DNA-Binding Profile</td></tr>
-  <tr><td>Active Site</td><td>"Active site" (ft_act_site)</td><td>Active Site Profile</td></tr>
-  <tr><td>Binding Site</td><td>"Binding site" (ft_binding)</td><td>Binding Site Profile</td></tr>
-  <tr><td>Phosphorylation</td><td>"Phospho-Ser/Thr/Tyr" (ft_mod_res)</td><td>Phosphorylation Profile</td></tr>
-  <tr><td>Low-Complexity</td><td>"Compositionally biased" (ft_compbias)</td><td>Low-Complexity Profile</td></tr>
-  <tr><td>Zinc Finger</td><td>"Zinc finger" (ft_zn_fing)</td><td>Zinc Finger Profile</td></tr>
-  <tr><td>Glycosylation</td><td>N/O-linked glycan (ft_carbohyd)</td><td>Glycosylation Profile</td></tr>
-  <tr><td>Ubiquitination</td><td>"Ubiquitin" (ft_mod_res)</td><td>Ubiquitination Profile</td></tr>
-  <tr><td>Methylation</td><td>"Methyl" (ft_mod_res)</td><td>Methylation Profile</td></tr>
-  <tr><td>Acetylation</td><td>"Acetyl" (ft_mod_res)</td><td>Acetylation Profile</td></tr>
-  <tr><td>Lipidation</td><td>GPI/myristoyl/palmitoyl (ft_lipid)</td><td>Lipidation Profile</td></tr>
-  <tr><td>Disulfide Bond</td><td>"Disulfide bond" (ft_disulfid)</td><td>Disulfide Bond Profile</td></tr>
-  <tr><td>Functional Motif</td><td>"Motif" (ft_motif)</td><td>Functional Motif Profile</td></tr>
-  <tr><td>Propeptide</td><td>"Propeptide" (ft_propep)</td><td>Propeptide Profile</td></tr>
-  <tr><td>Repeat Region</td><td>"Repeat" (ft_repeat)</td><td>Repeat Region Profile</td></tr>
-  <tr><td>RNA Binding</td><td>"RNA binding" (ft_binding / RBP annotations)</td><td>RNA Binding Profile</td></tr>
-  <tr><td>Nucleotide-Binding</td><td>"Nucleotide binding" (ft_binding)</td><td>Nucleotide-Binding Profile</td></tr>
-  <tr><td>Transit Peptide</td><td>"Transit peptide" (ft_transit)</td><td>Transit Peptide Profile</td></tr>
+  <tr><th>Head</th><th>Primary Training Source</th><th>Graph Tab</th></tr>
+  <tr><td>Disorder</td><td>DisProt experimental → UniProt ft_region:disordered</td><td>Disorder Profile</td></tr>
+  <tr><td>Signal Peptide</td><td>UniProt ft_signal (Swiss-Prot)</td><td>Signal Peptide Profile</td></tr>
+  <tr><td>Transmembrane</td><td>UniProt ft_transmem → BiLSTM-CRF</td><td>Transmembrane Profile</td></tr>
+  <tr><td>Intramembrane</td><td>UniProt ft_intramem</td><td>Intramembrane Profile</td></tr>
+  <tr><td>Coiled-Coil</td><td>UniProt ft_coiled</td><td>Coiled-Coil Profile</td></tr>
+  <tr><td>DNA-Binding</td><td>BioLiP (PDB-derived protein-DNA contacts)</td><td>DNA-Binding Profile</td></tr>
+  <tr><td>RNA Binding</td><td>BioLiP (PDB-derived protein-RNA contacts)</td><td>RNA Binding Profile</td></tr>
+  <tr><td>Active Site</td><td>M-CSA mechanistically validated catalytic residues</td><td>Active Site Profile</td></tr>
+  <tr><td>Binding Site</td><td>BioLiP small-molecule binding residues</td><td>Binding Site Profile</td></tr>
+  <tr><td>Phosphorylation</td><td>dbPTM (PSP + PhosphoELM + HPRD aggregate)</td><td>Phosphorylation Profile</td></tr>
+  <tr><td>Low-Complexity</td><td>UniProt ft_compbias</td><td>Low-Complexity Profile</td></tr>
+  <tr><td>Zinc Finger</td><td>BioLiP Zn-coordinating residues</td><td>Zinc Finger Profile</td></tr>
+  <tr><td>Glycosylation</td><td>GlyConnect site-resolved glycoproteomics</td><td>Glycosylation Profile</td></tr>
+  <tr><td>Ubiquitination</td><td>dbPTM</td><td>Ubiquitination Profile</td></tr>
+  <tr><td>Methylation</td><td>dbPTM</td><td>Methylation Profile</td></tr>
+  <tr><td>Acetylation</td><td>dbPTM</td><td>Acetylation Profile</td></tr>
+  <tr><td>Lipidation</td><td>UniProt ft_lipid</td><td>Lipidation Profile</td></tr>
+  <tr><td>Disulfide Bond</td><td>UniProt ft_disulfid</td><td>Disulfide Bond Profile</td></tr>
+  <tr><td>Functional Motif</td><td>UniProt ft_motif</td><td>Functional Motif Profile</td></tr>
+  <tr><td>Propeptide</td><td>UniProt ft_propep</td><td>Propeptide Profile</td></tr>
+  <tr><td>Repeat Region</td><td>UniProt ft_repeat</td><td>Repeat Region Profile</td></tr>
+  <tr><td>Nucleotide-Binding</td><td>BioLiP (ATP/ADP/NAD/FAD/CoA/…)</td><td>Nucleotide-Binding Profile</td></tr>
+  <tr><td>Transit Peptide</td><td>UniProt ft_transit</td><td>Transit Peptide Profile</td></tr>
+  <tr><td>Aggregation Propensity</td><td>WALTZ-DB 2.0 + AmyLoad + AmyPro + PDB fibrils</td><td>Aggregation Propensity Profile</td></tr>
 </table>
 <h2>UniProt Annotation Overlay</h2>
 <p>Each graph tab shows the AI prediction probability curve as the primary element.
