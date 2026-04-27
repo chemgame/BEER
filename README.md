@@ -20,7 +20,7 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 - **On-demand AI section loading** — AI Predictions sections are computed lazily (click-to-compute, VMD/PyMOL style); each head shares the cached ESM2 embedding so subsequent heads are fast
 - **Unified BiLSTM overlay design** — each head shows a single figure; UniProt annotations (when fetched) are overlaid on the same axes as semi-transparent spans for direct visual comparison
 - **3D structure viewer** with multiple representations, colour modes, colour bar, spin, and snapshot export
-- **53 graphs** across 12 categories (up from ~12), including all 20 BiLSTM head profiles, Ramachandran, contact network, pLDDT profile, domain architecture
+- **56 graphs** across 11 categories (up from ~12), including 25 AI Predictions graphs (24 heads + overview), Ramachandran, contact network, pLDDT profile, domain architecture
 - **New analysis modules**: RNA binding (catRAPID), SCD/κ/Ω, LARKS, tandem repeats, TM topology (TMHMM 2.0 local), coiled coil (COILS), ELM linear motifs, phosphorylation PWMs (NetPhos-style), catGRANULE phase-separation, SignalP D-score
 - **New utility tabs**: BLAST, Multichain, Compare, Truncation Series, MSA Conservation, Complex Mass
 - **Protein summary bar**: fetches name, gene, organism, and function from UniProt or RCSB automatically after a fetch
@@ -138,7 +138,7 @@ Full flag list:
 
 ## Analysis Tab
 
-After running analysis, the left panel lists 19 report sections. Click any section name to display it. The report panel has two tabs — **Report** (all sections) and **Alanine Scan** (systematic single-site Ala mutation scan with ΔGRAVY, ΔMW, ΔCharge, and ΔDisorder fraction).
+After running analysis, the left panel lists 14 classical analysis sections and a separate **AI Predictions** group. Click any section name to display it. The report panel has two tabs — **Report** (all sections) and **Alanine Scan** (systematic single-site Ala mutation scan with ΔGRAVY, ΔMW, ΔCharge, and ΔDisorder fraction).
 
 When you fetch a protein from UniProt or RCSB, a compact **protein info bar** appears above the report panel, showing the protein name, gene, organism, and a one-line functional description.
 
@@ -161,31 +161,57 @@ When you fetch a protein from UniProt or RCSB, a compact **protein info bar** ap
 
 Residues in the sequence viewer are colour-coded by type. Use the **Search** / **Highlight** box to find motifs or regex patterns. Below the viewer: **Copy Sequence** (whole or range) and **Clear All** (resets everything).
 
-### Report sections
+### Classical analysis sections
+
+These 14 sections are always computed when you click **Analyze** (no ESM2 required):
 
 | Section | Contents |
 |---------|----------|
-| **Properties** | MW, pI, GRAVY, aromaticity, aliphatic index, extinction coefficient |
 | **Composition** | AA counts and frequencies, sortable by name / frequency / hydrophobicity |
+| **Properties** | MW, pI, GRAVY, aromaticity, aliphatic index, extinction coefficient |
 | **Hydrophobicity** | Kyte-Doolittle statistics, hydrophobic and hydrophilic fractions |
 | **Charge** | FCR, NCPR, κ, Ω, net charge, charge asymmetry |
 | **Aromatic & π** | Aromatic fraction, cation–π and π–π pair counts |
-| **Low Complexity** | Shannon entropy, prion-like score, LC fraction, PLAAC score (Lancaster et al. 2014), PolyX stretches |
-| **Disorder** | ESM2 BiLSTM head (2-layer BiLSTM, trained on UniProt Swiss-Prot, AUROC 0.991); falls back to metapredict (Emenecker et al. 2021) or classical propensity scale; includes mean probability, predicted fraction, and predicted region list |
-| **Aggregation** | ZYGGREGATOR hotspots (Tartaglia & Vendruscolo 2008); CamSol solubility; optional ESM2 probe (Settings) |
-| **Signal Peptide** | ESM2 BiLSTM head (AUROC 0.9999); classical Von Heijne (1986) n/h/c model and D-score fallback; AXA cleavage motif; GPI anchor (Eisenhaber et al. 1999). Optional deep-learning upgrade via **SignalP 6.0** button (BioLib, requires pybiolib + login) |
-| **RNA Binding** | catRAPID-style composite score ω̄ (Bellucci et al. 2011 Nat Methods); per-residue catRAPID profile; RGG/RRM/KH/SR/DEAD-box motif scan |
-| **Amphipathic Helices** | Regions with μH ≥ 0.35 (Eisenberg 1984); hydrophobic moment profile for α-helix (δ=100°) and β-strand (δ=160°) |
-| **SCD / κ / Ω** | Sequence charge decoration profile |
-| **LARKS** | Low-complexity Aromatic-Rich Kinked Segments (Hughes et al. 2018) |
-| **Tandem Repeats** | Direct, tandem, and compositional repeats |
-| **TM Topology** | TMHMM 2.0 (Krogh et al. 2001) bundled locally — 395-state profile HMM, NumPy Viterbi, no internet needed. Classical Kyte-Doolittle sliding-window TM prediction has been removed in v2.0; use **AI Predictions → Transmembrane** (ESM2 BiLSTM) or the **TMHMM** button for topology. Optional cloud upgrade via **DeepTMHMM** button (BioLib) |
-| **Coiled Coil** | Full COILS algorithm (Lupas et al. 1991 Science 252:1162): MTIDK 20×7 position-weight matrix, all 7 heptad registers swept, log-odds converted to P(CC) via calibrated sigmoid |
-| **Linear Motifs** | Regex scan: NLS, NES, PxxP, 14-3-3, KFERQ, KDEL, SxIP, NxS/T, … |
-| **Proteolytic Map** | Predicted cleavage sites for 9 enzymes (Trypsin, Chymotrypsin, Lys-C, Asp-N, Glu-C, CNBr, Arg-C); peptide masses in Da |
-| **Phosphorylation** | NetPhos-style PWM scan (Blom et al. 1999) for PKA (R[R/K]x[S/T]), PKC ([S/T]x[R/K]), CK2 ([S/T]xxE/D), and Src/Tyr kinase (YxxΦ) sites |
+| **Repeat Motifs** | Shannon entropy, prion-like score, LC fraction, PLAAC score (Lancaster et al. 2014), PolyX stretches |
 | **Sticker & Spacer** | Sticker count/spacing, **catGRANULE score** (Bolognesi et al. 2016 Cell Reports 14:2535): linear combination of catRAPID, disorder, and inverse hydrophobicity; score > 0 predicts condensate formation |
-| **Comparison** | Side-by-side disorder / hydrophobicity / aggregation overlays |
+| **LARKS** | Low-complexity Aromatic-Rich Kinked Segments (Hughes et al. 2018) |
+| **Linear Motifs** | Regex scan: NLS, NES, PxxP, 14-3-3, KFERQ, KDEL, SxIP, NxS/T, … |
+| **β-Aggregation & Solubility** | ZYGGREGATOR hotspots (Tartaglia & Vendruscolo 2008); CamSol solubility (Sormanni et al. 2015) |
+| **Amphipathic Helices** | Regions with μH ≥ 0.35 (Eisenberg 1984); hydrophobic moment profile for α-helix (δ=100°) and β-strand (δ=160°) |
+| **Charge Decoration (SCD)** | Sequence charge decoration profile (Sawle & Ghosh 2015) |
+| **Tandem Repeats** | Direct, tandem, and compositional repeats |
+| **Proteolytic Map** | Predicted cleavage sites for 9 enzymes (Trypsin, Chymotrypsin, Lys-C, Asp-N, Glu-C, CNBr, Arg-C, Pepsin, Thermolysin); peptide masses in Da |
+
+### AI Predictions sections
+
+Computed on-demand when you click a section under **AI Predictions** in the sidebar (or click **AI Analysis** to run all 24 at once). Each head uses ESM2 650M embeddings (1280-dim per residue) → 2-layer BiLSTM (hidden=256, bidirectional, output=512-dim) → per-residue probability. Every profile tab has a **Show Uncertainty (MC-Dropout)** checkbox that runs 20 stochastic forward passes and adds ±1σ bands.
+
+| Head | Notes |
+|------|-------|
+| **Disorder** | AUROC 0.991; falls back to metapredict (Emenecker et al. 2021) or classical scale if ESM2 unavailable |
+| **Signal Peptide** | AUROC 0.9999; classical Von Heijne D-score and AXA motif shown alongside; GPI anchor detection |
+| **Transmembrane** | BiLSTM-CRF with Viterbi topology decoding (outside→helix→inside); AUROC 0.992 |
+| **Intramembrane** | Re-entrant membrane loops |
+| **Coiled Coil** | |
+| **DNA Binding** | Trained on BioLiP structure-derived protein-DNA contacts |
+| **RNA Binding** | Trained on BioLiP protein-RNA contacts |
+| **Active Site** | Trained on M-CSA mechanistically validated catalytic residues |
+| **Binding Site** | Trained on BioLiP small-molecule binding residues |
+| **Phosphorylation** | Trained on dbPTM experimental sites |
+| **Ubiquitination** | Trained on dbPTM |
+| **Methylation** | Trained on dbPTM |
+| **Acetylation** | Trained on dbPTM |
+| **Glycosylation** | Trained on GlyConnect site-resolved glycoproteomics data |
+| **Lipidation** | |
+| **Disulfide Bond** | |
+| **Zinc Finger** | Trained on BioLiP Zn-coordinating residues |
+| **Nucleotide Binding** | Trained on BioLiP (ATP/ADP/NAD/FAD/CoA/…) |
+| **Low Complexity** | |
+| **Functional Motif** | |
+| **Propeptide** | |
+| **Repeat Region** | |
+| **Transit Peptide** | |
+| **Aggregation Propensity** | BiLSTM-Window architecture (9-residue window-average pool); trained on WALTZ-DB 2.0 + AmyLoad + AmyPro + PDB amyloid fibrils |
 
 ---
 
@@ -195,28 +221,19 @@ Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, 
 
 | Category | Graphs |
 |----------|--------|
-| Composition | AA Composition (Bar), AA Composition (Pie) |
-| Sequence Profiles | Hydrophobicity, Local Charge, Local Complexity, Disorder Profile, Linear Sequence Map, Coiled-Coil Profile |
-| Charge & π | Isoelectric Focus, Charge Decoration (Das-Pappu), Cation–π Map |
-| Structure & Folding | Bead Model (Hydrophobicity), Bead Model (Charge), Sticker Map, Helical Wheel, TM Topology |
-| Phase Sep / IDP | Uversky Phase Plot, Single-Residue Perturbation Map, SCD Profile |
-| Aggregation | β-Aggregation Profile, Solubility Profile, Hydrophobic Moment |
-| Sequence Analysis | Annotation Track, Cleavage Map, PLAAC Profile |
-| Post-Translational & Binding | RNA-Binding Profile |
-| Evolutionary & Comparative | Truncation Series, MSA Conservation, MSA Covariance, Complex Mass |
-| AlphaFold / Structural* | pLDDT Profile, Distance Map, Domain Architecture, Ramachandran Plot, Residue Contact Network |
-| Variant Effects | Variant Effect Map, AlphaMissense Pathogenicity |
-| BiLSTM Head Profiles | Signal Peptide Profile, Transmembrane Profile, Coiled-Coil Profile, DNA-Binding Profile, Active Site Profile, Binding Site Profile, Phosphorylation Profile, Low-Complexity Profile, Intramembrane Profile, Zinc Finger Profile, Glycosylation Profile, Ubiquitination Profile, Methylation Profile, Acetylation Profile, Lipidation Profile, Disulfide Bond Profile, Functional Motif Profile, Propeptide Profile, Repeat Region Profile |
+| **Composition** | Amino Acid Composition (Bar) |
+| **AI Predictions** | Overview, Disorder Profile, Signal Peptide Profile, Transmembrane Profile, Intramembrane Profile, Coiled-Coil Profile, DNA-Binding Profile, RNA Binding Profile, Active Site Profile, Binding Site Profile, Phosphorylation Profile, Low-Complexity Profile, Zinc Finger Profile, Glycosylation Profile, Ubiquitination Profile, Methylation Profile, Acetylation Profile, Lipidation Profile, Disulfide Bond Profile, Functional Motif Profile, Propeptide Profile, Repeat Region Profile, Nucleotide-Binding Profile, Transit Peptide Profile, Aggregation Propensity Profile |
+| **Other Sequence Profiles** | Hydrophobicity Profile, Local Charge Profile, SCD Profile, SHD Profile |
+| **Charge & π-Interactions** | Isoelectric Focus, Charge Decoration, Cation–π Map |
+| **Membrane & Amphipathicity** | TM Topology, Hydrophobic Moment, Helical Wheel |
+| **Aggregation & Solubility** | β-Aggregation Profile, Solubility Profile |
+| **Phase Separation & IDP** | Uversky Phase Plot, Single-Residue Perturbation Map, Sticker Map, PLAAC Profile |
+| **Sequence Maps & Annotation** | Linear Sequence Map, Annotation Track, Domain Architecture, Cleavage Map |
+| **AlphaFold & Structure**† | pLDDT Profile, Distance Map, Residue Contact Network, Ramachandran Plot |
+| **Variant Effects**† | Variant Effect Map, AlphaMissense |
+| **Evolutionary & Comparative** | MSA Conservation, MSA Covariance, Truncation Series, Complex Mass |
 
-*Structural graphs require a loaded structure (from AlphaFold fetch or PDB import).
-
-**Sequence Analysis graphs:**
-
-| Graph | Description |
-|-------|-------------|
-| **Annotation Track** | Unified five-track view: disorder, hydrophobicity, aggregation, feature annotations (TM helices, signal peptide, LARKS), and a sequence ruler — all aligned on the same x-axis |
-| **Cleavage Map** | Predicted proteolytic cut sites for 9 enzymes displayed as coloured ticks on horizontal tracks; includes a trypsin peptide mass summary |
-| **PLAAC Profile** | Per-residue prion-like amino acid composition score (Lancaster et al. 2014), with prion-like regions highlighted |
+†Requires a loaded structure (AlphaFold fetch or PDB import) or UniProt fetch for variant data.
 
 ---
 
