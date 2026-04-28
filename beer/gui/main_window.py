@@ -2794,8 +2794,7 @@ class ProteinAnalyzerGUI(QMainWindow):
   </div>
 </div>
 <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
-<!-- 3Dmol injected via QWebEngineScript (bundled); CDN below is fallback only -->
-<script src="https://3dmol.org/build/3Dmol-min.js" onerror="console.warn('3Dmol CDN unreachable; using bundled version')"></script>
+<!-- 3Dmol.js injected at DocumentCreation via QWebEngineScript (bundled in package) -->
 <script>
 var viewer   = null;
 var pdbData  = {pdb_json};       // null on initial empty load
@@ -3270,10 +3269,11 @@ function toggleHBonds(on){{
     hbondShapes = [];
     if(on && viewer){{
         _detectBackboneHBonds().forEach(function(h){{
-            hbondShapes.push(viewer.addLine({{
+            hbondShapes.push(viewer.addCylinder({{
                 start:{{x:h.x1,y:h.y1,z:h.z1}},
                 end:{{x:h.x2,y:h.y2,z:h.z2}},
-                color:'#44ccff', linewidth:1.0, opacity:0.75, dashed:true
+                radius:0.07, color:'#44ccff', opacity:0.72,
+                dashed:true, fromCap:0, toCap:0
             }}));
         }});
         viewer.render();
