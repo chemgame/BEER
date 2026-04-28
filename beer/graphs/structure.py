@@ -134,6 +134,7 @@ def create_helical_wheel_figure(
     seq: str,
     label_font: int = 14,
     hydro_scale: str = "Kyte-Doolittle",
+    cmap: str = "RdYlBu_r",
 ) -> Figure:
     """Helical wheel projection (first ≤18 residues)."""
     seg = seq[:18]
@@ -154,7 +155,7 @@ def create_helical_wheel_figure(
     h_values = [scale_vals.get(aa, 0.0) for aa in seg]
     h_min = min(scale_vals.values())
     h_max = max(scale_vals.values())
-    cmap = plt.get_cmap("RdYlBu_r")
+    cmap = plt.get_cmap(cmap)
     norm = Normalize(vmin=h_min, vmax=h_max)
     DOT_R = 0.13
     RING_R = 1.0

@@ -1,6 +1,6 @@
 # BEER — Biophysical Evaluation Engine for Residues
 
-**Website:** [https://www.saumyakmukherjee.com/beer](https://www.saumyakmukherjee.com/beer)
+**Website:** [https://chemgame.github.io/BEER](https://chemgame.github.io/BEER)
 
 **BEER** is a desktop application for integrated biophysical analysis of protein sequences. It accepts a sequence (pasted, imported as FASTA/PDB, or fetched from UniProt/RCSB), runs 14 classical analysis sections and 10 ESM2 BiLSTM neural AI prediction heads on demand, and gives you interactive publication-quality graphs, a 3D structure viewer, and exportable per-section reports — all from a single GUI.
 
@@ -20,7 +20,7 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 - **On-demand AI section loading** — AI Predictions sections are computed lazily (click-to-compute, VMD/PyMOL style); each head shares the cached ESM2 embedding so subsequent heads are fast
 - **Unified BiLSTM overlay design** — each head shows a single figure; UniProt annotations (when fetched) are overlaid on the same axes as semi-transparent spans for direct visual comparison
 - **3D structure viewer** with multiple representations, colour modes, colour bar, spin, and snapshot export
-- **56 graphs** across 11 categories (up from ~12), including 25 AI Predictions graphs (24 heads + overview), Ramachandran, contact network, pLDDT profile, domain architecture
+- **55 graphs** across 11 categories (up from ~12), including 24 AI Predictions graphs (one per head), Ramachandran, contact network, pLDDT/B-factor profile, domain architecture
 - **New analysis modules**: RNA binding (catRAPID), SCD/κ/Ω, LARKS, tandem repeats, TM topology (TMHMM 2.0 local), coiled coil (COILS), ELM linear motifs, phosphorylation PWMs (NetPhos-style), catGRANULE phase-separation, SignalP D-score
 - **New utility tabs**: BLAST, Multichain, Compare, Truncation Series, MSA Conservation, Complex Mass
 - **Protein summary bar**: fetches name, gene, organism, and function from UniProt or RCSB automatically after a fetch
@@ -30,9 +30,12 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 - **Alanine scan sub-tab** — inside the Analysis tab, systematically mutate every position in a chosen range to Ala and see ΔGRAVY, ΔMW, ΔCharge, and ΔDisorder fraction in a table + bar chart; export as CSV
 - **Phosphorylation context filter** — predicted phospho sites in disordered regions (BiLSTM > 0.5) or low-confidence structure (pLDDT < 70) are flagged as higher-confidence predictions
 - **MC-Dropout uncertainty** — each BiLSTM profile tab has a "Show Uncertainty" button that runs Monte Carlo dropout and adds ±1σ bands to the profile
-- **Smart Summary tab** — dedicated bulleted summary of all key predictions; shown after analysis
+- **Smart Summary tab** — dedicated bulleted summary of all key predictions; when a UniProt accession is fetched, the tab also shows the full protein entry: function, subcellular location, associated diseases, PTMs, and keywords pulled directly from UniProt
 - **Headless CLI** — `beer analyze` subcommand with full flags for batch use (see below)
 - Persistent settings, drag-and-drop FASTA, session save/load, keyboard shortcuts overlay, right-click figure menu (copy, save PNG/SVG/PDF, export underlying data as CSV/JSON)
+- **Per-graph inline controls** — save format (PNG/SVG/PDF) and, for heatmap graphs, colormap — set directly in each graph panel rather than globally in Settings
+- **SASA profile** rendered with a subtle dark overlay line on top of the filled area to aid reading at small sizes
+- **Single-Residue Perturbation Map** now shows sparse 1-based residue-position tick labels on the x-axis
 - Structure export in PDB, mmCIF, GRO, XYZ, and FASTA formats
 - Removed unreliable metrics (Instability Index, LLPS composite score, Chou-Fasman)
 - Removed bead models and composition pie chart (redundant with bar plot and 3D viewer)
@@ -169,7 +172,7 @@ These 14 sections are always computed when you click **Analyze** (no ESM2 requir
 |---------|----------|
 | **Composition** | AA counts and frequencies, sortable by name / frequency / hydrophobicity |
 | **Properties** | MW, pI, GRAVY, aromaticity, aliphatic index, extinction coefficient |
-| **Hydrophobicity** | Kyte-Doolittle statistics, hydrophobic and hydrophilic fractions |
+| **Hydrophobicity** | Sliding-window hydrophobicity profile; scale selectable in Settings (Kyte-Doolittle, Eisenberg, Wimley-White, Hessa, Moon-Fleming, GES, Hopp-Woods, Fauchère-Pliska, Urry); y-axis label, units, and the ⓘ tooltip all update to reflect the chosen scale |
 | **Charge** | FCR, NCPR, κ, Ω, net charge, charge asymmetry |
 | **Aromatic & π** | Aromatic fraction, cation–π and π–π pair counts |
 | **Repeat Motifs** | Shannon entropy, prion-like score, LC fraction, PLAAC score (Lancaster et al. 2014), PolyX stretches |
@@ -217,23 +220,34 @@ Computed on-demand when you click a section under **AI Predictions** in the side
 
 ## Graphs Tab
 
-Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, pan, home) appears above each figure. Click the **ⓘ** button (bottom-right of each graph) for a detailed description, equations, and references. **Right-click any graph** for three options: copy to clipboard, save figure (PNG/SVG/PDF), or **Export Graph Data…** — writes the underlying data (residue scores, domain lists, site tables, etc.) to a CSV or JSON file so you can re-plot or analyse it with external tools. Individual graphs and reports are exported per-section; there is no bulk "export all" function.
+Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, pan, home) appears above each figure. Click the **ⓘ** button (bottom-right of each graph) for a detailed description, equations, and references. **Right-click any graph** for three options: copy to clipboard, save figure (PNG/SVG/PDF), or **Export Graph Data…** — writes the underlying data (residue scores, domain lists, site tables, etc.) to a CSV or JSON file so you can re-plot or analyse it with external tools.
+
+Each graph panel has two inline controls in its toolbar:
+
+- **Format dropdown** (PNG / SVG / PDF) — sets the save format for that specific graph; overrides the global default.
+- **Colormap dropdown** (heatmap-type graphs only: Distance Map, Residue Contact Network, Cation–π Map, MSA Covariance, Single-Residue Perturbation Map, Variant Effect Map, AlphaMissense, Helical Wheel) — lets you switch the colour scheme per graph without touching Settings.
+
+Individual graphs and reports are exported per-section; there is no bulk "export all" function.
 
 | Category | Graphs |
 |----------|--------|
 | **Composition** | Amino Acid Composition (Bar) |
-| **AI Predictions** | Overview, Disorder Profile, Signal Peptide Profile, Transmembrane Profile, Intramembrane Profile, Coiled-Coil Profile, DNA-Binding Profile, RNA Binding Profile, Active Site Profile, Binding Site Profile, Phosphorylation Profile, Low-Complexity Profile, Zinc Finger Profile, Glycosylation Profile, Ubiquitination Profile, Methylation Profile, Acetylation Profile, Lipidation Profile, Disulfide Bond Profile, Functional Motif Profile, Propeptide Profile, Repeat Region Profile, Nucleotide-Binding Profile, Transit Peptide Profile, Aggregation Propensity Profile |
+| **AI Predictions** | Disorder Profile, Signal Peptide Profile, Transmembrane Profile, Intramembrane Profile, Coiled-Coil Profile, DNA-Binding Profile, RNA Binding Profile, Active Site Profile, Binding Site Profile, Phosphorylation Profile, Low-Complexity Profile, Zinc Finger Profile, Glycosylation Profile, Ubiquitination Profile, Methylation Profile, Acetylation Profile, Lipidation Profile, Disulfide Bond Profile, Functional Motif Profile, Propeptide Profile, Repeat Region Profile, Nucleotide-Binding Profile, Transit Peptide Profile, Aggregation Propensity Profile |
 | **Other Sequence Profiles** | Hydrophobicity Profile, Local Charge Profile, SCD Profile, SHD Profile |
 | **Charge & π-Interactions** | Isoelectric Focus, Charge Decoration, Cation–π Map |
 | **Membrane & Amphipathicity** | TM Topology, Hydrophobic Moment, Helical Wheel |
 | **Aggregation & Solubility** | β-Aggregation Profile, Solubility Profile |
 | **Phase Separation & IDP** | Uversky Phase Plot, Single-Residue Perturbation Map, Sticker Map, PLAAC Profile |
 | **Sequence Maps & Annotation** | Linear Sequence Map, Annotation Track, Domain Architecture, Cleavage Map |
-| **AlphaFold & Structure**† | pLDDT Profile, Distance Map, Residue Contact Network, Ramachandran Plot |
+| **AlphaFold & Structure**† | pLDDT / B-Factor Profile, Distance Map, Residue Contact Network, Ramachandran Plot |
 | **Variant Effects**† | Variant Effect Map, AlphaMissense |
 | **Evolutionary & Comparative** | MSA Conservation, MSA Covariance, Truncation Series, Complex Mass |
 
 †Requires a loaded structure (AlphaFold fetch or PDB import) or UniProt fetch for variant data.
+
+**pLDDT / B-Factor Profile**: when the structure was loaded from the AlphaFold EBI database the graph is titled "pLDDT Profile" with confidence-zone colouring (Very High ≥ 90, Confident 70–90, Low 50–70, Very Low < 50). When loaded from RCSB PDB or a local file the graph switches to "B-Factor Profile" with crystallographic B-factor zones (< 20 / 20–40 / 40–60 / > 60 Å²).
+
+**Domain Architecture**: shows Pfam domains (UniProt fetch required), BEER AI disorder regions, and disordered linker spans. TM helices are intentionally omitted here — use the dedicated **TM Topology** graph (TMHMM 2.0 snake-plot with inside/outside orientation) for transmembrane topology.
 
 ---
 
@@ -283,8 +297,6 @@ Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu), embedde
 | Graphs | Label Font Size | 11 |
 | Graphs | Tick Font Size | 9 |
 | Graphs | Marker Size | — |
-| Graphs | Default Graph Format | PNG |
-| Graphs | Heatmap Colormap | — |
 | Graphs | Graph Accent Colour | Royal Blue |
 | Graphs | Show Graph Titles | On |
 | Graphs | Show Grid | On |

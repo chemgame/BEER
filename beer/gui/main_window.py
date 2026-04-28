@@ -66,7 +66,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QProgressDialog, QAbstractItemView,
     QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QStackedWidget,
     QInputDialog, QApplication, QDoubleSpinBox, QGroupBox, QMenu, QSlider,
-    QColorDialog, QSizePolicy,
+    QColorDialog, QSizePolicy, QStyleFactory,
 )
 from PySide6.QtGui import QFont, QKeySequence, QAction, QShortcut, QImage, QIcon, QPixmap
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QEvent, QUrl
@@ -125,7 +125,8 @@ from beer.graphs import (
     create_linear_sequence_map_figure,
     create_domain_architecture_figure, create_cation_pi_map_figure,
     create_local_complexity_figure, create_ramachandran_figure,
-    create_contact_network_figure, create_plddt_figure, create_distance_map_figure,
+    create_contact_network_figure, create_plddt_figure, create_sasa_figure,
+    create_distance_map_figure,
     create_msa_conservation_figure, create_complex_mw_figure,
     create_truncation_series_figure,
     create_saturation_mutagenesis_figure, create_uversky_phase_plot,
@@ -293,6 +294,22 @@ def _install_beer_link_filter(browser: "QTextBrowser", handler) -> None:
 
 # ---------------------------------------------------------------------------
 
+from PySide6.QtCore import Slot as _Slot
+
+class _StructBridge(QObject):
+    """QObject exposed to the 3Dmol JS page via QWebChannel.
+    Receives residue-click notifications from the structure viewer.
+    """
+    def __init__(self, main_window: "ProteinAnalyzerGUI"):
+        super().__init__(main_window)
+        self._mw = main_window
+
+    @_Slot(int)
+    def residueClicked(self, resi: int) -> None:
+        self._mw._on_struct_residue_picked(resi)
+
+# ---------------------------------------------------------------------------
+
 class ProteinAnalyzerGUI(QMainWindow):
     def __init__(self, embedder: "SequenceEmbedder | None" = None):
         super().__init__()
@@ -346,11 +363,16 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._analysis_worker    = None
         self._progress_dlg       = None
         self._pending_pdb        = None   # stored when loadPDB is called before page ready
+        self._struct_marker_resi = None   # residue last clicked in 3D viewer; re-applied on graph redraw
+        self._struct_sasa_data   = {}     # {PDB resi: RSA 0..1} computed on PDB load
+        self._struct_sasa_raw    = {}     # {PDB resi: ASA Å²} computed on PDB load
+        self._sasa_show_asa      = False  # toggle state: False=RSA, True=ASA
 
         # --- New state for AlphaFold / Pfam / BLAST ---
         self.current_accession   = ""   # last successfully fetched UniProt accession
         self._source_id          = ""   # original fetch ID (UniProt acc or PDB ID) — survives rename
-        self.alphafold_data      = None # dict: pdb_str, plddt, dist_matrix, accession
+        self.alphafold_data      = None  # dict: pdb_str, plddt, dist_matrix, accession
+        self._struct_is_alphafold = False # True only when structure came from AlphaFold DB
         self.batch_struct        = {}   # maps batch rec_id -> per-chain struct dict
         self.pfam_domains        = []   # list of domain dicts from Pfam
         self._alphafold_worker   = None
@@ -377,6 +399,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.variants_data       = []   # UniProt natural variants
         self._uniprot_features   = {}   # UniProtFeaturesWorker results (feature→regions)
         self._uniprot_feat_worker = None
+        self._uniprot_card       = {}   # parsed UniProt entry metadata for Summary tab
         self._seq_search_worker  = None  # UniProtSequenceSearchWorker
         self._msa_sequences      = []   # list of aligned sequences
         self._msa_names          = []   # corresponding names
@@ -478,15 +501,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             "Tip: IDPs typically show depletion of order-promoting residues (C, W, F, Y, I, L, V) "
             "and enrichment of disorder-promoting residues (E, K, R, S, P, Q)."
         ),
-        "Hydrophobicity Profile": (
-            "Sliding-window average of residue hydrophobicity.\n\n"
-            "Formula: H(i) = (1/w) \u00b7 \u03a3 h(j)  for j = i\u2013\u230aw/2\u230b to i+\u230aw/2\u230b\n"
-            "where h(j) is the per-residue score and w is the window size (default 9).\n\n"
-            "Kyte & Doolittle scale (J. Mol. Biol. 157:105, 1982): range \u22124.5 (Arg) to +4.5 (Ile). "
-            "Values > 1.8 sustained over \u2265 20 residues suggest a transmembrane helix.\n\n"
-            "Other scales available in Settings: Wimley\u2013White, Hessa, GES, Hopp\u2013Woods, "
-            "Fauch\u00e8re\u2013Pliska, Urry, Moon\u2013Fleming."
-        ),
+        "Hydrophobicity Profile": None,  # dynamic — see _hydrophobicity_hint()
         "Local Charge Profile": (
             "Sliding-window mean net charge per residue (NCPR).\n\n"
             "NCPR = (f\u207a \u2212 f\u207b) averaged over a window, "
@@ -569,6 +584,17 @@ class ProteinAnalyzerGUI(QMainWindow):
             "per residue upon the substitution. Hot = strongly destabilising; white dots = wild type.\n\n"
             "Note: this is a biophysical perturbation metric, not a pathogenicity predictor. "
             "Heatmap colour scale selectable in Settings."
+        ),
+        "SASA Profile": (
+            "Per-residue solvent-accessible surface area (SASA) from the loaded 3D structure.\n\n"
+            "Computed using the Shrake\u2013Rupley algorithm (BioPython). Available only when a\n"
+            "structure is loaded (AlphaFold or PDB fetch, or local file).\n\n"
+            "RSA (relative solvent accessibility, 0\u20131, dimensionless):\n"
+            "  < 0.20:  Buried residue\n"
+            "  0.20\u20130.50: Partially exposed\n"
+            "  > 0.50:  Exposed\n\n"
+            "Toggle to 'Show raw ASA (Å\u00b2)' to see absolute solvent-accessible area.\n"
+            "Smoothing follows the window size set in Settings."
         ),
         "pLDDT Profile": (
             "AlphaFold per-residue confidence score (pLDDT, 0\u2013100).\n\n"
@@ -759,6 +785,23 @@ class ProteinAnalyzerGUI(QMainWindow):
         fig.tight_layout(pad=1.5)
         return fig
 
+    def _show_named_graph(self, graph_name: str) -> None:
+        """Select graph_name in the Graphs tab tree and render it."""
+        if not hasattr(self, "graph_list"):
+            return
+        items = self.graph_list.findItems(graph_name, Qt.MatchFlag.MatchExactly)
+        if items:
+            self.graph_list.setCurrentItem(items[0])
+            self._on_graph_selected(items[0])
+
+    def _jump_to_graph(self, graph_name: str) -> None:
+        """Switch to the Graphs tab and select graph_name."""
+        for i in range(self.main_tabs.count()):
+            if self.main_tabs.tabText(i) == "Graphs":
+                self.main_tabs.setCurrentIndex(i)
+                break
+        self._show_named_graph(graph_name)
+
     def _replace_graph(self, title: str, fig):
         """Swap graph canvas in the named tab, preserving uncertainty checkbox state."""
         import matplotlib.pyplot as _plt
@@ -824,7 +867,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             "Hydrophobicity Profile", "Local Charge Profile",
             "SCD Profile", "SHD Profile", "RNA-Binding Profile",
             "β-Aggregation Profile", "Solubility Profile",
-            "pLDDT Profile", "Hydrophobic Moment",
+            "pLDDT Profile", "SASA Profile", "Hydrophobic Moment",
         }
         if title in _PROFILE_GRAPHS and len(canvas.figure.axes) == 1:
             try:
@@ -833,7 +876,15 @@ class ProteinAnalyzerGUI(QMainWindow):
                            color="#4361ee", linewidth=0.7, linestyle="--", alpha=0.6)
             except Exception:
                 pass
-        hint = self._GRAPH_HINTS.get(title, "")
+            # Bidirectional graph↔structure link: hover on graph → highlight in 3D
+            if hasattr(self, "structure_viewer"):
+                self._wire_graph_struct_hover(canvas)
+            # Re-apply structure position marker if one is active
+            _marker = getattr(self, "_struct_marker_resi", None)
+            if _marker is not None:
+                self._apply_struct_marker_to_canvas(_marker, canvas)
+        hint = (self._hydrophobicity_hint() if title == "Hydrophobicity Profile"
+                else self._GRAPH_HINTS.get(title, "") or "")
         if hint:
             from PySide6.QtWidgets import (QToolButton as _QGTB, QDialog as _QDlg,
                                            QVBoxLayout as _QVB, QTextBrowser as _QTB,
@@ -869,6 +920,20 @@ class ProteinAnalyzerGUI(QMainWindow):
             info_btn.clicked.connect(_show_info)
             vb.addWidget(info_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
+        # ── RSA / ASA toggle for SASA Profile ───────────────────────────
+        if title == "SASA Profile":
+            _sasa_chk = QCheckBox("Show raw ASA (Å²)  [default: RSA, dimensionless 0–1]")
+            _sasa_chk.setChecked(getattr(self, "_sasa_show_asa", False))
+            _sasa_chk.setToolTip(
+                "Unchecked: Relative Solvent Accessibility (RSA, 0–1, dimensionless).\n"
+                "Checked: Absolute Solvent-Accessible Surface Area (ASA, Å²)."
+            )
+            def _toggle_sasa_mode(checked):
+                self._sasa_show_asa = checked
+                self._rebuild_sasa_graph()
+            _sasa_chk.toggled.connect(_toggle_sasa_mode)
+            vb.addWidget(_sasa_chk, alignment=Qt.AlignmentFlag.AlignLeft)
+
         # ── "Show Uncertainty" checkbox for BiLSTM profile tabs ─────────
         if title in BILSTM_PROFILE_TABS and self.analysis_data:
             _unc_chk = QCheckBox("Show Uncertainty (MC-Dropout)")
@@ -888,12 +953,50 @@ class ProteinAnalyzerGUI(QMainWindow):
             _unc_chk.toggled.connect(_toggle_uncertainty)
             vb.addWidget(_unc_chk, alignment=Qt.AlignmentFlag.AlignLeft)
 
+        # ── Inline colormap for heatmap graphs ──────────────────────────────
+        _HEATMAP_GRAPHS = {
+            "Distance Map", "Residue Contact Network",
+            "Cation\u2013\u03c0 Map", "MSA Covariance",
+            "Single-Residue Perturbation Map",
+            "Variant Effect Map", "AlphaMissense",
+            "Helical Wheel",
+        }
+        if title in _HEATMAP_GRAPHS:
+            _cmap_row = QWidget()
+            _cmap_rl  = QHBoxLayout(_cmap_row)
+            _cmap_rl.setContentsMargins(0, 2, 0, 2)
+            _cmap_rl.addWidget(QLabel("Colormap:"))
+            _cmap_combo = QComboBox()
+            _cmap_combo.addItems(NAMED_COLORMAPS)
+            _cmap_combo.setCurrentText(self.heatmap_cmap)
+            _cmap_combo.setMaximumWidth(180)
+            _cmap_combo.setToolTip("Change colormap for this graph.")
+
+            def _on_cmap_changed(_cmap_name, _t=title):
+                self.heatmap_cmap = _cmap_name
+                self._generated_graphs.discard(_t)
+                self.update_graph_tabs()
+                self._render_graph(_t)
+
+            _cmap_combo.currentTextChanged.connect(_on_cmap_changed)
+            _cmap_rl.addWidget(_cmap_combo)
+            _cmap_rl.addStretch()
+            vb.addWidget(_cmap_row)
+
         _btn_bar = QWidget()
         _btn_row = QHBoxLayout(_btn_bar)
         _btn_row.setContentsMargins(0, 2, 0, 2)
+        _btn_row.addWidget(QLabel("Save as:"))
+        _fmt_combo = QComboBox()
+        _fmt_combo.addItems(["PNG", "SVG", "PDF"])
+        _fmt_combo.setCurrentText(self.default_graph_format.upper())
+        _fmt_combo.setMinimumWidth(70)
+        _fmt_combo.setMaximumWidth(80)
+        _fmt_combo.setToolTip("Format for saving this graph.")
+        _btn_row.addWidget(_fmt_combo)
         _btn_row.addStretch()
         btn = QPushButton("Save Graph")
-        btn.clicked.connect(lambda _, t=title: self.save_graph(t))
+        btn.clicked.connect(lambda _, t=title, c=_fmt_combo: self.save_graph(t, c.currentText()))
         _export_btn = QPushButton("Export Data")
         _export_btn.setToolTip("Export the underlying data as CSV or JSON")
         _export_btn.clicked.connect(lambda _, t=title: self.export_graph_data(t))
@@ -1069,8 +1172,9 @@ class ProteinAnalyzerGUI(QMainWindow):
         # Reset structure state; callers that bring structure (import_pdb,
         # fetch_accession PDB branch, _on_alphafold_finished) re-populate these
         # after calling _load_batch.
-        self.batch_struct   = {}
-        self.alphafold_data = None
+        self.batch_struct         = {}
+        self.alphafold_data       = None
+        self._struct_is_alphafold = False
         self.export_structure_btn.setEnabled(False)
         for rec_id, seq in entries:
             if not is_valid_protein(seq):
@@ -1116,7 +1220,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         row1.addSpacing(6)
         row1.addWidget(QLabel("Fetch:"))
         self.accession_input = QLineEdit()
-        self.accession_input.setPlaceholderText("UniProt / PDB ID (e.g. P04637, 1ABC)")
+        self.accession_input.setPlaceholderText("e.g. P04637 (p53)  ·  1UBQ (ubiquitin)")
         row1.addWidget(self.accession_input, 1)
         fetch_btn = QPushButton("Fetch")
         fetch_btn.setMinimumHeight(30)
@@ -1834,6 +1938,45 @@ class ProteinAnalyzerGUI(QMainWindow):
                            f"({', '.join(names[:4])}"
                            + (" …" if len(names) > 4 else "") + ")")
 
+        # ── UniProt / PDB card ─────────────────────────────────────────────
+        card = getattr(self, "_uniprot_card", {})
+        card_items = []
+        if card:
+            src = card.get("source", "")
+            acc = card.get("accession", "")
+            name = card.get("name", "")
+            if src == "UniProt":
+                gene = card.get("gene", "")
+                org  = card.get("organism", "")
+                hdr  = f"<b>{name}</b>" if name else acc
+                if gene:
+                    hdr += f" &nbsp;|&nbsp; {gene}"
+                if org:
+                    hdr += f" &nbsp;(<i>{org}</i>)"
+                hdr += f" &nbsp;<span style='color:#64748b;font-size:10px'>[{acc}]</span>"
+                card_items.append(hdr)
+                for t in card.get("function", [])[:2]:
+                    card_items.append(t)
+                subcel = card.get("subcellular", [])
+                if subcel:
+                    card_items.append("<b>Location:</b> " + "; ".join(subcel[:6]))
+                diseases = card.get("diseases", [])
+                if diseases:
+                    card_items.append(
+                        "<b>Disease associations:</b> " + "; ".join(diseases[:5])
+                        + (" …" if len(diseases) > 5 else ""))
+                ptm_notes = card.get("ptm", [])
+                if ptm_notes:
+                    card_items.append("<b>PTM notes:</b> " + ptm_notes[0][:300])
+                kws = card.get("keywords", [])
+                if kws:
+                    card_items.append(
+                        "<b>Keywords:</b> " + ", ".join(kws[:12])
+                        + (" …" if len(kws) > 12 else ""))
+            elif src == "PDB":
+                card_items.append(
+                    f"<b>PDB {acc}</b>" + (f" — {name}" if name else ""))
+
         # ── Assemble ──────────────────────────────────────────────────────
         html = (
             "<div style='font-family:sans-serif;max-width:800px'>"
@@ -1841,6 +1984,9 @@ class ProteinAnalyzerGUI(QMainWindow):
             f"<p style='color:#64748b;font-size:11px;margin:0 0 10px'>"
             f"BEER v2.0 · AI Predictions analysis</p>"
         )
+        if card_items:
+            src_label = card.get("source", "Entry")
+            html += _sec(f"{src_label} Entry", card_items)
         html += _sec("Identity", identity)
         html += _sec("Structure & Folding", struct)
         html += _sec("Charge & IDP Properties", charge)
@@ -1917,6 +2063,14 @@ class ProteinAnalyzerGUI(QMainWindow):
         roi_clear.clicked.connect(self._clear_roi_highlight)
         top_bar.addWidget(roi_clear)
         top_bar.addStretch()
+        self._graphs_clear_marker_btn = QPushButton("Clear Marker")
+        self._graphs_clear_marker_btn.setMaximumHeight(26)
+        self._graphs_clear_marker_btn.setEnabled(False)
+        self._graphs_clear_marker_btn.setToolTip(
+            "Remove the red dashed position marker from all profile graphs.")
+        self._graphs_clear_marker_btn.clicked.connect(self._on_clear_struct_marker)
+        top_bar.addWidget(self._graphs_clear_marker_btn)
+        top_bar.addSpacing(4)
         self._graphs_uniprot_btn = QPushButton("UniProt Tracks")
         self._graphs_uniprot_btn.setMinimumWidth(120)
         self._graphs_uniprot_btn.setMaximumHeight(26)
@@ -1993,26 +2147,38 @@ class ProteinAnalyzerGUI(QMainWindow):
         "pLDDT / B-factor":    ["Red-White-Blue", "Blue-White-Red", "Rainbow", "Sinebow", "Greyscale"],
         "Residue Type":         ["Amino Acid (UniProt)", "Shapely"],
         "Chain":                ["Chain Colors"],
-        "Charge":               ["Standard", "Vivid", "Pastel", "Monochrome"],
+        "Charge":               ["Standard", "Vivid", "Pastel", "Monochrome", "Neon"],
         "Hydrophobicity":       ["Cyan-White-Orange", "Blue-White-Red", "Green-White-Red", "Thermal", "Purple-White-Green"],
         "Mass":                 ["Blue-to-Red", "Rainbow", "Sinebow", "Greyscale"],
-        "Secondary Structure":  ["JMol", "PyMOL", "Pastel", "Lesk"],
+        "Secondary Structure":  ["JMol", "PyMOL", "Pastel", "Lesk", "Cinema", "Vivid"],
         "Spectrum (N→C)":       ["Rainbow (N→C)", "Blue→Red (N→C)", "Sinebow (N→C)", "Greyscale (N→C)", "Reverse (C→N)"],
+        "Solvent Accessibility": [
+            "Buried→Exposed (Blue→Red)",
+            "Exposed→Buried (Red→Blue)",
+            "Viridis (Buried→Exposed)",
+            "Plasma (Buried→Exposed)",
+            "Magma (Buried→Exposed)",
+            "Cyan→Orange",
+        ],
         "AI Features":          ["Disorder"],   # populated dynamically in _update_scheme_combo
+        "Aggregation (ZYGGREGATOR)": ["Propensity Scale", "Hotspots Only", "Fire", "Inferno", "Viridis"],
     }
     _STRUCT_MODE_KEY = {
-        "pLDDT / B-factor":    "plddt",
-        "Residue Type":         "residue",
-        "Chain":                "chain",
-        "Charge":               "charge",
-        "Hydrophobicity":       "hydrophobicity",
-        "Mass":                 "mass",
-        "Secondary Structure":  "secondary_structure",
-        "Spectrum (N→C)":       "spectrum",
-        "AI Features":          "feature",
+        "pLDDT / B-factor":         "plddt",
+        "Residue Type":              "residue",
+        "Chain":                     "chain",
+        "Charge":                    "charge",
+        "Hydrophobicity":            "hydrophobicity",
+        "Mass":                      "mass",
+        "Secondary Structure":       "secondary_structure",
+        "Spectrum (N→C)":            "spectrum",
+        "Solvent Accessibility":     "sasa",
+        "AI Features":               "feature",
+        "Aggregation (ZYGGREGATOR)": "zyggregator",
     }
     _STRUCT_PANEL_CSS_LIGHT = """
-        QScrollArea { border: 1px solid #d1d9f0; border-radius: 8px; background: #f4f6fd; }
+        QScrollArea { border: none; background: transparent; }
+        QWidget#structCtrl { background: transparent; }
         QGroupBox {
             font-weight: 700; font-size: 9pt; color: #3b4fc8;
             border: 1px solid #e2e6f5; border-radius: 6px;
@@ -2043,9 +2209,27 @@ class ProteinAnalyzerGUI(QMainWindow):
             border: 1px solid #c8d0ec; border-radius: 3px; background: white;
         }
         QCheckBox::indicator:checked { background: #4361ee; border-color: #3451c5; }
+        QTabWidget::pane {
+            border: 1px solid #d1d9f0; border-radius: 0 5px 5px 5px;
+            background: #f4f6fd;
+        }
+    """
+    # Applied directly to tabBar() to work around macOS native style overriding color
+    _STRUCT_TABBAR_CSS_LIGHT = """
+        QTabBar::tab {
+            padding: 5px 8px; min-width: 52px;
+            font-size: 8.5pt; font-weight: 600;
+            background: #e8eaf4; color: #2d3748;
+            border: 1px solid #d1d9f0; border-bottom: none;
+            border-radius: 5px 5px 0 0; margin-right: 2px;
+        }
+        QTabBar::tab:selected { background: #f4f6fd; color: #3b4fc8;
+            border-bottom: 1px solid #f4f6fd; }
+        QTabBar::tab:hover:!selected { background: #dde0f0; color: #3b4fc8; }
     """
     _STRUCT_PANEL_CSS_DARK = """
-        QScrollArea { border: 1px solid #1a3a5c; border-radius: 8px; background: #0f3460; }
+        QScrollArea { border: none; background: transparent; }
+        QWidget#structCtrl { background: transparent; }
         QGroupBox {
             font-weight: 700; font-size: 9pt; color: #4cc9f0;
             border: 1px solid #2d3561; border-radius: 6px;
@@ -2076,6 +2260,22 @@ class ProteinAnalyzerGUI(QMainWindow):
             border: 1px solid #2d3561; border-radius: 3px; background: #16213e;
         }
         QCheckBox::indicator:checked { background: #4cc9f0; border-color: #3ab7dd; }
+        QTabWidget::pane {
+            border: 1px solid #1a3a5c; border-radius: 0 5px 5px 5px;
+            background: #0f3460;
+        }
+    """
+    _STRUCT_TABBAR_CSS_DARK = """
+        QTabBar::tab {
+            padding: 5px 8px; min-width: 52px;
+            font-size: 8.5pt; font-weight: 600;
+            background: #16213e; color: #c8d8e8;
+            border: 1px solid #1a3a5c; border-bottom: none;
+            border-radius: 5px 5px 0 0; margin-right: 2px;
+        }
+        QTabBar::tab:selected { background: #0f3460; color: #4cc9f0;
+            border-bottom: 1px solid #0f3460; }
+        QTabBar::tab:hover:!selected { background: #1a3a5c; color: #4cc9f0; }
     """
 
     def init_structure_tab(self):
@@ -2104,27 +2304,39 @@ class ProteinAnalyzerGUI(QMainWindow):
             content_row = QHBoxLayout()
             content_row.setSpacing(8)
 
-            # ── left control panel ────────────────────────────────────────────
-            self.struct_ctrl_scroll = QScrollArea()
-            self.struct_ctrl_scroll.setWidgetResizable(True)
-            self.struct_ctrl_scroll.setFixedWidth(226)
+            # ── left panel: 4-tab control widget ─────────────────────────────
+            self.struct_ctrl_scroll = QTabWidget()
+            self.struct_ctrl_scroll.setFixedWidth(242)
+            # Fusion style makes QTabBar respect stylesheets identically on
+            # macOS (native style overrides colours) and Linux (Breeze/GTK vary).
+            _fusion = QStyleFactory.create("Fusion")
+            if _fusion:
+                self.struct_ctrl_scroll.setStyle(_fusion)
+                self.struct_ctrl_scroll.tabBar().setStyle(_fusion)
             self.struct_ctrl_scroll.setStyleSheet(self._STRUCT_PANEL_CSS_LIGHT)
-            ctrl_scroll = self.struct_ctrl_scroll
-            ctrl_inner = QWidget()
-            ctrl_inner.setObjectName("structCtrl")
-            ctrl_layout = QVBoxLayout(ctrl_inner)
-            ctrl_layout.setContentsMargins(6, 6, 6, 8)
-            ctrl_layout.setSpacing(6)
-            ctrl_scroll.setWidget(ctrl_inner)
+            self.struct_ctrl_scroll.tabBar().setStyleSheet(self._STRUCT_TABBAR_CSS_LIGHT)
+            ctrl_tabs = self.struct_ctrl_scroll
 
-            # ── panel title ───────────────────────────────────────────────────
-            self._struct_title_lbl = QLabel("Visualization Controls")
-            self._struct_title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._struct_title_lbl.setStyleSheet(
-                "font-weight:700; font-size:10pt; color:#3b4fc8;"
-                " padding:4px 0; background:transparent;"
-            )
-            ctrl_layout.addWidget(self._struct_title_lbl)
+            def _tab_page(label: str) -> QVBoxLayout:
+                """Create a scrollable tab page; return its inner layout."""
+                page = QWidget()
+                page.setObjectName("structCtrl")
+                vbox = QVBoxLayout(page)
+                vbox.setContentsMargins(6, 8, 6, 8)
+                vbox.setSpacing(6)
+                scroll = QScrollArea()
+                scroll.setWidgetResizable(True)
+                scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+                scroll.setWidget(page)
+                ctrl_tabs.addTab(scroll, label)
+                vbox._page = page   # keep alive
+                return vbox
+
+            view_l     = _tab_page("View")
+            interact_l = _tab_page("Interact")
+            analyse_l  = _tab_page("Analyse")
+
+            # ══ VIEW TAB ══════════════════════════════════════════════════════
 
             # ── Representation ────────────────────────────────────────────────
             rep_grp = QGroupBox("Representation")
@@ -2137,8 +2349,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 "Cross: crosshair atoms\nTrace: Cα backbone\nSurface: molecular surface")
             self.struct_rep_combo.currentTextChanged.connect(self._on_struct_rep_changed)
             rep_gl.addWidget(self.struct_rep_combo)
-
-            ctrl_layout.addWidget(rep_grp)
+            view_l.addWidget(rep_grp)
 
             # ── Color ─────────────────────────────────────────────────────────
             color_grp = QGroupBox("Color")
@@ -2152,7 +2363,41 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.struct_scheme_combo = QComboBox()
             self.struct_scheme_combo.currentTextChanged.connect(self._on_struct_scheme_changed)
             color_gl.addRow("Scheme:", self.struct_scheme_combo)
-            ctrl_layout.addWidget(color_grp)
+            self.struct_ai_gradient_lbl = QLabel("Gradient:")
+            self.struct_ai_gradient_combo = QComboBox()
+            self.struct_ai_gradient_combo.addItems(
+                ["Hot (White→Red)", "Fire (Black→Yellow)", "Plasma",
+                 "Viridis", "Cold (White→Blue)", "Classic (White→Color)"])
+            self.struct_ai_gradient_combo.setToolTip(
+                "Colormap applied to AI feature prediction scores.\n"
+                "Only active when 'AI Features' color mode is selected.")
+            self.struct_ai_gradient_combo.currentTextChanged.connect(
+                self._on_struct_ai_gradient_changed)
+            color_gl.addRow(self.struct_ai_gradient_lbl, self.struct_ai_gradient_combo)
+            self.struct_ai_gradient_lbl.setVisible(False)
+            self.struct_ai_gradient_combo.setVisible(False)
+            view_l.addWidget(color_grp)
+
+            # ── Residue Labels ────────────────────────────────────────────────
+            lbl_grp = QGroupBox("Residue Labels")
+            lbl_gl = QFormLayout(lbl_grp)
+            lbl_gl.setSpacing(5)
+            lbl_gl.setContentsMargins(6, 4, 6, 6)
+            self.struct_reslbl_cb = QCheckBox("Label top residues")
+            self.struct_reslbl_cb.setToolTip(
+                "Show residue labels on the top-N highest-scoring residues\n"
+                "for the currently selected AI Feature color mode.\n"
+                "Switch to AI Features color mode first.")
+            lbl_gl.addRow(self.struct_reslbl_cb)
+            self.struct_reslbl_spin = QSpinBox()
+            self.struct_reslbl_spin.setRange(1, 50)
+            self.struct_reslbl_spin.setValue(10)
+            self.struct_reslbl_spin.setEnabled(False)
+            self.struct_reslbl_spin.setToolTip("Number of top-scoring residues to label")
+            lbl_gl.addRow("Top N:", self.struct_reslbl_spin)
+            self.struct_reslbl_cb.toggled.connect(self._on_reslbl_toggled)
+            self.struct_reslbl_spin.valueChanged.connect(self._on_reslbl_n_changed)
+            view_l.addWidget(lbl_grp)
 
             # ── Legend ────────────────────────────────────────────────────────
             legend_grp = QGroupBox("Legend")
@@ -2162,8 +2407,35 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.struct_colorbar_cb.setChecked(True)
             self.struct_colorbar_cb.toggled.connect(self._on_struct_colorbar_toggled)
             legend_gl.addWidget(self.struct_colorbar_cb)
+            view_l.addWidget(legend_grp)
 
-            ctrl_layout.addWidget(legend_grp)
+            # ── Overlays ─────────────────────────────────────────────────────
+            ovr_grp = QGroupBox("Overlays")
+            ovr_gl = QVBoxLayout(ovr_grp)
+            ovr_gl.setContentsMargins(8, 4, 8, 6)
+            ovr_gl.setSpacing(4)
+            self.struct_hbond_cb = QCheckBox("H-bonds")
+            self.struct_hbond_cb.setToolTip(
+                "Show backbone N–H···O hydrogen bonds as cyan dashed lines.\n"
+                "Detected by N–O distance < 3.5 Å, excluding adjacent residues.")
+            self.struct_hbond_cb.toggled.connect(
+                lambda on: self._js(f"toggleHBonds({'true' if on else 'false'});"))
+            ovr_gl.addWidget(self.struct_hbond_cb)
+            self.struct_contacts_cb = QCheckBox("Contacts (8 Å)")
+            self.struct_contacts_cb.setToolTip(
+                "Show all Cα–Cα contacts within 8 Å as faint grey lines.\n"
+                "May be dense for large structures (>300 residues).")
+            self.struct_contacts_cb.toggled.connect(
+                lambda on: self._js(f"toggleContacts({'true' if on else 'false'});"))
+            ovr_gl.addWidget(self.struct_contacts_cb)
+            self.struct_sstrack_cb = QCheckBox("SS track")
+            self.struct_sstrack_cb.setToolTip(
+                "Show a 1-D secondary-structure bar at the bottom of the viewer.\n"
+                "Pink = helix, gold = strand, grey = coil/loop.")
+            self.struct_sstrack_cb.toggled.connect(
+                lambda on: self._js(f"toggleSSTrack({'true' if on else 'false'});"))
+            ovr_gl.addWidget(self.struct_sstrack_cb)
+            view_l.addWidget(ovr_grp)
 
             # ── Background ───────────────────────────────────────────────────
             bg_grp = QGroupBox("Background")
@@ -2177,14 +2449,13 @@ class ProteinAnalyzerGUI(QMainWindow):
             custom_bg = QPushButton("Custom color…")
             custom_bg.clicked.connect(self._pick_background_color)
             bg_gl.addWidget(custom_bg, 1, 0, 1, 3)
-            ctrl_layout.addWidget(bg_grp)
+            view_l.addWidget(bg_grp)
 
             # ── Motion ────────────────────────────────────────────────────────
             motion_grp = QGroupBox("Motion")
             motion_gl = QVBoxLayout(motion_grp)
             motion_gl.setSpacing(5)
             motion_gl.setContentsMargins(6, 4, 6, 6)
-
             axis_row = QHBoxLayout()
             axis_lbl = QLabel("Spin axis:")
             axis_lbl.setFixedWidth(62)
@@ -2195,18 +2466,18 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.struct_spin_axis_combo.currentIndexChanged.connect(self._on_struct_spin_axis_changed)
             axis_row.addWidget(self.struct_spin_axis_combo, 1)
             motion_gl.addLayout(axis_row)
-
             self.struct_spin_btn = QPushButton("Spin: Off")
             self.struct_spin_btn.setCheckable(True)
             self.struct_spin_btn.setToolTip("Toggle continuous auto-rotation")
             self.struct_spin_btn.toggled.connect(self._on_struct_spin_toggled)
             motion_gl.addWidget(self.struct_spin_btn)
-            ctrl_layout.addWidget(motion_grp)
+            view_l.addWidget(motion_grp)
 
-            # ── Export / Snapshot ─────────────────────────────────────────────
+            # ── Export / Reset ────────────────────────────────────────────────
             snap_grp = QGroupBox("Export")
             snap_gl = QVBoxLayout(snap_grp)
             snap_gl.setContentsMargins(6, 4, 6, 6)
+            snap_gl.setSpacing(5)
             reset_btn = QPushButton("Reset View")
             reset_btn.setToolTip("Reset representation, colour, background and camera to defaults")
             reset_btn.clicked.connect(self._reset_struct_view)
@@ -2215,19 +2486,23 @@ class ProteinAnalyzerGUI(QMainWindow):
             snapshot_btn.setToolTip("Render the current view to a PNG file")
             snapshot_btn.clicked.connect(self._take_structure_snapshot)
             snap_gl.addWidget(snapshot_btn)
-            ctrl_layout.addWidget(snap_grp)
+            view_l.addWidget(snap_grp)
 
-            # ── Chain visibility ──────────────────────────────────────────
-            self._chains_grp = QGroupBox("Chains")
-            chains_gl = QVBoxLayout(self._chains_grp)
-            chains_gl.setContentsMargins(6, 4, 6, 6)
+            # ── Chains ────────────────────────────────────────────────────────
+            chains_grp = QGroupBox("Chains")
+            chains_gl = QVBoxLayout(chains_grp)
             chains_gl.setSpacing(4)
+            chains_gl.setContentsMargins(6, 4, 6, 6)
+            chains_info = QLabel("Toggle individual chain visibility.")
+            chains_info.setStyleSheet("color:#7880a8; font-size:8pt; padding-bottom:2px;")
+            chains_info.setWordWrap(True)
+            chains_gl.addWidget(chains_info)
             chain_btn_row = QHBoxLayout()
-            chain_all_btn = QPushButton("All")
-            chain_all_btn.setFixedHeight(22)
+            chain_all_btn = QPushButton("Show All")
+            chain_all_btn.setFixedHeight(26)
             chain_all_btn.clicked.connect(self._show_all_chains)
-            chain_none_btn = QPushButton("None")
-            chain_none_btn.setFixedHeight(22)
+            chain_none_btn = QPushButton("Hide All")
+            chain_none_btn.setFixedHeight(26)
             chain_none_btn.clicked.connect(self._hide_all_chains)
             chain_btn_row.addWidget(chain_all_btn)
             chain_btn_row.addWidget(chain_none_btn)
@@ -2237,12 +2512,138 @@ class ProteinAnalyzerGUI(QMainWindow):
             self._chain_cbs_layout.setContentsMargins(0, 0, 0, 0)
             self._chain_cbs_layout.setSpacing(2)
             chains_gl.addWidget(self._chain_cbs_widget)
-            self._chains_grp.setVisible(False)
-            ctrl_layout.addWidget(self._chains_grp)
             self._chain_checkboxes: dict = {}
+            self._chains_grp = self._chain_cbs_widget
+            view_l.addWidget(chains_grp)
+            view_l.addStretch()
 
-            ctrl_layout.addStretch()
-            content_row.addWidget(ctrl_scroll)
+            # ══ INTERACT TAB ══════════════════════════════════════════════════
+
+            # ── Selection ─────────────────────────────────────────────────────
+            sel_grp = QGroupBox("Selection")
+            sel_gl = QVBoxLayout(sel_grp)
+            sel_gl.setSpacing(5)
+            sel_gl.setContentsMargins(6, 4, 6, 6)
+            sel_hint = QLabel("e.g.  45  ·  10-50  ·  LEU  ·  A:10-50")
+            sel_hint.setStyleSheet("color:#7880a8; font-size:8pt;")
+            sel_gl.addWidget(sel_hint)
+            sel_row = QHBoxLayout()
+            self.struct_sel_edit = QLineEdit()
+            self.struct_sel_edit.setPlaceholderText("number, range, or residue name")
+            self.struct_sel_edit.setToolTip(
+                "Select residues by:\n"
+                "  number:    45\n"
+                "  range:     10-50\n"
+                "  name:      LEU\n"
+                "  chain:     A:10-50\n"
+                "  multiple:  45, LEU, A:100-120\n\n"
+                "Press Enter or click Go."
+            )
+            self.struct_sel_edit.returnPressed.connect(self._on_struct_selection_apply)
+            sel_row.addWidget(self.struct_sel_edit, 1)
+            sel_go_btn = QPushButton("Go")
+            sel_go_btn.setFixedWidth(34)
+            sel_go_btn.setToolTip("Apply selection")
+            sel_go_btn.clicked.connect(self._on_struct_selection_apply)
+            sel_row.addWidget(sel_go_btn)
+            sel_gl.addLayout(sel_row)
+            sel_clear_btn = QPushButton("Clear Selection")
+            sel_clear_btn.setToolTip("Deselect all highlighted residues")
+            sel_clear_btn.clicked.connect(self._on_struct_selection_clear)
+            sel_gl.addWidget(sel_clear_btn)
+            self._sel_count_lbl = QLabel("")
+            self._sel_count_lbl.setStyleSheet("color:#a8b4f0; font-size:8pt; padding-top:1px;")
+            sel_gl.addWidget(self._sel_count_lbl)
+            interact_l.addWidget(sel_grp)
+
+            # ── Measure ───────────────────────────────────────────────────────
+            meas_grp = QGroupBox("Measure")
+            meas_gl = QFormLayout(meas_grp)
+            meas_gl.setSpacing(5)
+            meas_gl.setContentsMargins(6, 4, 6, 6)
+            self.struct_meas_mode_combo = QComboBox()
+            self.struct_meas_mode_combo.addItems([
+                "Distance  (2 atoms)",
+                "Angle  (3 atoms)",
+                "Dihedral  (4 atoms)",
+            ])
+            self.struct_meas_mode_combo.setToolTip(
+                "Distance: exact atom–atom in Å\n"
+                "Angle: three-atom bond angle in °\n"
+                "Dihedral: four-atom torsion angle in °"
+            )
+            self.struct_meas_mode_combo.currentIndexChanged.connect(
+                self._on_struct_measure_mode_changed)
+            meas_gl.addRow("Type:", self.struct_meas_mode_combo)
+            self._meas_hint_lbl = QLabel("Click 2 atoms on the structure")
+            self._meas_hint_lbl.setStyleSheet("color:#7880a8; font-size:8pt;")
+            meas_gl.addRow(self._meas_hint_lbl)
+            self.struct_dist_btn = QPushButton("Pick Atoms: Off")
+            self.struct_dist_btn.setCheckable(True)
+            self.struct_dist_btn.setToolTip(
+                "Enable atom-picking mode.\n"
+                "Click atoms on the structure to measure.\n"
+                "Normal click (popup) is disabled while active."
+            )
+            self.struct_dist_btn.toggled.connect(self._on_struct_measure_toggled)
+            meas_gl.addRow(self.struct_dist_btn)
+            meas_clear_btn = QPushButton("Clear Measurements")
+            meas_clear_btn.setToolTip("Remove all measurement labels and lines")
+            meas_clear_btn.clicked.connect(lambda: self._js("clearDistances();"))
+            meas_gl.addRow(meas_clear_btn)
+            interact_l.addWidget(meas_grp)
+
+            # ── Position marker status (clear button lives in the Graphs tab top bar)
+            self._marker_pos_lbl = QLabel("No marker set")
+            self._marker_pos_lbl.setStyleSheet("color:#7880a8; font-size:8pt; padding:2px 0;")
+            interact_l.addWidget(self._marker_pos_lbl)
+            interact_l.addStretch()
+
+            # ══ ANALYSE TAB ═══════════════════════════════════════════════════
+            analyse_info = QLabel(
+                "Structure-level analysis. Load a structure and click Refresh.")
+            analyse_info.setStyleSheet(
+                "color:#7880a8; font-size:8pt; padding:2px 0 6px 0; background:transparent;")
+            analyse_info.setWordWrap(True)
+            analyse_l.addWidget(analyse_info)
+
+            # Stats text
+            self.struct_analyse_stats = QLabel("—")
+            self.struct_analyse_stats.setWordWrap(True)
+            self.struct_analyse_stats.setStyleSheet(
+                "color:#2d3748; font-size:8pt; padding:4px 2px; background:transparent;")
+            analyse_l.addWidget(self.struct_analyse_stats)
+
+            # Inline mini-plot canvas area
+            self.struct_analyse_canvas_area = QWidget()
+            self.struct_analyse_canvas_layout = QVBoxLayout(self.struct_analyse_canvas_area)
+            self.struct_analyse_canvas_layout.setContentsMargins(0, 0, 0, 0)
+            self.struct_analyse_canvas_layout.setSpacing(6)
+            analyse_l.addWidget(self.struct_analyse_canvas_area)
+
+            refresh_analyse_btn = QPushButton("↺  Refresh Analysis")
+            refresh_analyse_btn.setToolTip(
+                "Regenerate pLDDT / SASA / Ramachandran mini-plots from current structure data.")
+            refresh_analyse_btn.clicked.connect(self._refresh_analyse_tab)
+            analyse_l.addWidget(refresh_analyse_btn)
+
+            show_graph_btns = [
+                ("pLDDT / B-Factor →", "pLDDT Profile"),
+                ("SASA Profile →",     "SASA Profile"),
+                ("Ramachandran →",     "Ramachandran Plot"),
+                ("Distance Map →",     "Distance Map"),
+            ]
+            for btn_lbl, graph_name in show_graph_btns:
+                b = QPushButton(btn_lbl)
+                b.setFixedHeight(24)
+                b.setStyleSheet("font-size:8pt;")
+                b.setToolTip(f"Switch to Graphs tab and show {graph_name}")
+                b.clicked.connect(lambda _, g=graph_name: self._jump_to_graph(g))
+                analyse_l.addWidget(b)
+            analyse_l.addStretch()
+
+
+            content_row.addWidget(ctrl_tabs)
 
             # ── 3-D viewer ────────────────────────────────────────────────────
             self.structure_viewer = QWebEngineView()
@@ -2250,6 +2651,17 @@ class ProteinAnalyzerGUI(QMainWindow):
             # When the base page finishes loading, deliver any queued PDB
             self.structure_viewer.loadFinished.connect(self._on_structure_page_loaded)
             content_row.addWidget(self.structure_viewer, 1)
+
+            # QWebChannel: expose Python bridge so JS can call residueClicked()
+            try:
+                from PySide6.QtWebChannel import QWebChannel as _QWC
+                self._struct_bridge = _StructBridge(self)
+                _wc = _QWC(self.structure_viewer.page())
+                _wc.registerObject("bridge", self._struct_bridge)
+                self.structure_viewer.page().setWebChannel(_wc)
+                self._struct_webchannel = _wc   # keep alive
+            except Exception:
+                self._struct_bridge = None
 
             layout.addLayout(content_row, 1)
 
@@ -2334,9 +2746,17 @@ class ProteinAnalyzerGUI(QMainWindow):
   }}
   #popup-close:hover {{ color:#ffd700; }}
 
+  /* ── 1-D secondary-structure track ────────────────────────────────────── */
+  #ss-track {{
+    display:none; position:absolute; bottom:0; left:0; right:0; height:10px;
+    z-index:60; box-shadow:0 -1px 4px rgba(0,0,0,0.35);
+    cursor:default;
+  }}
+
 </style>
 </head><body>
 <div id="vp">
+  <div id="ss-track"></div>
   <div id="colorbar">
     <div id="cb-title"></div>
     <div id="cb-bar-wrap">
@@ -2356,6 +2776,7 @@ class ProteinAnalyzerGUI(QMainWindow):
     <div id="popup-rows"></div>
   </div>
 </div>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 <script src="https://3dmol.org/build/3Dmol-min.js"></script>
 <script>
 var viewer   = null;
@@ -2369,6 +2790,14 @@ var surfaceObj  = null;   // numeric surface ID (set in addSurface .then callbac
 var surfaceGen  = 0;      // generation counter — incremented on every applyStyle call
 var allChains   = [];     // all chain IDs present in the current model
 var seqLen      = 0;      // protein length — set by setColorMode for Spectrum mode
+
+// ── Python bridge (graph↔structure bidirectional link) ────────────────────
+var _bridge = null;
+if(typeof QWebChannel !== 'undefined' && typeof qt !== 'undefined') {{
+    new QWebChannel(qt.webChannelTransport, function(ch) {{
+        _bridge = ch.objects.bridge;
+    }});
+}}
 
 // ── Kyte-Doolittle ──────────────────────────────────────────────────────────
 var KD = {{'ILE':4.5,'VAL':4.2,'LEU':3.8,'PHE':2.8,'CYS':2.5,'MET':1.9,'ALA':1.8,
@@ -2491,8 +2920,22 @@ function _ss_pastel(atom){{
 function _ss_lesk(atom){{
     var s=atom.ss;
     if(s==='h'||s==='H') return '#ff0000';
-    if(s==='s'||s==='S') return '#0000ff';
-    return '#00cc44';
+    if(s==='s'||s==='S') return '#ffff00';
+    return '#ffffff';
+}}
+function _ss_cinema(atom){{
+    // CLC / Cinema scheme: helix=deep sky blue, strand=dark orange, coil=light grey
+    var s=atom.ss;
+    if(s==='h'||s==='H') return '#00BFFF';
+    if(s==='s'||s==='S') return '#FF8C00';
+    return '#dddddd';
+}}
+function _ss_vivid(atom){{
+    // High-saturation: helix=magenta, strand=cyan, coil=dark grey
+    var s=atom.ss;
+    if(s==='h'||s==='H') return '#ee00ee';
+    if(s==='s'||s==='S') return '#00dddd';
+    return '#555555';
 }}
 
 // ── pLDDT greyscale ───────────────────────────────────────────────────────
@@ -2531,19 +2974,23 @@ function _getColorFunc(){{
         return _mass_BR;
     }}
     if(colorMode==='charge'){{
-        if(colorScheme==='Vivid')     return _charge_vivid;
-        if(colorScheme==='Pastel')    return _charge_pastel;
+        if(colorScheme==='Vivid')      return _charge_vivid;
+        if(colorScheme==='Pastel')     return _charge_pastel;
         if(colorScheme==='Monochrome') return _charge_mono;
+        if(colorScheme==='Neon')       return _charge_neon;
         return _charge;
     }}
     if(colorMode==='secondary_structure'){{
-        if(colorScheme==='Pastel') return _ss_pastel;
-        if(colorScheme==='Lesk')   return _ss_lesk;
+        if(colorScheme==='Pastel')  return _ss_pastel;
+        if(colorScheme==='Lesk')    return _ss_lesk;
+        if(colorScheme==='Cinema')  return _ss_cinema;
+        if(colorScheme==='Vivid')   return _ss_vivid;
         return colorScheme==='PyMOL' ? _ss_pymol : _ss_jmol;
     }}
     if(colorMode==='plddt' && colorScheme==='Greyscale') return _plddt_grey;
     if(colorMode==='spectrum' && colorScheme==='Greyscale (N\u2192C)') return _spectrum_grey;
     if(colorMode==='feature') return _feature_colorfunc;
+    if(colorMode==='resi_colormap') return _resiColorMap_func;
     return null;
 }}
 
@@ -2694,6 +3141,9 @@ var _CB = {{
   feature: {{
     '_dyn': true,
   }},
+  resi_colormap: {{
+    '_dyn': true,
+  }},
 }};
 
 function updateColorBar(){{
@@ -2712,13 +3162,21 @@ function updateColorBar(){{
     var wrap =document.getElementById('cb-bar-wrap');
 
     if(colorMode==='feature'){{
-        // build gradient dynamically from featureColor
         wrap.style.display='flex'; unit.style.display='block';
         ents.style.display='none'; bar.classList.remove('cb-wide');
         title.textContent=featureName;
         grad.style.background='linear-gradient(to top,#ffffff,'+featureColor+')';
         tmax.textContent='1.0'; tmid.textContent='0.5'; tmin.textContent='0.0';
-        unit.textContent='Probability'; bar.style.display='block'; return;
+        unit.textContent='Prediction score'; bar.style.display='block'; return;
+    }}
+    if(colorMode==='resi_colormap'){{
+        wrap.style.display='flex'; unit.style.display='block';
+        ents.style.display='none'; bar.classList.remove('cb-wide');
+        title.textContent=_resiColorMapName||'Solvent Accessibility';
+        // Show scheme name as the gradient label; actual colors vary per residue
+        grad.style.background='linear-gradient(to top,#313695,#ffffbf,#a50026)';
+        tmax.textContent='1.0 (exposed)'; tmid.textContent='0.5'; tmin.textContent='0.0 (buried)';
+        unit.textContent='RSA'; bar.style.display='block'; return;
     }}
     if(meta.type==='cat'){{
         wrap.style.display='none'; unit.style.display='none';
@@ -2758,31 +3216,204 @@ function resetView()           {{
     applyStyle();
 }}
 
+// ── Neon charge colorfunc ──────────────────────────────────────────────────
+function _charge_neon(atom){{
+    if(['ARG','LYS','HIS'].indexOf(atom.resn)>=0) return '#0088ff';
+    if(['ASP','GLU'].indexOf(atom.resn)>=0)        return '#ff1155';
+    return '#aaaaaa';
+}}
+
+// ── H-bond / contact overlays ──────────────────────────────────────────────
+var hbondVisible   = false;
+var contactsVisible= false;
+var hbondShapes    = [];
+var contactShapes  = [];
+
+function _detectBackboneHBonds(){{
+    if(!viewer) return [];
+    var donors    = viewer.selectedAtoms({{atom:'N'}});
+    var acceptors = viewer.selectedAtoms({{atom:'O'}});
+    var cutSq = 3.5*3.5;
+    var out = [];
+    donors.forEach(function(d){{
+        acceptors.forEach(function(a){{
+            if(d.chain===a.chain && Math.abs(d.resi-a.resi)<=2) return;
+            var dx=d.x-a.x, dy=d.y-a.y, dz=d.z-a.z;
+            if(dx*dx+dy*dy+dz*dz < cutSq)
+                out.push({{x1:d.x,y1:d.y,z1:d.z,x2:a.x,y2:a.y,z2:a.z}});
+        }});
+    }});
+    return out;
+}}
+
+function toggleHBonds(on){{
+    hbondVisible = on;
+    hbondShapes.forEach(function(s){{ try{{viewer.removeShape(s);}}catch(e){{}} }});
+    hbondShapes = [];
+    if(on && viewer){{
+        _detectBackboneHBonds().forEach(function(h){{
+            hbondShapes.push(viewer.addLine({{
+                start:{{x:h.x1,y:h.y1,z:h.z1}},
+                end:{{x:h.x2,y:h.y2,z:h.z2}},
+                color:'#44ccff', linewidth:1.0, opacity:0.75, dashed:true
+            }}));
+        }});
+        viewer.render();
+    }} else if(viewer){{ viewer.render(); }}
+}}
+
+function toggleContacts(on){{
+    contactsVisible = on;
+    contactShapes.forEach(function(s){{ try{{viewer.removeShape(s);}}catch(e){{}} }});
+    contactShapes = [];
+    if(on && viewer){{
+        var cas = viewer.selectedAtoms({{atom:'CA'}});
+        var n = cas.length;
+        var cutSq = 8*8;
+        for(var i=0;i<n;i++){{
+            for(var j=i+2;j<n;j++){{
+                var a=cas[i],b=cas[j];
+                var dx=a.x-b.x,dy=a.y-b.y,dz=a.z-b.z;
+                if(dx*dx+dy*dy+dz*dz < cutSq){{
+                    contactShapes.push(viewer.addLine({{
+                        start:{{x:a.x,y:a.y,z:a.z}},
+                        end:{{x:b.x,y:b.y,z:b.z}},
+                        color:'#888888', linewidth:0.5, opacity:0.3
+                    }}));
+                }}
+            }}
+        }}
+        viewer.render();
+    }} else if(viewer){{ viewer.render(); }}
+}}
+
+// ── 1-D secondary-structure track ─────────────────────────────────────────
+var ssTrackVisible = false;
+
+function toggleSSTrack(on){{
+    ssTrackVisible = on;
+    var track = document.getElementById('ss-track');
+    if(!track) return;
+    if(!on || !viewer){{ track.style.display='none'; return; }}
+    var cas = viewer.selectedAtoms({{atom:'CA'}});
+    if(!cas || cas.length===0){{ track.style.display='none'; return; }}
+    cas.sort(function(a,b){{ return a.chain<b.chain?-1:a.chain>b.chain?1:a.resi-b.resi; }});
+    var n = cas.length;
+    var segW = (100/n).toFixed(4)+'%';
+    track.innerHTML='';
+    track.style.display='flex';
+    cas.forEach(function(atom){{
+        var seg=document.createElement('div');
+        seg.style.width=segW;
+        seg.style.height='100%';
+        seg.style.flexShrink='0';
+        var ss=(atom.ss||'c').toLowerCase();
+        if(ss==='h')      {{seg.style.background='#FF6666'; seg.title=atom.resn+atom.resi+' Helix';}}
+        else if(ss==='s') {{seg.style.background='#FFD700'; seg.title=atom.resn+atom.resi+' Sheet';}}
+        else              {{seg.style.background='#aaaaaa'; seg.title=atom.resn+atom.resi+' Coil';}}
+        track.appendChild(seg);
+    }});
+}}
+
 // ── Feature score coloring ────────────────────────────────────────────────
 var featureScores = {{}};   // {{resi(1-based): score 0..1}}
 var featureColor  = '#f3722c';
 var featureName   = 'disorder';
+var featureGradient = 'hot';   // 'hot' | 'plasma' | 'viridis' | 'fire' | 'cold' | 'classic'
 
 function _hexToRgb(h){{
     var r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);
     return [r,g,b];
 }}
+
+// Gradient helpers: t in [0,1] → rgb(...)
+function _gradient_hot(t){{
+    // white → yellow → orange → red
+    if(t<0.5){{var s=t*2; return 'rgb(255,'+Math.round(255-s*55)+','+Math.round(255*(1-s))+')';}}
+    var s=(t-0.5)*2;
+    return 'rgb(255,'+Math.round(200*(1-s))+',0)';
+}}
+function _gradient_fire(t){{
+    // black → red → orange → yellow (afmhot-like)
+    if(t<0.33){{var s=t/0.33; return 'rgb('+Math.round(s*220)+',0,0)';}}
+    if(t<0.66){{var s=(t-0.33)/0.33; return 'rgb(220,'+Math.round(s*140)+',0)';}}
+    var s=(t-0.66)/0.34;
+    return 'rgb('+Math.round(220+s*35)+','+Math.round(140+s*115)+','+Math.round(s*200)+')';
+}}
+function _gradient_plasma(t){{
+    // simplified plasma: dark purple → pink-purple → orange → yellow
+    var stops=[
+        [13,8,135],[84,2,163],[139,10,165],[185,50,137],
+        [219,92,104],[244,136,73],[253,187,44],[240,249,33]
+    ];
+    var n=stops.length-1;
+    var i=Math.min(Math.floor(t*n),n-1);
+    var f=t*n-i;
+    var a=stops[i],b=stops[i+1];
+    return 'rgb('+Math.round(a[0]+(b[0]-a[0])*f)+','+
+                  Math.round(a[1]+(b[1]-a[1])*f)+','+
+                  Math.round(a[2]+(b[2]-a[2])*f)+')';
+}}
+function _gradient_viridis(t){{
+    var stops=[
+        [68,1,84],[72,40,120],[62,83,160],[49,124,183],
+        [38,173,166],[53,183,121],[110,206,88],[180,222,44],[253,231,37]
+    ];
+    var n=stops.length-1;
+    var i=Math.min(Math.floor(t*n),n-1);
+    var f=t*n-i;
+    var a=stops[i],b=stops[i+1];
+    return 'rgb('+Math.round(a[0]+(b[0]-a[0])*f)+','+
+                  Math.round(a[1]+(b[1]-a[1])*f)+','+
+                  Math.round(a[2]+(b[2]-a[2])*f)+')';
+}}
+function _gradient_cold(t){{
+    // white → light blue → deep navy
+    var r=Math.round(255-t*215), g=Math.round(255-t*175), b=255;
+    return 'rgb('+r+','+g+','+b+')';
+}}
+
 function _feature_colorfunc(atom){{
     var score=featureScores[atom.resi];
     if(score===undefined) return '#cccccc';
     var t=Math.max(0,Math.min(1,score));
+    if(featureGradient==='hot')     return _gradient_hot(t);
+    if(featureGradient==='fire')    return _gradient_fire(t);
+    if(featureGradient==='plasma')  return _gradient_plasma(t);
+    if(featureGradient==='viridis') return _gradient_viridis(t);
+    if(featureGradient==='cold')    return _gradient_cold(t);
+    // classic: white → featureColor
     var c=_hexToRgb(featureColor);
-    // interpolate white → featureColor
-    var r=Math.round(255+(c[0]-255)*t);
-    var g=Math.round(255+(c[1]-255)*t);
-    var b=Math.round(255+(c[2]-255)*t);
-    return 'rgb('+r+','+g+','+b+')';
+    return 'rgb('+Math.round(255+(c[0]-255)*t)+','+
+                  Math.round(255+(c[1]-255)*t)+','+
+                  Math.round(255+(c[2]-255)*t)+')';
 }}
 function setFeatureData(name, scores, hexColor){{
     featureName=name; featureScores=scores; featureColor=hexColor||'#f3722c';
     colorMode='feature';
     applyStyle();
     updateColorBar();
+}}
+function setFeatureGradient(g){{
+    featureGradient=g||'hot';
+    if(colorMode==='feature'){{ applyStyle(); updateColorBar(); }}
+}}
+
+// ── Pre-computed per-residue hex color map (e.g. SASA with matplotlib cmap) ─
+var _resiColorMap = {{}};   // {{resi: '#rrggbb'}}
+var _resiColorMapName = '';
+
+function setResidueColorMap(colorMap, name){{
+    _resiColorMap = colorMap || {{}};
+    _resiColorMapName = name || '';
+    colorMode = 'resi_colormap';
+    applyStyle();
+    updateColorBar();
+}}
+
+function _resiColorMap_func(atom){{
+    var c = _resiColorMap[atom.resi];
+    return c || '#aaaaaa';
 }}
 
 // ── loadPDB: swap in a new structure without reloading the page ────────────
@@ -2805,9 +3436,13 @@ function loadPDB(data){{
     if(pdbData){{
         viewer.addModel(pdbData, "pdb");
         _refreshAllChains();
-        viewer.zoomTo();   // set camera BEFORE rendering
-        applyStyle();      // renders with correct camera
+        viewer.zoomTo();
+        applyStyle();
         _installClickHandler();
+        // re-apply any active overlays on new structure
+        if(hbondVisible)    toggleHBonds(true);
+        if(contactsVisible) toggleContacts(true);
+        if(ssTrackVisible)  toggleSSTrack(true);
     }} else {{
         viewer.render();
         updateColorBar();
@@ -2819,6 +3454,43 @@ var allResScores = {{}};  // {{resi: {{disorder:f, signal:f, tm:f, ...}}}}
 
 function setAllResidueScores(data){{
     allResScores = data || {{}};
+}}
+
+// ── Residue labels (top-N AI-scoring residues) ────────────────────────────
+var _resiLabelObjs = [];
+
+function clearResidueLabels(){{
+    _resiLabelObjs.forEach(function(lb){{ try{{ viewer.removeLabel(lb); }}catch(e){{}} }});
+    _resiLabelObjs = [];
+    if(viewer) viewer.render();
+}}
+
+function showResidueLabels(n){{
+    clearResidueLabels();
+    if(!n || n<=0 || !featureScores || !viewer) return;
+    var entries=[];
+    Object.keys(featureScores).forEach(function(r){{
+        entries.push({{resi:parseInt(r), score:featureScores[r]}});
+    }});
+    if(!entries.length) return;
+    entries.sort(function(a,b){{ return b.score-a.score; }});
+    var topN=entries.slice(0,n);
+    var col=featureColor||'#fffacd';
+    topN.forEach(function(e){{
+        var atoms=viewer.selectedAtoms({{resi:e.resi,atom:'CA'}});
+        if(!atoms||!atoms.length) return;
+        var a=atoms[0];
+        var lb=viewer.addLabel(
+            (a.resn||'?')+e.resi+'\\n'+e.score.toFixed(2),
+            {{position:{{x:a.x,y:a.y,z:a.z}},
+              backgroundColor:'rgba(10,12,30,0.85)',
+              fontColor:col, fontSize:11, fontFamily:'system-ui',
+              borderThickness:0.5, borderColor:'rgba(255,255,255,0.2)',
+              padding:3, inFront:true}}
+        );
+        _resiLabelObjs.push(lb);
+    }});
+    viewer.render();
 }}
 
 // ── Residue highlight (gold sphere overlay, PyMOL-style) ──────────────────
@@ -2845,24 +3517,29 @@ function _applyHighlight(){{
 }}
 
 // ── Residue popup ─────────────────────────────────────────────────────────
+// [key, label, color, decimals, bar_scale]
+// bar_scale: value is divided by this to get the 0-1 bar fraction
+// For AI scores (0-1): bar_scale=1. For pLDDT (stored 0-1): bar_scale=1.
+// For B-factor (raw Å², typically 5-100): bar_scale=100.
 var _SCORE_LABELS = [
-    ['disorder',  'Disorder',         '#818cf8'],
-    ['signal',    'Signal Peptide',   '#f472b6'],
-    ['tm',        'TM Helix',         '#34d399'],
-    ['intramem',  'Intramembrane',    '#6ee7b7'],
-    ['cc',        'Coiled-Coil',      '#fb923c'],
-    ['dna',       'DNA-Binding',      '#60a5fa'],
-    ['act',       'Active Site',      '#f87171'],
-    ['bnd',       'Binding Site',     '#a78bfa'],
-    ['phos',      'Phosphorylation',  '#fbbf24'],
-    ['lcd',       'Low Complexity',   '#94a3b8'],
-    ['znf',       'Zinc Finger',      '#4ade80'],
-    ['glyc',      'Glycosylation',    '#f9a8d4'],
-    ['ubiq',      'Ubiquitination',   '#fb7185'],
-    ['meth',      'Methylation',      '#a3e635'],
-    ['acet',      'Acetylation',      '#38bdf8'],
-    ['lipid',     'Lipidation',       '#e879f9'],
-    ['plddt',     'pLDDT',            '#fde68a'],
+    ['disorder',  'Disorder',          '#818cf8', 3,   1],
+    ['signal',    'Signal Peptide',    '#f472b6', 3,   1],
+    ['tm',        'TM Helix',          '#34d399', 3,   1],
+    ['intramem',  'Intramembrane',     '#6ee7b7', 3,   1],
+    ['cc',        'Coiled-Coil',       '#fb923c', 3,   1],
+    ['dna',       'DNA-Binding',       '#60a5fa', 3,   1],
+    ['act',       'Active Site',       '#f87171', 3,   1],
+    ['bnd',       'Binding Site',      '#a78bfa', 3,   1],
+    ['phos',      'Phosphorylation',   '#fbbf24', 3,   1],
+    ['lcd',       'Low Complexity',    '#94a3b8', 3,   1],
+    ['znf',       'Zinc Finger',       '#4ade80', 3,   1],
+    ['glyc',      'Glycosylation',     '#f9a8d4', 3,   1],
+    ['ubiq',      'Ubiquitination',    '#fb7185', 3,   1],
+    ['meth',      'Methylation',       '#a3e635', 3,   1],
+    ['acet',      'Acetylation',       '#38bdf8', 3,   1],
+    ['lipid',     'Lipidation',        '#e879f9', 3,   1],
+    ['plddt',     'pLDDT (0\u20131)',  '#fde68a', 3,   1],
+    ['bfactor',   'B-factor (\u00c5\u00b2)', '#d4a85a', 1, 100],
 ];
 
 function showResiduePopup(resi, resn, chain){{
@@ -2874,14 +3551,14 @@ function showResiduePopup(resi, resn, chain){{
     var html = '';
     var hasAny = false;
     _SCORE_LABELS.forEach(function(t){{
-        var key=t[0], label=t[1], color=t[2];
+        var key=t[0], label=t[1], color=t[2], dec=t[3]||3, bscale=t[4]||1;
         var v = scores[key];
         if(v === undefined || v === null) return;
         hasAny = true;
-        var pct = Math.round(v * 100);
+        var pct = Math.min(100, Math.round(v / bscale * 100));
         html += '<div class="popup-row">'
               + '<span class="popup-label">' + label + '</span>'
-              + '<span class="popup-val">' + v.toFixed(3) + '</span>'
+              + '<span class="popup-val">' + v.toFixed(dec) + '</span>'
               + '</div>'
               + '<div class="popup-bar-wrap"><div class="popup-bar" style="width:'+pct+'%;background:'+color+'"></div></div>';
     }});
@@ -2897,19 +3574,203 @@ function closePopup(){{
     clearHighlight();
 }}
 
-// ── Patch applyStyle to re-apply highlight after style change ─────────────
+// ── Text-based residue selection (cyan sphere overlay) ────────────────────
+var _selResidues = {{}};  // {{resi: chain|null}} — populated by applySelection()
+
+function clearSelection(){{
+    _selResidues = {{}};
+    applyStyle();
+}}
+
+function applySelection(spec){{
+    if(!viewer || !pdbData) return 0;
+    _selResidues = _parseSelection(spec);
+    applyStyle();
+    return Object.keys(_selResidues).length;
+}}
+
+function _parseSelection(spec){{
+    spec = (spec || '').trim();
+    if(!spec) return {{}};
+    var result = {{}};
+    var parts = spec.split(/[,;]/);
+    parts.forEach(function(part){{
+        part = part.trim();
+        if(!part) return;
+        // chain prefix: "A:45" or "A:10-50"
+        var chainMatch = part.match(/^([A-Za-z]):(.+)$/);
+        var chain = chainMatch ? chainMatch[1].toUpperCase() : null;
+        var core  = chainMatch ? chainMatch[2].trim() : part;
+        // range: 10-50
+        var rangeMatch = core.match(/^([0-9]+)-([0-9]+)$/);
+        if(rangeMatch){{
+            var lo=parseInt(rangeMatch[1]), hi=parseInt(rangeMatch[2]);
+            for(var r=lo; r<=hi; r++) result[r] = chain;
+            return;
+        }}
+        // single number
+        var numMatch = core.match(/^([0-9]+)$/);
+        if(numMatch){{ result[parseInt(numMatch[1])] = chain; return; }}
+        // residue name (3-letter or 1-letter): LEU, A, etc — scan atoms
+        var nameMatch = core.match(/^([A-Za-z]{{1,3}})$/);
+        if(nameMatch && viewer && viewer.getModel()){{
+            var resn = nameMatch[1].toUpperCase();
+            viewer.getModel().atoms.forEach(function(atom){{
+                if(atom.resn === resn || (atom.resn && atom.resn.trim() === resn)){{
+                    result[atom.resi] = chain || atom.chain || null;
+                }}
+            }});
+        }}
+    }});
+    return result;
+}}
+
+function _applySelectionOverlay(){{
+    if(!viewer) return;
+    var keys = Object.keys(_selResidues);
+    if(!keys.length) return;
+    keys.forEach(function(resi){{
+        var ch = _selResidues[resi];
+        var sel = {{resi: parseInt(resi)}};
+        if(ch) sel.chain = ch;
+        viewer.addStyle(sel, {{sphere:{{color:'#00e5ff', radius:0.82, opacity:0.78}}}});
+    }});
+    viewer.render();
+}}
+
+// ── Patch applyStyle to re-apply highlight + selection after style change ──
 var _origApplyStyle = applyStyle;
 applyStyle = function(){{
     _origApplyStyle();
     if(_hlResi) _applyHighlight();
+    _applySelectionOverlay();
 }};
+
+// ── Geometry measurement (distance / angle / dihedral) ────────────────────
+var _distMode   = false;          // measure mode on/off
+var _measMode   = 'distance';     // 'distance' | 'angle' | 'dihedral'
+var _measAtoms  = [];             // collected atom picks
+var _distShapes = [];
+var _distLabels = [];
+var _MEAS_NEEDS = {{distance:2, angle:3, dihedral:4}};
+
+function enterDistanceMode(){{ _distMode=true; _measAtoms=[]; }}
+function exitDistanceMode(){{
+    _distMode=false; _measAtoms=[];
+    applyStyle();
+}}
+function setMeasureMode(mode){{
+    _measMode = mode;
+    _measAtoms = [];
+    if(_distMode) applyStyle();   // clear partial picks
+}}
+function clearDistances(){{
+    _distShapes.forEach(function(s){{ try{{viewer.removeShape(s);}}catch(e){{}} }});
+    _distLabels.forEach(function(l){{ try{{viewer.removeLabel(l);}}catch(e){{}} }});
+    _distShapes=[]; _distLabels=[];
+    if(viewer) viewer.render();
+}}
+
+// ── vector math helpers ───────────────────────────────────────────────────
+function _vsub(a,b){{ return {{x:a.x-b.x,y:a.y-b.y,z:a.z-b.z}}; }}
+function _dot(a,b){{ return a.x*b.x+a.y*b.y+a.z*b.z; }}
+function _cross(a,b){{ return {{x:a.y*b.z-a.z*b.y, y:a.z*b.x-a.x*b.z, z:a.x*b.y-a.y*b.x}}; }}
+function _norm(v){{ return Math.sqrt(_dot(v,v)); }}
+function _mid2(a,b){{ return {{x:(a.x+b.x)/2,y:(a.y+b.y)/2,z:(a.z+b.z)/2}}; }}
+function _mid4(ps){{ return {{x:(ps[0].x+ps[1].x+ps[2].x+ps[3].x)/4,
+                              y:(ps[0].y+ps[1].y+ps[2].y+ps[3].y)/4,
+                              z:(ps[0].z+ps[1].z+ps[2].z+ps[3].z)/4}}; }}
+
+function _calcAngle(p1,p2,p3){{
+    var v1=_vsub(p1,p2), v2=_vsub(p3,p2);
+    return Math.acos(Math.max(-1,Math.min(1,_dot(v1,v2)/(_norm(v1)*_norm(v2)))))*180/Math.PI;
+}}
+
+function _calcDihedral(p1,p2,p3,p4){{
+    var b1=_vsub(p2,p1), b2=_vsub(p3,p2), b3=_vsub(p4,p3);
+    var n1=_cross(b1,b2), n2=_cross(b2,b3);
+    var n1n=_norm(n1), n2n=_norm(n2), b2n=_norm(b2);
+    if(n1n<1e-10 || n2n<1e-10 || b2n<1e-10) return NaN;
+    var n1u={{x:n1.x/n1n,y:n1.y/n1n,z:n1.z/n1n}};
+    var n2u={{x:n2.x/n2n,y:n2.y/n2n,z:n2.z/n2n}};
+    var b2u={{x:b2.x/b2n,y:b2.y/b2n,z:b2.z/b2n}};
+    var m1=_cross(n1u,b2u);
+    return Math.atan2(_dot(m1,n2u),_dot(n1u,n2u))*180/Math.PI;
+}}
+
+function _addMeasLine(p1,p2,col){{
+    var sh=viewer.addCylinder({{
+        start:{{x:p1.x,y:p1.y,z:p1.z}},end:{{x:p2.x,y:p2.y,z:p2.z}},
+        radius:0.06,dashed:true,color:col,fromCap:1,toCap:1
+    }});
+    _distShapes.push(sh);
+}}
+
+function _addMeasLabel(text,pos){{
+    var lb=viewer.addLabel(text,{{
+        position:pos,backgroundColor:'rgba(10,12,30,0.88)',
+        fontColor:'#fffacd',fontSize:13,fontFamily:'system-ui',
+        borderThickness:0.5,borderColor:'rgba(255,255,255,0.28)',
+        padding:3,inFront:true
+    }});
+    _distLabels.push(lb);
+}}
+
+function _finalizeMeasurement(pts){{
+    var ps=pts.map(function(p){{return {{x:p.x,y:p.y,z:p.z}};}}); // positions only
+    if(_measMode==='distance'){{
+        var dx=ps[1].x-ps[0].x,dy=ps[1].y-ps[0].y,dz=ps[1].z-ps[0].z;
+        var d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+        _addMeasLine(ps[0],ps[1],'#ffff44');
+        _addMeasLabel(d.toFixed(2)+' \u00c5', _mid2(ps[0],ps[1]));
+    }} else if(_measMode==='angle'){{
+        _addMeasLine(ps[0],ps[1],'#ffaa00');
+        _addMeasLine(ps[1],ps[2],'#ffaa00');
+        var ang=_calcAngle(ps[0],ps[1],ps[2]);
+        _addMeasLabel(ang.toFixed(1)+'\u00b0', ps[1]);
+    }} else {{
+        _addMeasLine(ps[0],ps[1],'#88aaff');
+        _addMeasLine(ps[1],ps[2],'#88aaff');
+        _addMeasLine(ps[2],ps[3],'#88aaff');
+        var dih=_calcDihedral(ps[0],ps[1],ps[2],ps[3]);
+        _addMeasLabel(isNaN(dih)?'collinear':dih.toFixed(1)+'\u00b0', _mid4(ps));
+    }}
+    viewer.render();
+}}
+
+function _handleDistClick(atom){{
+    // Use exact clicked atom coordinates (not Cα)
+    var pick={{resi:atom.resi,chain:atom.chain,resn:atom.resn||'',
+               atm:atom.atom||atom.elem||'',x:atom.x,y:atom.y,z:atom.z}};
+    _measAtoms.push(pick);
+    // small numbered pick label — no intrusive sphere overlay
+    var n=_measAtoms.length;
+    var lb=viewer.addLabel(''+n,{{
+        position:{{x:atom.x,y:atom.y,z:atom.z}},
+        backgroundColor:'rgba(255,140,0,0.82)',fontColor:'#fff',
+        fontSize:11,padding:2,inFront:true
+    }});
+    _distLabels.push(lb);
+    viewer.render();
+    var need=_MEAS_NEEDS[_measMode]||2;
+    if(_measAtoms.length>=need){{
+        _finalizeMeasurement(_measAtoms.slice(0,need));
+        _measAtoms=[];
+        // pick-number labels stay with measurement; cleared only by clearDistances()
+    }}
+}}
 
 // ── Install click handler once viewer is ready ────────────────────────────
 function _installClickHandler(){{
     if(!viewer) return;
     viewer.setClickable({{}}, true, function(atom, _v, _event, _container){{
-        highlightResidue(atom.resi, atom.chain);
-        showResiduePopup(atom.resi, atom.resn || atom.elem, atom.chain);
+        if(_distMode){{
+            _handleDistClick(atom);
+        }} else {{
+            highlightResidue(atom.resi, atom.chain);
+            showResiduePopup(atom.resi, atom.resn || atom.elem, atom.chain);
+            if(_bridge) _bridge.residueClicked(atom.resi);
+        }}
     }});
 }}
 
@@ -2959,7 +3820,6 @@ window.addEventListener("load",init);
         "RNA-Binding":          "rnabind_bilstm_profile",
         "Nucleotide-Binding":   "nucbind_bilstm_profile",
         "Transit Peptide":      "transit_bilstm_profile",
-        "Aggregation":          "agg_bilstm_profile",
     }
 
     def _available_feature_schemes(self) -> list[str]:
@@ -2976,39 +3836,207 @@ window.addEventListener("load",init);
         self.struct_scheme_combo.addItems(schemes)
         self.struct_scheme_combo.blockSignals(False)
 
-    def _push_feature_scores(self, feature_label: str) -> None:
+    # Maps human-readable gradient combo text → JS featureGradient key
+    _AI_GRADIENT_MAP = {
+        "Hot (White→Red)":       "hot",
+        "Fire (Black→Yellow)":   "fire",
+        "Plasma":                "plasma",
+        "Viridis":               "viridis",
+        "Cold (White→Blue)":     "cold",
+        "Classic (White→Color)": "classic",
+    }
+
+    def _push_feature_scores(self, feature_label: str,
+                             gradient: str = "Hot (White→Red)") -> None:
         """Send per-residue scores for feature_label to the 3Dmol JS layer."""
         from beer.graphs._style import FEATURE_COLORS
+        import json as _json
         ad = self.analysis_data or {}
         key = self._FEATURE_SCORE_KEYS.get(feature_label, "disorder_scores")
         scores = ad.get(key) or []
         if not scores:
             QMessageBox.information(
-                self, "AI Feature Not Yet Computed",
-                f"'{feature_label}' predictions are not available yet.\n\n"
-                "Click the feature in the AI Predictions sidebar to compute it first, "
-                "or run a full AI Analysis.")
+                self, "AI Predictions Not Yet Computed",
+                f"AI Predictions have not been run yet.\n\n"
+                "Click the \u2018AI Analysis\u2019 button (next to Analyze) to compute "
+                "all 23 per-residue prediction heads, then select this color scheme again.")
             return
         feat_key = feature_label.lower().replace(" ", "_")
         color = FEATURE_COLORS.get(feat_key, "#f3722c")
-        # Build {resi: score} dict (1-based residue index)
         scores_dict = {i + 1: float(v) for i, v in enumerate(scores)}
-        import json as _json
+        grad_key = self._AI_GRADIENT_MAP.get(gradient, "hot")
         self._js(
             f"setFeatureData({_json.dumps(feature_label)},"
             f"{_json.dumps(scores_dict)},"
             f"{_json.dumps(color)});"
         )
+        self._js(f"setFeatureGradient({_json.dumps(grad_key)});")
+        self._refresh_reslabels_if_active()
+
+    def _push_zyggregator_scores(self, scheme: str) -> None:
+        """Color structure by ZYGGREGATOR β-aggregation propensity."""
+        import json as _json
+        import matplotlib.cm as _cm
+        import matplotlib.colors as _mc
+        ad = self.analysis_data or {}
+        scores = ad.get("aggr_profile") or []
+        if not scores:
+            QMessageBox.information(
+                self, "ZYGGREGATOR Not Yet Computed",
+                "β-Aggregation profile is not available yet.\n\n"
+                "Open the 'β-Aggregation & Solubility' section in the Analysis tab first.")
+            return
+        mx = max(scores) if scores else 1.0
+        norm_scores = [min(float(v) / max(mx, 0.001), 1.0) for v in scores]
+
+        _AGGR_CMAP = {
+            "Fire":    "afmhot",
+            "Inferno": "inferno",
+            "Viridis": "viridis",
+        }
+        if scheme in _AGGR_CMAP:
+            cmap = _cm.get_cmap(_AGGR_CMAP[scheme])
+            resi_colors = {i + 1: _mc.to_hex(cmap(v)) for i, v in enumerate(norm_scores)}
+            self._js(
+                f"setResidueColorMap({_json.dumps(resi_colors)},"
+                f"'ZYGGREGATOR \u03b2-Aggregation');"
+            )
+            return
+        if scheme == "Hotspots Only":
+            scores_dict = {i + 1: (1.0 if float(v) >= 1.0 else 0.0)
+                           for i, v in enumerate(scores)}
+        else:
+            scores_dict = {i + 1: v for i, v in enumerate(norm_scores)}
+        self._js(
+            f"setFeatureData('ZYGGREGATOR \u03b2-Aggregation',"
+            f"{_json.dumps(scores_dict)},'#e07a5f');"
+        )
+        self._js("setFeatureGradient('hot');")
+
+    def _push_sasa_scores(self, scheme: str) -> None:
+        """Color structure by per-residue relative solvent-accessible surface area.
+
+        Each scheme maps RSA (0→1) through a distinct matplotlib colormap so that
+        buried vs. exposed residues are immediately visually discernible.
+        The JS setFeatureData mechanism uses a single accent color for the gradient
+        endpoint; instead we pre-compute per-residue hex colors and push a custom
+        colorfunc via setCustomColorMap.
+        """
+        import json as _json
+        import matplotlib.cm as _cm
+        import matplotlib.colors as _mc
+        sasa = getattr(self, "_struct_sasa_data", {})
+        if not sasa:
+            QMessageBox.information(
+                self, "SASA Not Available",
+                "Solvent accessibility could not be computed.\n\n"
+                "A 3D structure must be loaded first.")
+            return
+
+        _SCHEME_CMAP = {
+            "Buried→Exposed (Blue→Red)":    ("RdBu_r",   False),
+            "Exposed→Buried (Red→Blue)":    ("RdBu",     False),
+            "Viridis (Buried→Exposed)":     ("viridis",  False),
+            "Plasma (Buried→Exposed)":      ("plasma",   False),
+            "Magma (Buried→Exposed)":       ("magma",    False),
+            "Cyan→Orange":                  ("PuOr_r",   False),
+        }
+        cmap_name, _ = _SCHEME_CMAP.get(scheme, ("RdBu_r", False))
+        cmap = _cm.get_cmap(cmap_name)
+
+        # Pre-compute a hex color per residue and push as per-residue color dict
+        resi_colors: dict[int, str] = {}
+        for resi, rsa in sasa.items():
+            rgba = cmap(float(rsa))
+            resi_colors[resi] = _mc.to_hex(rgba)
+
+        # Push via dedicated JS function that accepts {resi: hexColor} directly
+        self._js(
+            f"setResidueColorMap({_json.dumps(resi_colors)}, "
+            f"'Solvent Accessibility (RSA)');"
+        )
+
+    def _populate_sasa_report_section(self) -> None:
+        """Generate and populate the SASA Profile report section from current SASA data."""
+        if "SASA Profile" not in getattr(self, "report_section_tabs", {}):
+            return
+        rsa = getattr(self, "_struct_sasa_data", {})
+        asa = getattr(self, "_struct_sasa_raw", {})
+        if not rsa:
+            return
+        rsa_vals = [rsa[k] for k in sorted(rsa)]
+        asa_vals = [asa[k] for k in sorted(asa)]
+        n = len(rsa_vals)
+        mean_rsa = sum(rsa_vals) / n
+        n_buried  = sum(1 for v in rsa_vals if v < 0.20)
+        n_partial = sum(1 for v in rsa_vals if 0.20 <= v < 0.50)
+        n_exposed = sum(1 for v in rsa_vals if v >= 0.50)
+        mean_asa = sum(asa_vals) / len(asa_vals) if asa_vals else 0.0
+        from beer.reports.css import get_report_css
+        css = get_report_css(getattr(self, "_is_dark", False))
+        html = (
+            f"<html><head><style>{css}</style></head><body>"
+            f"<h2>Solvent Accessibility (SASA)</h2>"
+            f"<p>Per-residue solvent-accessible surface area computed from the loaded 3D structure "
+            f"using the Shrake–Rupley algorithm. RSA (relative solvent accessibility) is normalised "
+            f"by Miller et al. maximum ASA values.</p>"
+            f"<h3>Summary ({n} residues)</h3>"
+            f"<table><tr><th>Category</th><th>Threshold</th><th>Count</th><th>%</th></tr>"
+            f"<tr><td>Buried</td><td>RSA &lt; 0.20</td><td>{n_buried}</td>"
+            f"<td>{100*n_buried/n:.1f}%</td></tr>"
+            f"<tr><td>Partially exposed</td><td>0.20 ≤ RSA &lt; 0.50</td><td>{n_partial}</td>"
+            f"<td>{100*n_partial/n:.1f}%</td></tr>"
+            f"<tr><td>Exposed</td><td>RSA ≥ 0.50</td><td>{n_exposed}</td>"
+            f"<td>{100*n_exposed/n:.1f}%</td></tr>"
+            f"</table>"
+            f"<p>Mean RSA: <b>{mean_rsa:.3f}</b> &nbsp;|&nbsp; "
+            f"Mean ASA: <b>{mean_asa:.1f} Å²</b></p>"
+            f"<p><em>See SASA Profile graph for the per-residue plot. "
+            f"The toggle in the graph tab switches between RSA (dimensionless, 0–1) "
+            f"and raw ASA (Å²).</em></p>"
+            f"</body></html>"
+        )
+        self.report_section_tabs["SASA Profile"].setHtml(html)
+        if self.analysis_data is not None:
+            self.analysis_data.setdefault("report_sections", {})["SASA Profile"] = html
+
+    def _rebuild_sasa_graph(self) -> None:
+        """Regenerate the SASA Profile graph in-place after RSA/ASA toggle."""
+        if "SASA Profile" not in self.graph_tabs:
+            return
+        rsa = getattr(self, "_struct_sasa_data", {})
+        asa = getattr(self, "_struct_sasa_raw", {})
+        if not rsa:
+            return
+        lf = getattr(self, "_label_font", 14)
+        tf = getattr(self, "_tick_font", 12)
+        fig = create_sasa_figure(
+            rsa, asa,
+            window=self.default_window_size,
+            show_asa=getattr(self, "_sasa_show_asa", False),
+            label_font=lf, tick_font=tf,
+        )
+        self._replace_graph("SASA Profile", fig)
 
     def _on_struct_rep_changed(self, rep_label: str) -> None:
         self._js(f"setRepresentation('{rep_label.lower()}');")
 
     def _on_struct_color_mode_changed(self, mode: str) -> None:
         self._update_scheme_combo(mode)
+        is_ai = (mode == "AI Features")
+        if hasattr(self, "struct_ai_gradient_lbl"):
+            self.struct_ai_gradient_lbl.setVisible(is_ai)
+            self.struct_ai_gradient_combo.setVisible(is_ai)
         key = self._STRUCT_MODE_KEY.get(mode, "plddt")
         scheme = self.struct_scheme_combo.currentText()
         if mode == "AI Features":
-            self._push_feature_scores(scheme)
+            grad = getattr(self, "struct_ai_gradient_combo", None)
+            self._push_feature_scores(
+                scheme, gradient=grad.currentText() if grad else "Hot (White→Red)")
+        elif mode == "Aggregation (ZYGGREGATOR)":
+            self._push_zyggregator_scores(scheme)
+        elif mode == "Solvent Accessibility":
+            self._push_sasa_scores(scheme)
         elif mode == "Spectrum (N→C)":
             seq_len = len((self.analysis_data or {}).get("seq", "")) or 9999
             self._js(f"setColorMode('{key}','{scheme}',{seq_len});")
@@ -3020,12 +4048,94 @@ window.addEventListener("load",init);
             return
         mode = self.struct_color_mode_combo.currentText()
         if mode == "AI Features":
-            self._push_feature_scores(scheme)
+            grad = getattr(self, "struct_ai_gradient_combo", None)
+            self._push_feature_scores(
+                scheme, gradient=grad.currentText() if grad else "Hot (White→Red)")
+        elif mode == "Aggregation (ZYGGREGATOR)":
+            self._push_zyggregator_scores(scheme)
+        elif mode == "Solvent Accessibility":
+            self._push_sasa_scores(scheme)
         elif mode == "Spectrum (N→C)":
             seq_len = len((self.analysis_data or {}).get("seq", "")) or 9999
             self._js(f"setScheme('{scheme}',{seq_len});")
         else:
             self._js(f"setScheme('{scheme}');")
+
+    def _on_struct_ai_gradient_changed(self, text: str) -> None:
+        grad_key = self._AI_GRADIENT_MAP.get(text, "hot")
+        self._js(f"setFeatureGradient({repr(grad_key)});")
+
+    def _refresh_analyse_tab(self) -> None:
+        """Populate the Analyse tab with mini structure plots and stats."""
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as _FC
+        import matplotlib.pyplot as _plt
+
+        # Clear existing canvases
+        lay = getattr(self, "struct_analyse_canvas_layout", None)
+        if lay is None:
+            return
+        while lay.count():
+            item = lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        ad   = self.analysis_data or {}
+        plddt_data = ad.get("plddt")
+        rsa        = getattr(self, "_struct_sasa_data", {})
+        phi_psi    = ad.get("phi_psi") or ad.get("ramachandran_data")
+        use_bf     = not getattr(self, "_struct_is_alphafold", False)
+
+        stats_lines = []
+        if plddt_data:
+            vals = list(plddt_data) if not isinstance(plddt_data, list) else plddt_data
+            mean_b = sum(vals) / len(vals)
+            label  = "B-Factor" if use_bf else "pLDDT"
+            stats_lines.append(f"Mean {label}: {mean_b:.1f}")
+        if rsa:
+            rsa_vals = list(rsa.values())
+            n_buried = sum(1 for v in rsa_vals if v < 0.2)
+            n_exp    = sum(1 for v in rsa_vals if v >= 0.5)
+            stats_lines.append(
+                f"SASA — buried: {n_buried}, partially buried: "
+                f"{len(rsa_vals)-n_buried-n_exp}, exposed: {n_exp}")
+        if stats_lines:
+            self.struct_analyse_stats.setText("\n".join(stats_lines))
+
+        def _add_canvas(fig):
+            fig.set_size_inches(2.8, 1.9)
+            fig.tight_layout(pad=0.4)
+            c = _FC(fig)
+            c.setFixedHeight(150)
+            lay.addWidget(c)
+            _plt.close(fig)
+
+        if plddt_data:
+            try:
+                fig = create_plddt_figure(
+                    plddt_data, label_font=8, tick_font=6, use_bfactor=use_bf)
+                _add_canvas(fig)
+            except Exception:
+                pass
+
+        if rsa:
+            try:
+                xs  = sorted(rsa.keys())
+                ys  = [rsa[k] for k in xs]
+                fig, ax = _plt.subplots(figsize=(2.8, 1.6))
+                ax.fill_between(xs, ys, alpha=0.4, color="#4cc9f0")
+                ax.plot(xs, ys, linewidth=0.8, color="#1a85c5")
+                ax.set_ylabel("RSA", fontsize=7)
+                ax.set_xlabel("Residue", fontsize=7)
+                ax.tick_params(labelsize=6)
+                ax.set_title("Solvent Accessibility", fontsize=8)
+                fig.tight_layout(pad=0.4)
+                _add_canvas(fig)
+            except Exception:
+                pass
+
+        if not plddt_data and not rsa:
+            self.struct_analyse_stats.setText(
+                "No structure data yet — load a structure and run analysis first.")
 
     def _on_struct_colorbar_toggled(self, checked: bool) -> None:
         self._js(f"setColorBarVisible({'true' if checked else 'false'});")
@@ -3040,6 +4150,163 @@ window.addEventListener("load",init);
             axis = self.struct_spin_axis_combo.currentText()[0].lower()
             self._js(f"setSpin(true,'{axis}');")
 
+    def _on_struct_selection_apply(self) -> None:
+        spec = self.struct_sel_edit.text().strip()
+        if not spec:
+            return
+        import json as _json
+        self.structure_viewer.page().runJavaScript(
+            f"applySelection({_json.dumps(spec)})",
+            lambda count: self._sel_count_lbl.setText(
+                f"{count} residue(s) selected" if isinstance(count, int) and count > 0
+                else ("No match" if count == 0 else "")
+            ) if self.structure_viewer else None
+        )
+
+    def _on_struct_selection_clear(self) -> None:
+        self.struct_sel_edit.clear()
+        self._sel_count_lbl.setText("")
+        self._js("clearSelection();")
+
+    def _on_struct_measure_toggled(self, checked: bool) -> None:
+        self.struct_dist_btn.setText("Pick Atoms: On" if checked else "Pick Atoms: Off")
+        self._js("enterDistanceMode();" if checked else "exitDistanceMode();")
+
+    def _on_struct_measure_mode_changed(self, index: int) -> None:
+        _hints = ["Pick 2 residues", "Pick 3 residues", "Pick 4 residues"]
+        _modes = ["distance", "angle", "dihedral"]
+        self._meas_hint_lbl.setText(_hints[index])
+        self._js(f"setMeasureMode('{_modes[index]}');")
+
+    # ── Graph ↔ Structure bidirectional link ──────────────────────────────────
+
+    _STRUCT_LINK_GRAPHS = BILSTM_PROFILE_TABS | {
+        "Hydrophobicity Profile", "Local Charge Profile",
+        "SCD Profile", "SHD Profile", "RNA-Binding Profile",
+        "β-Aggregation Profile", "Solubility Profile",
+        "pLDDT Profile", "SASA Profile", "Hydrophobic Moment",
+    }
+
+    def _on_struct_residue_picked(self, resi: int) -> None:
+        """Called by JS bridge when an atom is clicked in the structure viewer."""
+        self._mark_graph_residue(resi)
+        if hasattr(self, "_marker_pos_lbl"):
+            self._marker_pos_lbl.setText(f"Residue {resi} marked")
+        if hasattr(self, "_graphs_clear_marker_btn"):
+            self._graphs_clear_marker_btn.setEnabled(True)
+
+    def _on_clear_struct_marker(self) -> None:
+        self._clear_struct_graph_marker()
+        self._js("clearHighlight();")   # also remove gold sphere from 3D viewer
+        if hasattr(self, "_marker_pos_lbl"):
+            self._marker_pos_lbl.setText("No marker set")
+        if hasattr(self, "_graphs_clear_marker_btn"):
+            self._graphs_clear_marker_btn.setEnabled(False)
+
+    def _mark_graph_residue(self, resi: int) -> None:
+        """Draw/update a dashed vertical position line on all profile graph canvases.
+        Also remembers resi so newly-created canvases get the marker immediately.
+        """
+        self._struct_marker_resi = resi
+        self._apply_struct_marker_to_canvas(resi)
+
+    def _apply_struct_marker_to_canvas(self, resi: int, canvas=None) -> None:
+        """Apply or update the position marker.  If canvas is given, update only that one;
+        otherwise iterate all profile graph canvases.
+        """
+        def _mark(c):
+            if c is None or not c.figure.axes:
+                return
+            ax = c.figure.axes[0]
+            old = getattr(ax, "_beer_struct_vline", None)
+            if old is not None:
+                try:
+                    old.remove()
+                except Exception:
+                    pass
+            ax._beer_struct_vline = ax.axvline(
+                resi, color="#ff6b6b", linewidth=1.3,
+                linestyle="--", alpha=0.82, zorder=5,
+            )
+            c.draw_idle()
+
+        if canvas is not None:
+            _mark(canvas)
+            return
+        for title, (_, vb) in self.graph_tabs.items():
+            if title not in self._STRUCT_LINK_GRAPHS:
+                continue
+            _mark(self._find_canvas(vb))
+
+    def _clear_struct_graph_marker(self) -> None:
+        """Remove the position marker from all profile graphs and reset state."""
+        self._struct_marker_resi = None
+        for title, (_, vb) in self.graph_tabs.items():
+            if title not in self._STRUCT_LINK_GRAPHS:
+                continue
+            c = self._find_canvas(vb)
+            if c is None or not c.figure.axes:
+                continue
+            ax = c.figure.axes[0]
+            old = getattr(ax, "_beer_struct_vline", None)
+            if old is not None:
+                try:
+                    old.remove()
+                except Exception:
+                    pass
+                ax._beer_struct_vline = None
+            c.draw_idle()
+
+    def _wire_graph_struct_hover(self, canvas) -> None:
+        """Wire graph interactions to the 3D structure viewer.
+
+        Hover  → shows residue number in the status bar (preview only).
+        Click  → persistent gold highlight in 3D (survives tab switch).
+                 Also stamps the position marker on all profile graphs.
+        """
+        def _on_motion(event):
+            if event.inaxes and event.xdata is not None:
+                r = int(round(event.xdata))
+                if r >= 1:
+                    self.statusBar.showMessage(f"Residue {r}", 0)
+
+        def _on_leave(_event):
+            self.statusBar.clearMessage()
+
+        def _on_click(event):
+            if event.inaxes and event.xdata is not None and event.button == 1:
+                r = int(round(event.xdata))
+                if r >= 1:
+                    # Persistent highlight in 3D — stays until next click or Clear
+                    if self.structure_viewer is not None:
+                        self._js(f"highlightResidue({r}, null);")
+                    # Stamp position marker on all profile graphs
+                    self._mark_graph_residue(r)
+                    if hasattr(self, "_marker_pos_lbl"):
+                        self._marker_pos_lbl.setText(f"Residue {r} marked")
+                    if hasattr(self, "_graphs_clear_marker_btn"):
+                        self._graphs_clear_marker_btn.setEnabled(True)
+
+        canvas.mpl_connect("motion_notify_event", _on_motion)
+        canvas.mpl_connect("axes_leave_event", _on_leave)
+        canvas.mpl_connect("button_press_event", _on_click)
+
+    def _on_reslbl_toggled(self, checked: bool) -> None:
+        self.struct_reslbl_spin.setEnabled(checked)
+        if checked:
+            self._js(f"showResidueLabels({self.struct_reslbl_spin.value()});")
+        else:
+            self._js("clearResidueLabels();")
+
+    def _on_reslbl_n_changed(self, n: int) -> None:
+        if self.struct_reslbl_cb.isChecked():
+            self._js(f"showResidueLabels({n});")
+
+    def _refresh_reslabels_if_active(self) -> None:
+        """Call after pushing new feature scores so labels stay in sync."""
+        if hasattr(self, "struct_reslbl_cb") and self.struct_reslbl_cb.isChecked():
+            self._js(f"showResidueLabels({self.struct_reslbl_spin.value()});")
+
     def _reset_struct_view(self) -> None:
         """Reset the 3D viewer and all controls to their defaults."""
         for combo, text in [
@@ -3052,7 +4319,14 @@ window.addEventListener("load",init);
         self._update_scheme_combo("pLDDT / B-factor")
         if self.struct_spin_btn.isChecked():
             self.struct_spin_btn.setChecked(False)   # triggers spin-off via toggled signal
-        self._js("resetView();")
+        if hasattr(self, "struct_sel_edit"):
+            self.struct_sel_edit.clear()
+            self._sel_count_lbl.setText("")
+        if hasattr(self, "struct_dist_btn") and self.struct_dist_btn.isChecked():
+            self.struct_dist_btn.setChecked(False)
+        self._js("clearSelection(); clearDistances(); clearResidueLabels(); resetView();")
+        if hasattr(self, "struct_reslbl_cb"):
+            self.struct_reslbl_cb.setChecked(False)
 
     def _pick_background_color(self) -> None:
         color = QColorDialog.getColor(parent=self)
@@ -3093,6 +4367,48 @@ window.addEventListener("load",init);
             self._pending_pdb = None
             self.structure_viewer.page().runJavaScript(f"loadPDB({pdb_json});")
 
+    @staticmethod
+    def _compute_sasa(pdb_str: str) -> tuple[dict[int, float], dict[int, float]]:
+        """Return (rsa_dict, asa_dict) using Shrake-Rupley.
+
+        Both dicts are keyed by actual PDB residue sequence number (matches
+        atom.resi in 3Dmol — correct for AlphaFold, gapped PDB chains, and
+        multi-chain complexes).  RSA is normalised by Miller et al. max-ASA
+        values; ASA is the raw value in Å².  Returns ({}, {}) on any error.
+        """
+        _MAX_ASA = {
+            "ALA": 129.0, "ARG": 274.0, "ASN": 195.0, "ASP": 193.0,
+            "CYS": 167.0, "GLN": 225.0, "GLU": 223.0, "GLY":  97.0,
+            "HIS": 224.0, "ILE": 197.0, "LEU": 201.0, "LYS": 236.0,
+            "MET": 224.0, "PHE": 240.0, "PRO": 159.0, "SER": 155.0,
+            "THR": 172.0, "TRP": 285.0, "TYR": 263.0, "VAL": 174.0,
+        }
+        try:
+            from io import StringIO as _SIO
+            from Bio.PDB import PDBParser as _PP
+            from Bio.PDB.SASA import ShrakeRupley as _SR
+            parser = _PP(QUIET=True)
+            structure = parser.get_structure("s", _SIO(pdb_str))
+            sr = _SR()
+            sr.compute(structure, level="R")
+            rsa_dict: dict[int, float] = {}
+            asa_dict: dict[int, float] = {}
+            for model in structure:
+                for chain in model:
+                    for residue in chain:
+                        if residue.id[0] != " ":   # skip HETATM / water
+                            continue
+                        resi_num = residue.id[1]
+                        resname  = residue.get_resname().strip()
+                        raw_asa  = residue.sasa
+                        max_asa  = _MAX_ASA.get(resname, 200.0)
+                        rsa_dict[resi_num] = round(min(1.0, raw_asa / max_asa), 4)
+                        asa_dict[resi_num] = round(raw_asa, 2)
+                break   # first model only
+            return rsa_dict, asa_dict
+        except Exception:
+            return {}, {}
+
     def _load_structure_viewer(self, pdb_str: str) -> None:
         """Swap in a new structure without reloading the 3Dmol page."""
         if not _WEBENGINE_AVAILABLE or self.structure_viewer is None:
@@ -3106,6 +4422,15 @@ window.addEventListener("load",init);
         # Annotate disorder regions and signal peptide in 3D viewer after a short delay
         from PySide6.QtCore import QTimer as _QT
         _QT.singleShot(800, self._annotate_structure_viewer)
+        # Compute SASA deferred — Shrake-Rupley is CPU-bound and must not block
+        # the event loop before loadPDB has been dispatched to WebEngine.
+        _pdb_copy = pdb_str
+        def _deferred_sasa():
+            self._struct_sasa_data, self._struct_sasa_raw = self._compute_sasa(_pdb_copy)
+            self._populate_sasa_report_section()
+            if self.analysis_data:
+                self.update_graph_tabs()
+        _QT.singleShot(200, _deferred_sasa)
 
     @staticmethod
     def _parse_pdb_chains(pdb_str: str) -> list[str]:
@@ -3241,14 +4566,17 @@ window.addEventListener("load",init);
                 if resi not in all_scores:
                     all_scores[resi] = {}
                 all_scores[resi][js_key] = round(float(v), 4)
-        # pLDDT from alphafold_data
+        # pLDDT (AlphaFold, 0-100 → stored 0-1) or B-factor (crystallographic, Å², stored raw)
         af = self.alphafold_data or {}
-        plddt_arr = af.get("plddt") or []
-        for i, v in enumerate(plddt_arr):
+        bfac_arr = af.get("plddt") or []
+        is_af = getattr(self, "_struct_is_alphafold", False)
+        bfac_key = "plddt" if is_af else "bfactor"
+        for i, v in enumerate(bfac_arr):
             resi = i + 1
             if resi not in all_scores:
                 all_scores[resi] = {}
-            all_scores[resi]["plddt"] = round(float(v) / 100.0, 4)
+            val = round(float(v) / 100.0, 4) if is_af else round(float(v), 2)
+            all_scores[resi][bfac_key] = val
         if all_scores:
             self._js(f"setAllResidueScores({json.dumps(all_scores)});")
 
@@ -3473,19 +4801,6 @@ window.addEventListener("load",init);
         self.marker_size_input = QLineEdit(str(self.marker_size))
         self._set_tooltip(self.marker_size_input, "Size of data markers in line and scatter graphs.")
         form3.addRow("Marker Size:", self.marker_size_input)
-
-        self.graph_format_combo = QComboBox()
-        self.graph_format_combo.addItems(["PNG", "SVG", "PDF"])
-        self._set_tooltip(self.graph_format_combo, "Default file format when saving graphs.")
-        form3.addRow("Default Graph Format:", self.graph_format_combo)
-
-        self.heatmap_cmap_combo = QComboBox()
-        self.heatmap_cmap_combo.addItems(NAMED_COLORMAPS)
-        self.heatmap_cmap_combo.setCurrentText(self.heatmap_cmap)
-        self._set_tooltip(self.heatmap_cmap_combo,
-            "Colour map for heatmaps: Distance Map, Cation\u2013\u03c0 Map, "
-            "MSA Covariance, Single-Residue Perturbation Map, Residue Contact Network.")
-        form3.addRow("Heatmap Colormap:", self.heatmap_cmap_combo)
 
         self.graph_color_combo = QComboBox()
         self.graph_color_combo.addItems(list(NAMED_COLORS.keys()))
@@ -4191,6 +5506,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             first_id = entries[0][0]
             if first_id in self.batch_struct:
                 self.alphafold_data = self.batch_struct[first_id]
+            self._struct_is_alphafold = False
             self._load_structure_viewer(pdb_str)
             self.export_structure_btn.setEnabled(True)
             n_res = sum(len(seq) for _, seq in entries)
@@ -4245,6 +5561,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             first_id = entries[0][0]
             if first_id in self.batch_struct:
                 self.alphafold_data = self.batch_struct[first_id]
+            self._struct_is_alphafold = False
             self._load_structure_viewer(cif_str)
             self.export_structure_btn.setEnabled(True)
             n_res = sum(len(seq) for _, seq in entries)
@@ -4679,17 +5996,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             seq, label_font=lf, tick_font=tf, cmap=hcm))
         gens["Isoelectric Focus"] = lambda: _wrap(lambda: create_isoelectric_focus_figure(
             seq, label_font=lf, tick_font=tf, pka=pk))
-        gens["Helical Wheel"] = lambda: _wrap(lambda: create_helical_wheel_figure(seq, label_font=lf, hydro_scale=hs))
+        gens["Helical Wheel"] = lambda: _wrap(lambda: create_helical_wheel_figure(seq, label_font=lf, hydro_scale=hs, cmap=self.heatmap_cmap))
         gens["Charge Decoration"] = lambda: _wrap(lambda: create_charge_decoration_figure(
             ad["fcr"], ad["ncpr"], label_font=lf, tick_font=tf))
         gens["Linear Sequence Map"] = lambda: _wrap(lambda: create_linear_sequence_map_figure(
             seq, ad["hydro_profile"], ad["ncpr_profile"], ad["disorder_scores"],
             label_font=lf, tick_font=tf))
-        # Overview — always registered; shows placeholders for uncomputed heads.
-        from beer.graphs.profiles import create_ai_overview_figure
-        gens["Overview"] = lambda: _wrap(
-            lambda: create_ai_overview_figure(ad, label_font=lf, tick_font=tf))
-
         # BiLSTM heads — registered whenever the data key is present in analysis_data.
         # This covers both full AI Analysis and lazy per-head computation.
         _uniprot_feats = getattr(self, "_uniprot_features", {})
@@ -4740,7 +6052,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         gens["Domain Architecture"] = lambda: _wrap(lambda: create_domain_architecture_figure(
             len(seq), self.pfam_domains, seq=seq,
             disorder_scores=ad.get("disorder_scores"),
-            tm_helices=ad.get("tm_helices"),
+            tm_helices=None,  # classical TMHMM shown separately in TM Topology
             label_font=lf, tick_font=tf))
         _annot_aggr = ad.get("aggr_profile", calc_aggregation_profile(seq))
         gens["Annotation Track"] = lambda: _wrap(lambda: create_annotation_track_figure(
@@ -4761,7 +6073,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         _am_data = getattr(self, "_alphafold_missense_data", None)
         if _am_data:
             gens["AlphaMissense"] = lambda: _wrap(lambda: create_alphafold_missense_figure(
-                _am_data, seq=seq, label_font=lf, tick_font=tf))
+                _am_data, seq=seq, label_font=lf, tick_font=tf, cmap=self.heatmap_cmap))
         else:
             def _am_placeholder_fig():
                 from matplotlib.figure import Figure as _Fig
@@ -4798,13 +6110,26 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             gens["PLAAC Profile"] = lambda: _wrap(lambda: create_plaac_profile_figure(
                 ad["plaac"], label_font=lf, tick_font=tf))
 
+        # Structure-derived (require loaded PDB — independent of AlphaFold)
+        if getattr(self, "_struct_sasa_data", {}):
+            _rsa = dict(self._struct_sasa_data)
+            _asa = dict(self._struct_sasa_raw)
+            _win = self.default_window_size
+            _show_asa = getattr(self, "_sasa_show_asa", False)
+            gens["SASA Profile"] = lambda: _wrap(lambda: create_sasa_figure(
+                _rsa, _asa, window=_win, show_asa=_show_asa,
+                label_font=lf, tick_font=tf))
+
         # Structure-dependent
         afd = self.alphafold_data
         if afd:
             plddt = afd.get("plddt")
             if plddt and len(plddt) == len(seq):
-                gens["pLDDT Profile"] = lambda: _wrap(lambda: create_plddt_figure(
-                    afd["plddt"], label_font=lf, tick_font=tf))
+                _is_af = getattr(self, "_struct_is_alphafold", False)
+                gens["pLDDT Profile"] = lambda _iaf=_is_af: _wrap(
+                    lambda: create_plddt_figure(
+                        afd["plddt"], label_font=lf, tick_font=tf,
+                        use_bfactor=not _iaf))
             dm = afd.get("dist_matrix")
             if dm is not None and dm.ndim == 2 and dm.shape[0] == len(seq) > 0:
                 gens["Distance Map"] = lambda: _wrap(lambda: create_distance_map_figure(
@@ -4826,7 +6151,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         # Variant Effect Map (ESM2)
         if self._embedder is not None and "Variant Effect Map" in self.graph_tabs:
             gens["Variant Effect Map"] = lambda: self._gen_variant_effect_fig(
-                seq, lf, tf)
+                seq, lf, tf, cmap=self.heatmap_cmap)
 
         self._graph_generators = gens
 
@@ -4855,7 +6180,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             _log2.getLogger("beer.graphs").warning(
                 "Failed to render graph '%s': %s", title, _exc, exc_info=True)
 
-    def _gen_variant_effect_fig(self, seq: str, lf: int, tf: int):
+    def _gen_variant_effect_fig(self, seq: str, lf: int, tf: int, cmap: str = "RdBu_r"):
         """Generate ESM2 variant effect map (called lazily)."""
         from beer.analysis.variant_scoring import compute_single_mutant_llr
         from beer.graphs.variant_map import create_variant_effect_figure
@@ -4868,7 +6193,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                     ha="center", va="center", transform=ax.transAxes, color="#718096")
             ax.axis("off")
             return fig
-        return create_variant_effect_figure(seq, llr, label_font=lf, tick_font=tf)
+        return create_variant_effect_figure(seq, llr, label_font=lf, tick_font=tf, cmap=cmap)
 
     def show_batch_details(self, row, _):
         sid = self.batch_table.item(row, 0).text()
@@ -5016,15 +6341,15 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         except Exception as e:
             QMessageBox.critical(self, "Export Error", str(e))
 
-    def save_graph(self, title: str):
+    def save_graph(self, title: str, fmt: str = ""):
         tab, vb = self.graph_tabs[title]
         canvas  = self._find_canvas(vb)
         if not canvas:
             QMessageBox.warning(self, "No Graph", "Graph not available.")
             return
-        ext  = self.default_graph_format.lower()
+        ext  = (fmt or self.default_graph_format).lower()
         fn, _ = QFileDialog.getSaveFileName(
-            self, "Save Graph", "", f"{self.default_graph_format} Files (*.{ext})"
+            self, "Save Graph", "", f"{ext.upper()} Files (*.{ext})"
         )
         if fn:
             if not fn.lower().endswith(f".{ext}"):
@@ -5321,6 +6646,52 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         except OSError as e:
             QMessageBox.critical(self, "Export Error", f"Could not write file: {e}")
 
+    def _hydrophobicity_hint(self) -> str:
+        scale = getattr(self, "hydro_scale", "Kyte-Doolittle")
+        meta  = HYDROPHOBICITY_SCALES.get(scale, {})
+        ref   = meta.get("ref", "")
+        ylabel = meta.get("ylabel", scale)
+        _SCALE_NOTES = {
+            "Kyte-Doolittle":
+                "Range −4.5 (Arg) to +4.5 (Ile). Values > 1.8 sustained over ≥ 20 residues "
+                "suggest a transmembrane helix (Kyte & Doolittle 1982).",
+            "Wimley-White":
+                "Whole-residue free energies of transfer from water into lipid bilayer "
+                "(Wimley & White 1996). Negative = membrane-preferring.",
+            "Hessa":
+                "Apparent ΔG for translocon-mediated membrane insertion (Hessa et al. 2005, "
+                "Nat. Methods). Negative values favour insertion.",
+            "Moon-Fleming":
+                "Water-to-bilayer transfer ΔG using OmpLA host-guest system "
+                "(Moon & Fleming 2011). Negative = membrane-preferring.",
+            "GES":
+                "Goldman-Engelman-Steitz scale: free energy of transfer from lipid to water "
+                "(Engelman et al. 1986). Positive = lipid-preferring.",
+            "Hopp-Woods":
+                "Hydrophilicity scale; positive = hydrophilic. Used for predicting antigenic "
+                "surface regions (Hopp & Woods 1981).",
+            "Eisenberg":
+                "Consensus hydrophobicity scale normalised to unit variance "
+                "(Eisenberg et al. 1984).",
+            "Fauche-Pliska":
+                "Octanol/water partition logP — measures membrane-partitioning tendency "
+                "(Fauchère & Pliska 1983).",
+            "Urry":
+                "Inverse temperature transition scale for IDP phase separation; "
+                "values calibrated on elastin-like peptides (Urry et al. 1992).",
+        }
+        note = _SCALE_NOTES.get(scale, "")
+        return (
+            f"Sliding-window average of residue hydrophobicity.\n\n"
+            f"Formula: H(i) = (1/w) · Σ h(j)  for j = i−⌊w/2⌋ to i+⌊w/2⌋\n"
+            f"where h(j) is the per-residue score and w is the window size (default 9).\n\n"
+            f"Currently using: {scale}  ({ref})\n"
+            f"Y-axis: {ylabel}\n\n"
+            + (note + "\n\n" if note else "")
+            + "Other scales selectable in Settings: Wimley–White, Hessa, GES, "
+            "Hopp–Woods, Fauchère–Pliska, Urry, Moon–Fleming, Eisenberg."
+        )
+
     # --- Settings ---
 
     def toggle_theme(self):
@@ -5342,6 +6713,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         # Update structure control panel stylesheet
         if hasattr(self, "struct_ctrl_scroll"):
             self.struct_ctrl_scroll.setStyleSheet(struct_css)
+            tabbar_css = (self._STRUCT_TABBAR_CSS_DARK
+                          if is_dark else self._STRUCT_TABBAR_CSS_LIGHT)
+            self.struct_ctrl_scroll.tabBar().setStyleSheet(tabbar_css)
         if hasattr(self, "_struct_title_lbl"):
             self._struct_title_lbl.setStyleSheet(
                 f"font-weight:700; font-size:10pt; color:{struct_title_color};"
@@ -5409,7 +6783,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             pass
         self.show_bead_labels = self.label_checkbox.isChecked()
         self.transparent_bg   = self.transparent_bg_checkbox.isChecked()
-        self.heatmap_cmap     = self.heatmap_cmap_combo.currentText()
+        # heatmap_cmap is set per-graph via the inline colormap dropdown
         try:
             self.label_font_size = int(self.label_font_input.text())
             self.tick_font_size  = int(self.tick_font_input.text())
@@ -5424,7 +6798,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         _gstyle._POS_COL = self.graph_color
         self.show_heading         = self.heading_checkbox.isChecked()
         self.show_grid            = self.grid_checkbox.isChecked()
-        self.default_graph_format = self.graph_format_combo.currentText()
+        # default_graph_format is set per-graph via the inline save format dropdown
         self.use_reducing         = self.reducing_checkbox.isChecked()
         self.hydro_scale          = self.hydro_scale_combo.currentText()
 
@@ -5497,12 +6871,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.pka_input.setText("")
         self.reducing_checkbox.setChecked(False)
         self.label_checkbox.setChecked(True)
-        self.heatmap_cmap_combo.setCurrentText("viridis")
+        self.heatmap_cmap = "viridis"
         self.label_font_input.setText("11")
         self.tick_font_input.setText("9")
         self.marker_size_input.setText("10")
         self.graph_color_combo.setCurrentText("Royal Blue")
-        self.graph_format_combo.setCurrentText("PNG")
+        self.default_graph_format = "PNG"
         self.heading_checkbox.setChecked(True)
         self.grid_checkbox.setChecked(True)
         self.transparent_bg_checkbox.setChecked(True)
@@ -6065,6 +7439,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                         self.batch_struct[rec_id] = chain_structs[chain_letters[i]]
                 if tagged[0][0] in self.batch_struct:
                     self.alphafold_data = self.batch_struct[tagged[0][0]]
+                self._struct_is_alphafold = False
                 # Load the full PDB into the 3D viewer (all chains + chain controls).
                 self._load_structure_viewer(pdb_str)
                 self.export_structure_btn.setEnabled(True)
@@ -6108,7 +7483,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._fetch_and_show_protein_summary(acc, is_pdb)
 
     def _fetch_and_show_protein_summary(self, acc: str, is_pdb: bool) -> None:
-        """Fetch brief metadata from UniProt or RCSB and display in the info bar."""
+        """Fetch metadata from UniProt or RCSB, cache in _uniprot_card, refresh Summary tab."""
         try:
             if is_pdb:
                 url = f"https://data.rcsb.org/rest/v1/core/entry/{acc.upper()}"
@@ -6116,44 +7491,72 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                     "Accept": "application/json", "User-Agent": "BEER/2.0"})
                 with urllib.request.urlopen(req, timeout=8) as resp:
                     data = json.loads(resp.read().decode())
-                title = data.get("struct", {}).get("title", "")
-                pdb_id = acc.upper()
-                html = (
-                    f"<b>PDB {pdb_id}</b> &nbsp;|&nbsp; {title}"
-                )
+                self._uniprot_card = {
+                    "source": "PDB",
+                    "accession": acc.upper(),
+                    "name": data.get("struct", {}).get("title", ""),
+                }
             else:
                 url = f"https://rest.uniprot.org/uniprotkb/{acc}.json"
                 req = urllib.request.Request(url, headers={
                     "Accept": "application/json", "User-Agent": "BEER/2.0"})
                 with urllib.request.urlopen(req, timeout=8) as resp:
                     data = json.loads(resp.read().decode())
-                # Protein name
-                pd = data.get("proteinDescription", {})
-                rec = pd.get("recommendedName") or (pd.get("submittedNames") or [{}])[0]
+                # ── Protein name ──────────────────────────────────────────
+                pd_obj = data.get("proteinDescription", {})
+                rec = pd_obj.get("recommendedName") or (pd_obj.get("submittedNames") or [{}])[0]
                 prot_name = (rec.get("fullName") or {}).get("value", "")
-                # Gene name
+                # ── Gene / organism ───────────────────────────────────────
                 genes = data.get("genes", [])
                 gene = (genes[0].get("geneName") or {}).get("value", "") if genes else ""
-                # Organism
                 organism = data.get("organism", {}).get("scientificName", "")
-                # Function comment (first sentence only)
-                func = ""
+                # ── Parse comments by type ────────────────────────────────
+                func_texts, subcel_texts, disease_texts, ptm_texts, caution_texts = [], [], [], [], []
                 for c in data.get("comments", []):
-                    if c.get("commentType") == "FUNCTION":
-                        texts = c.get("texts", [])
-                        if texts:
-                            raw = texts[0].get("value", "")
-                            func = raw.split(".")[0] + "." if raw else ""
-                        break
-                parts = []
-                if prot_name:
-                    parts.append(f"<b>{prot_name}</b>")
-                meta = " | ".join(filter(None, [gene, f"<i>{organism}</i>" if organism else ""]))
-                if meta:
-                    parts.append(meta)
-                if func:
-                    parts.append(func)
-                html = " &nbsp;·&nbsp; ".join(parts)
+                    ct = c.get("commentType", "")
+                    if ct == "FUNCTION":
+                        for t in c.get("texts", []):
+                            v = t.get("value", "").strip()
+                            if v:
+                                func_texts.append(v)
+                    elif ct == "SUBCELLULAR LOCATION":
+                        for loc in c.get("subcellularLocations", []):
+                            lv = (loc.get("location") or {}).get("value", "")
+                            if lv:
+                                subcel_texts.append(lv)
+                    elif ct == "DISEASE":
+                        d = c.get("disease", {})
+                        dname = d.get("diseaseId", "") or d.get("description", "")
+                        if dname:
+                            disease_texts.append(dname)
+                    elif ct == "PTM":
+                        for t in c.get("texts", []):
+                            v = t.get("value", "").strip()
+                            if v:
+                                ptm_texts.append(v)
+                    elif ct == "CAUTION":
+                        for t in c.get("texts", []):
+                            v = t.get("value", "").strip()
+                            if v:
+                                caution_texts.append(v)
+                # ── Keywords ──────────────────────────────────────────────
+                keywords = [kw.get("name", "") for kw in data.get("keywords", []) if kw.get("name")]
+                self._uniprot_card = {
+                    "source": "UniProt",
+                    "accession": acc,
+                    "name": prot_name,
+                    "gene": gene,
+                    "organism": organism,
+                    "function": func_texts,
+                    "subcellular": list(dict.fromkeys(subcel_texts)),
+                    "diseases": disease_texts,
+                    "ptm": ptm_texts,
+                    "keywords": keywords,
+                }
+            # Refresh summary tab with new card data if analysis is done
+            if self.analysis_data:
+                self._summary_tab_browser.setHtml(
+                    self._build_summary_tab_html(self.analysis_data))
             # ── PDB cross-reference chips (UniProt only) ──────────────────
             if not is_pdb:
                 self._populate_pdb_xref_chips(acc)
@@ -6277,6 +7680,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_alphafold_finished(self, data: dict):
         self.alphafold_data = data
+        self._struct_is_alphafold = True
         if self.sequence_name:
             self.batch_struct[self.sequence_name] = data
         self._update_current_snapshot()
@@ -6603,6 +8007,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.variants_data     = []
         self.intact_data       = {}
         self._uniprot_features = {}
+        self._uniprot_card     = {}
 
         for _w in (self._uniprot_feat_worker, self._seq_search_worker):
             if _w and _w.isRunning():

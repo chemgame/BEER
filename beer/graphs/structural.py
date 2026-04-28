@@ -203,44 +203,172 @@ def create_plddt_figure(
     plddt: list,
     label_font: int = 14,
     tick_font: int = 12,
+    use_bfactor: bool = False,
 ) -> Figure:
-    """Per-residue pLDDT confidence score with coloured confidence zones."""
-    import matplotlib.pyplot as plt
+    """Per-residue pLDDT or B-factor profile with coloured confidence zones.
 
+    Set use_bfactor=True when the structure comes from PDB (crystallographic B-factors).
+    """
     n = len(plddt)
     xs = list(range(1, n + 1))
     w = max(9, min(16, 9 + n * 0.015))
     fig = Figure(figsize=(w, 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
-    ax.axhspan(90, 100, alpha=0.14, color="#0053D6")
-    ax.axhspan(70,  90, alpha=0.14, color="#65CBF3")
-    ax.axhspan(50,  70, alpha=0.14, color="#FFDB13")
-    ax.axhspan(0,   50, alpha=0.14, color="#FF7D45")
-    for i in range(n - 1):
-        mid = (plddt[i] + plddt[i + 1]) / 2
-        if mid >= 90:   seg_col = "#0053D6"
-        elif mid >= 70: seg_col = "#65CBF3"
-        elif mid >= 50: seg_col = "#FFDB13"
-        else:           seg_col = "#FF7D45"
-        ax.plot([xs[i], xs[i + 1]], [plddt[i], plddt[i + 1]],
-                color=seg_col, linewidth=2.5, zorder=4, solid_capstyle="round")
-    ax.plot(xs, plddt, color="black", linewidth=0.5, alpha=0.35, zorder=5)
-    for thresh, col in [(90, "#0053D6"), (70, "#65CBF3"), (50, "#FFDB13")]:
-        ax.axhline(thresh, color=col, linewidth=0.9, linestyle="--", alpha=0.9)
-    _pub_style_ax(ax, title="pLDDT Confidence Score",
-                  xlabel="Residue Position", ylabel="pLDDT Score",
+
+    if use_bfactor:
+        title  = "B-Factor Profile"
+        ylabel = "B-Factor (Å²)"
+        vmax   = max(100.0, float(max(plddt))) if plddt else 100.0
+        ax.axhspan(0,    20,   alpha=0.14, color="#0053D6")
+        ax.axhspan(20,   40,   alpha=0.14, color="#65CBF3")
+        ax.axhspan(40,   60,   alpha=0.14, color="#FFDB13")
+        ax.axhspan(60,   vmax, alpha=0.14, color="#FF7D45")
+        for i in range(n - 1):
+            mid = (plddt[i] + plddt[i + 1]) / 2
+            if mid < 20:    seg_col = "#0053D6"
+            elif mid < 40:  seg_col = "#65CBF3"
+            elif mid < 60:  seg_col = "#FFDB13"
+            else:           seg_col = "#FF7D45"
+            ax.plot([xs[i], xs[i + 1]], [plddt[i], plddt[i + 1]],
+                    color=seg_col, linewidth=2.5, zorder=4, solid_capstyle="round")
+        ax.plot(xs, plddt, color="black", linewidth=0.5, alpha=0.35, zorder=5)
+        for thresh, col in [(20, "#0053D6"), (40, "#65CBF3"), (60, "#FFDB13")]:
+            ax.axhline(thresh, color=col, linewidth=0.9, linestyle="--", alpha=0.9)
+        ax.set_ylim(0, vmax * 1.05)
+        ax.legend(handles=[
+            Patch(color="#0053D6", alpha=0.5, label="Very low (< 20 Å²)"),
+            Patch(color="#65CBF3", alpha=0.5, label="Low (20–40 Å²)"),
+            Patch(color="#FFDB13", alpha=0.5, label="Medium (40–60 Å²)"),
+            Patch(color="#FF7D45", alpha=0.5, label="High (> 60 Å²)"),
+        ], fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0",
+           loc="upper right")
+    else:
+        title  = "pLDDT Confidence Score"
+        ylabel = "pLDDT Score"
+        ax.axhspan(90, 100, alpha=0.14, color="#0053D6")
+        ax.axhspan(70,  90, alpha=0.14, color="#65CBF3")
+        ax.axhspan(50,  70, alpha=0.14, color="#FFDB13")
+        ax.axhspan(0,   50, alpha=0.14, color="#FF7D45")
+        for i in range(n - 1):
+            mid = (plddt[i] + plddt[i + 1]) / 2
+            if mid >= 90:   seg_col = "#0053D6"
+            elif mid >= 70: seg_col = "#65CBF3"
+            elif mid >= 50: seg_col = "#FFDB13"
+            else:           seg_col = "#FF7D45"
+            ax.plot([xs[i], xs[i + 1]], [plddt[i], plddt[i + 1]],
+                    color=seg_col, linewidth=2.5, zorder=4, solid_capstyle="round")
+        ax.plot(xs, plddt, color="black", linewidth=0.5, alpha=0.35, zorder=5)
+        for thresh, col in [(90, "#0053D6"), (70, "#65CBF3"), (50, "#FFDB13")]:
+            ax.axhline(thresh, color=col, linewidth=0.9, linestyle="--", alpha=0.9)
+        ax.set_ylim(0, 100)
+        ax.legend(handles=[
+            Patch(color="#0053D6", alpha=0.5, label="Very high (≥ 90)"),
+            Patch(color="#65CBF3", alpha=0.5, label="Confident (70–90)"),
+            Patch(color="#FFDB13", alpha=0.5, label="Low (50–70)"),
+            Patch(color="#FF7D45", alpha=0.5, label="Very low (< 50)"),
+        ], fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0",
+           loc="lower right")
+
+    _pub_style_ax(ax, title=title,
+                  xlabel="Residue Position", ylabel=ylabel,
                   grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
-    ax.set_ylim(0, 100)
     ax.set_xlim(1, n)
-    ax.legend(handles=[
-        Patch(color="#0053D6", alpha=0.5, label="Very high"),
-        Patch(color="#65CBF3", alpha=0.5, label="Confident"),
-        Patch(color="#FFDB13", alpha=0.5, label="Low"),
-        Patch(color="#FF7D45", alpha=0.5, label="Very low"),
-    ], fontsize=tick_font - 3, framealpha=0.85, edgecolor="#d0d4e0",
-       loc="lower right")
+    fig.tight_layout(pad=1.8)
+    return fig
+
+
+def create_sasa_figure(
+    rsa_dict: dict[int, float],
+    asa_dict: dict[int, float],
+    window: int = 9,
+    show_asa: bool = False,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Per-residue solvent accessibility profile with smoothing.
+
+    Args:
+        rsa_dict: {PDB resi number: RSA 0..1}
+        asa_dict: {PDB resi number: absolute ASA in Å²}
+        window:   smoothing window (from Settings, same as other profiles)
+        show_asa: if True plot raw ASA (Å²); if False plot RSA (dimensionless 0–1)
+    """
+    if not rsa_dict:
+        fig = Figure(figsize=(9, 4), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "No structure loaded", ha="center", va="center",
+                transform=ax.transAxes, color="#888888", fontsize=12)
+        fig.tight_layout()
+        return fig
+
+    src = asa_dict if show_asa else rsa_dict
+    resi_nums = sorted(src.keys())
+    vals = np.array([src[r] for r in resi_nums], dtype=float)
+    xs   = np.arange(1, len(vals) + 1)   # sequential 1-based position for x-axis
+
+    # Colour each segment by burial level using a vivid blue→orange diverging map
+    _CMAP = cm.get_cmap("RdYlBu_r")   # blue=buried, red=exposed — intuitive for accessibility
+
+    w = max(9, min(16, 9 + len(vals) * 0.015))
+    fig = Figure(figsize=(w, 4.5), dpi=120)
+    fig.set_facecolor("#ffffff")
+    ax = fig.add_subplot(111)
+
+    if show_asa:
+        ylabel = "ASA (Å²)"
+        title  = "Solvent-Accessible Surface Area"
+        vmax = float(np.percentile(vals, 98)) if len(vals) > 2 else float(vals.max()) or 1.0
+        norm = mcolors.Normalize(vmin=0, vmax=vmax)
+        ax.fill_between(xs, vals, alpha=0.15, color="#3b82f6", linewidth=0)
+    else:
+        ylabel = "Relative Solvent Accessibility (RSA)"
+        title  = "Relative Solvent Accessibility"
+        norm = mcolors.Normalize(vmin=0, vmax=1)
+        # Clear burial-zone bands
+        ax.axhspan(0.0,  0.20, alpha=0.12, color="#1e3a8a", zorder=0)   # buried  (deep blue)
+        ax.axhspan(0.20, 0.50, alpha=0.08, color="#fbbf24", zorder=0)   # partial (amber)
+        ax.axhspan(0.50, 1.0,  alpha=0.10, color="#dc2626", zorder=0)   # exposed (red)
+
+    # Raw profile (thin, grey)
+    ax.plot(xs, vals, color="#94a3b8", linewidth=0.8, alpha=0.45, zorder=2)
+
+    # Smoothed profile — coloured per-segment by burial level
+    half = max(1, window // 2)
+    kern = np.ones(window) / window
+    if len(vals) >= window:
+        smooth = np.convolve(vals, kern, mode="same")
+        for i in range(half):
+            smooth[i]        = vals[:i + half + 1].mean()
+            smooth[-(i + 1)] = vals[-(i + half + 1):].mean()
+    else:
+        smooth = vals.copy()
+
+    # Draw coloured line segments
+    ref = smooth if not show_asa else vals
+    for i in range(len(xs) - 1):
+        seg_val = (ref[i] + ref[i + 1]) / 2
+        seg_col = _CMAP(norm(seg_val))
+        ax.plot(xs[i:i+2], smooth[i:i+2], color=seg_col,
+                linewidth=2.5, zorder=3, solid_capstyle="round")
+    # Narrow dark overlay (matches pLDDT style — clarifies profile against coloured background)
+    ax.plot(xs, smooth, color="black", linewidth=0.5, alpha=0.30, zorder=4)
+
+    if not show_asa:
+        ax.axhline(0.20, color="#1e3a8a", linewidth=1.0, linestyle="--", alpha=0.8)
+        ax.axhline(0.50, color="#dc2626", linewidth=1.0, linestyle="--", alpha=0.8)
+        ax.set_ylim(-0.02, 1.05)
+        ax.legend(handles=[
+            Patch(color="#1e3a8a", alpha=0.55, label="Buried (RSA < 0.20)"),
+            Patch(color="#fbbf24", alpha=0.65, label="Partial (0.20 – 0.50)"),
+            Patch(color="#dc2626", alpha=0.50, label="Exposed (RSA > 0.50)"),
+        ], fontsize=tick_font - 3, framealpha=0.88, edgecolor="#d0d4e0", loc="upper right")
+
+    _pub_style_ax(ax, title=title, xlabel="Residue Position", ylabel=ylabel,
+                  grid=False, title_size=label_font - 1,
+                  label_size=label_font - 1, tick_size=tick_font - 1)
+    ax.set_xlim(1, len(vals))
     fig.tight_layout(pad=1.8)
     return fig
 

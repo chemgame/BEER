@@ -385,7 +385,7 @@ def create_bilstm_profile_figure(
 
     # ── Axes styling ─────────────────────────────────────────────────────
     title = f"{feat_display} — AI Head (ESM2 650M)"
-    ylabel = f"{feat_display} Probability"
+    ylabel = f"{feat_display} Prediction score"
     _pub_style_ax(ax, title=title, xlabel="Residue Position", ylabel=ylabel,
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)

@@ -38,6 +38,7 @@ from beer.graphs.structural import (
     create_ramachandran_figure,
     create_contact_network_figure,
     create_plddt_figure,
+    create_sasa_figure,
     create_distance_map_figure,
 )
 from beer.graphs.comparative import (
@@ -79,6 +80,7 @@ __all__ = [
     "create_ramachandran_figure",
     "create_contact_network_figure",
     "create_plddt_figure",
+    "create_sasa_figure",
     "create_distance_map_figure",
     "create_msa_conservation_figure",
     "create_msa_covariance_figure",

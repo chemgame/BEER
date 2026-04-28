@@ -12,6 +12,7 @@ def create_variant_effect_figure(
     llr_matrix: np.ndarray,
     label_font: int = 12,
     tick_font: int = 10,
+    cmap: str = "RdBu_r",
 ) -> Figure:
     """Two-panel figure: heatmap (LxAA) + per-position mean LLR profile.
 
@@ -32,7 +33,7 @@ def create_variant_effect_figure(
     im = ax_heat.imshow(
         llr_matrix.T,
         aspect="auto",
-        cmap="RdBu_r",
+        cmap=cmap,
         norm=norm,
         interpolation="nearest",
     )
@@ -79,6 +80,7 @@ def create_alphafold_missense_figure(
     seq: str = "",
     label_font: int = 12,
     tick_font: int = 10,
+    cmap: str = "RdYlGn_r",
 ) -> Figure:
     """Two-panel AlphaMissense figure: heatmap (positions × mutants) + mean pathogenicity profile.
 
@@ -105,7 +107,7 @@ def create_alphafold_missense_figure(
 
     ax_heat = fig.add_subplot(gs[0])
     norm = mcolors.Normalize(vmin=0, vmax=1)
-    im = ax_heat.imshow(mat.T, aspect="auto", cmap="RdYlGn_r",
+    im = ax_heat.imshow(mat.T, aspect="auto", cmap=cmap,
                         norm=norm, interpolation="nearest")
     ax_heat.set_yticks(range(20))
     ax_heat.set_yticklabels(AA_ORDER_LOCAL, fontsize=max(tick_font - 2, 7))

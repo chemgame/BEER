@@ -346,11 +346,16 @@ def create_saturation_mutagenesis_figure(
 
     ax.set_yticks(range(20))
     ax.set_yticklabels(AAS_BY_HYDRO, fontsize=max(6, tick_font - 4))
-    ax.set_xlabel("Residue", fontsize=label_font - 1, color="#4a5568")
+    # Sparse x-tick labels (1-based residue positions)
+    step = max(1, n // 25)
+    xtick_pos = list(range(0, n, step))
+    ax.set_xticks(xtick_pos)
+    ax.set_xticklabels([str(p + 1) for p in xtick_pos], fontsize=max(6, tick_font - 3),
+                       rotation=45 if n > 50 else 0, ha="right" if n > 50 else "center")
+    ax.set_xlabel("Residue Position", fontsize=label_font - 1, color="#4a5568")
     ax.set_ylabel("Substitution", fontsize=label_font - 1, color="#4a5568")
     ax.set_title("Single-Residue Perturbation Map",
                  fontsize=label_font, fontweight="bold", color="#1a1a2e", pad=8)
-    ax.tick_params(axis="x", labelsize=tick_font - 2)
     fig.tight_layout(pad=1.8)
     return fig
 

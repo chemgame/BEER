@@ -139,14 +139,14 @@ Particularly relevant for IDP/phase-separation research."""
 
 HYDROPHOBICITY_SCALES: dict[str, dict] = {
     "Kyte-Doolittle":   {"values": KYTE_DOOLITTLE,     "ylabel": "Hydrophobicity (Kyte-Doolittle)", "ref": "Kyte & Doolittle 1982"},
-    "Eisenberg":        {"values": EISENBERG_SCALE,     "ylabel": "Eisenberg",     "ref": "Eisenberg et al. 1984"},
-    "Wimley-White":     {"values": WIMLEY_WHITE,        "ylabel": "ΔG (WW)",       "ref": "Wimley & White 1996"},
-    "Hessa":            {"values": HESSA_SCALE,         "ylabel": "ΔG (Hessa)",    "ref": "Hessa et al. 2005"},
-    "Moon-Fleming":     {"values": MOON_FLEMING_SCALE,  "ylabel": "ΔG (MF)",       "ref": "Moon & Fleming 2011"},
-    "GES":              {"values": GES_SCALE,           "ylabel": "ΔG (GES)",      "ref": "Engelman et al. 1986"},
-    "Hopp-Woods":       {"values": HOPP_WOODS,          "ylabel": "HW Score",      "ref": "Hopp & Woods 1981"},
-    "Fauche-Pliska":    {"values": FAUCHERE_PLISKA,     "ylabel": "logP (FP)",     "ref": "Fauche & Pliska 1983"},
-    "Urry":             {"values": URRY_SCALE,          "ylabel": "Urry Score",    "ref": "Urry et al. 1992"},
+    "Eisenberg":        {"values": EISENBERG_SCALE,     "ylabel": "Hydrophobicity (Eisenberg consensus)", "ref": "Eisenberg et al. 1984"},
+    "Wimley-White":     {"values": WIMLEY_WHITE,        "ylabel": "Transfer ΔG into bilayer (Wimley-White, kcal/mol)", "ref": "Wimley & White 1996"},
+    "Hessa":            {"values": HESSA_SCALE,         "ylabel": "Apparent ΔG_app for membrane insertion (Hessa, kcal/mol)", "ref": "Hessa et al. 2005"},
+    "Moon-Fleming":     {"values": MOON_FLEMING_SCALE,  "ylabel": "Transfer ΔG into bilayer (Moon-Fleming, kcal/mol)", "ref": "Moon & Fleming 2011"},
+    "GES":              {"values": GES_SCALE,           "ylabel": "Transfer ΔG into bilayer (GES, kcal/mol)", "ref": "Engelman et al. 1986"},
+    "Hopp-Woods":       {"values": HOPP_WOODS,          "ylabel": "Hydrophilicity (Hopp-Woods)", "ref": "Hopp & Woods 1981"},
+    "Fauche-Pliska":    {"values": FAUCHERE_PLISKA,     "ylabel": "Hydrophobicity logP (Fauchère-Pliska)", "ref": "Fauchère & Pliska 1983"},
+    "Urry":             {"values": URRY_SCALE,          "ylabel": "Phase-separation hydrophobicity (Urry)", "ref": "Urry et al. 1992"},
 }
 """Registry of all hydrophobicity scales available in BEER.
 All scales stored with positive = hydrophobic for display consistency."""
@@ -371,6 +371,8 @@ REPORT_SECTIONS: list[str] = [
     "Sticker & Spacer",
     "LARKS",
     "Linear Motifs",
+    # --- Structure-derived sections (require loaded PDB) ---
+    "SASA Profile",
     # --- New sections ---
     "\u03b2-Aggregation & Solubility",
     "Amphipathic Helices",
@@ -404,14 +406,11 @@ BILSTM_PROFILE_TABS: frozenset[str] = frozenset({
     "RNA Binding Profile",
     "Nucleotide-Binding Profile",
     "Transit Peptide Profile",
-    "Aggregation Propensity Profile",
 })
 
 GRAPH_TITLES: list[str] = [
     # Composition
     "Amino Acid Composition (Bar)",
-    # AI Overview
-    "Overview",
     # BiLSTM Sequence Profiles
     "Disorder Profile",
     "Signal Peptide Profile",
@@ -437,7 +436,6 @@ GRAPH_TITLES: list[str] = [
     "RNA Binding Profile",
     "Nucleotide-Binding Profile",
     "Transit Peptide Profile",
-    "Aggregation Propensity Profile",
     # Other Sequence Profiles
     "Hydrophobicity Profile",
     "Local Charge Profile",
@@ -466,6 +464,7 @@ GRAPH_TITLES: list[str] = [
     "Cleavage Map",
     # AlphaFold & Structure
     "pLDDT Profile",
+    "SASA Profile",
     "Distance Map",
     "Residue Contact Network",
     "Ramachandran Plot",
@@ -485,7 +484,6 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
         "Amino Acid Composition (Bar)",
     ]),
     ("AI Predictions", [
-        "Overview",
         "Disorder Profile",
         "Signal Peptide Profile",
         "Transmembrane Profile",
@@ -509,7 +507,10 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
         "Repeat Region Profile",
         "Nucleotide-Binding Profile",
         "Transit Peptide Profile",
-        "Aggregation Propensity Profile",
+    ]),
+    ("Aggregation & Solubility", [
+        "\u03b2-Aggregation Profile",
+        "Solubility Profile",
     ]),
     ("Other Sequence Profiles", [
         "Hydrophobicity Profile",
@@ -527,10 +528,6 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
         "Hydrophobic Moment",
         "Helical Wheel",
     ]),
-    ("Aggregation & Solubility", [
-        "\u03b2-Aggregation Profile",
-        "Solubility Profile",
-    ]),
     ("Phase Separation & IDP", [
         "Uversky Phase Plot",
         "Single-Residue Perturbation Map",
@@ -545,6 +542,7 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
     ]),
     ("AlphaFold & Structure", [
         "pLDDT Profile",
+        "SASA Profile",
         "Distance Map",
         "Residue Contact Network",
         "Ramachandran Plot",
