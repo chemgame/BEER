@@ -363,6 +363,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._analysis_worker    = None
         self._progress_dlg       = None
         self._pending_pdb        = None   # stored when loadPDB is called before page ready
+        self._struct_pdb_str     = None   # raw PDB string of currently loaded structure
         self._struct_marker_resi = None   # residue last clicked in 3D viewer; re-applied on graph redraw
         self._struct_sasa_data   = {}     # {PDB resi: RSA 0..1} computed on PDB load
         self._struct_sasa_raw    = {}     # {PDB resi: ASA Å²} computed on PDB load
@@ -2621,25 +2622,12 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.struct_analyse_canvas_layout.setSpacing(6)
             analyse_l.addWidget(self.struct_analyse_canvas_area)
 
-            refresh_analyse_btn = QPushButton("↺  Refresh Analysis")
+            refresh_analyse_btn = QPushButton("\u21ba  Refresh")
             refresh_analyse_btn.setToolTip(
-                "Regenerate pLDDT / SASA / Ramachandran mini-plots from current structure data.")
+                "Regenerate structure mini-plots from current structure data.")
             refresh_analyse_btn.clicked.connect(self._refresh_analyse_tab)
+            refresh_analyse_btn.setFixedHeight(26)
             analyse_l.addWidget(refresh_analyse_btn)
-
-            show_graph_btns = [
-                ("pLDDT / B-Factor →", "pLDDT Profile"),
-                ("SASA Profile →",     "SASA Profile"),
-                ("Ramachandran →",     "Ramachandran Plot"),
-                ("Distance Map →",     "Distance Map"),
-            ]
-            for btn_lbl, graph_name in show_graph_btns:
-                b = QPushButton(btn_lbl)
-                b.setFixedHeight(24)
-                b.setStyleSheet("font-size:8pt;")
-                b.setToolTip(f"Switch to Graphs tab and show {graph_name}")
-                b.clicked.connect(lambda _, g=graph_name: self._jump_to_graph(g))
-                analyse_l.addWidget(b)
             analyse_l.addStretch()
 
 
@@ -4095,12 +4083,82 @@ window.addEventListener("load",init);
         grad_key = self._AI_GRADIENT_MAP.get(text, "hot")
         self._js(f"setFeatureGradient({repr(grad_key)});")
 
-    def _refresh_analyse_tab(self) -> None:
-        """Populate the Analyse tab with mini structure plots and stats."""
-        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as _FC
-        import matplotlib.pyplot as _plt
+    @staticmethod
+    def _extract_bfactors_from_pdb(pdb_str: str) -> list[float]:
+        """Return per-residue mean B-factor from ATOM records (first chain, first model)."""
+        from collections import defaultdict
+        resi_bvals: dict[int, list[float]] = defaultdict(list)
+        cur_chain = None
+        for line in pdb_str.splitlines():
+            if not line.startswith("ATOM  "):
+                continue
+            chain = line[21:22].strip()
+            if cur_chain is None:
+                cur_chain = chain
+            if chain != cur_chain:
+                break
+            try:
+                resi = int(line[22:26])
+                bfac = float(line[60:66])
+                resi_bvals[resi].append(bfac)
+            except (ValueError, IndexError):
+                pass
+        if not resi_bvals:
+            return []
+        return [sum(v) / len(v) for _, v in sorted(resi_bvals.items())]
 
-        # Clear existing canvases
+    @staticmethod
+    def _parse_ss_composition(pdb_str: str) -> dict[str, int]:
+        """Count residues assigned to helix / sheet / coil from HELIX+SHEET records."""
+        helix_res: set[tuple[str, int]] = set()
+        sheet_res: set[tuple[str, int]] = set()
+        for line in pdb_str.splitlines():
+            if line.startswith("HELIX "):
+                try:
+                    chain = line[19:20].strip()
+                    start = int(line[21:25])
+                    end   = int(line[33:37])
+                    for r in range(start, end + 1):
+                        helix_res.add((chain, r))
+                except (ValueError, IndexError):
+                    pass
+            elif line.startswith("SHEET "):
+                try:
+                    chain = line[21:22].strip()
+                    start = int(line[22:26])
+                    end   = int(line[33:37])
+                    for r in range(start, end + 1):
+                        sheet_res.add((chain, r))
+                except (ValueError, IndexError):
+                    pass
+        total = helix_count = sheet_count = 0
+        seen: set[tuple[str, int]] = set()
+        for line in pdb_str.splitlines():
+            if not line.startswith("ATOM  "):
+                continue
+            try:
+                chain = line[21:22].strip()
+                resi  = int(line[22:26])
+                key   = (chain, resi)
+                if key in seen:
+                    continue
+                seen.add(key)
+                total += 1
+                if key in helix_res:
+                    helix_count += 1
+                elif key in sheet_res:
+                    sheet_count += 1
+            except (ValueError, IndexError):
+                pass
+        return {"helix": helix_count, "sheet": sheet_count,
+                "coil": max(0, total - helix_count - sheet_count), "total": total}
+
+    def _refresh_analyse_tab(self) -> None:
+        """Populate the Analyse tab with structure-only mini-graphs + navigation links."""
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as _FC
+        from matplotlib.figure import Figure as _Fig
+        import numpy as _np
+
         lay = getattr(self, "struct_analyse_canvas_layout", None)
         if lay is None:
             return
@@ -4109,63 +4167,195 @@ window.addEventListener("load",init);
             if item.widget():
                 item.widget().deleteLater()
 
-        ad   = self.analysis_data or {}
-        plddt_data = ad.get("plddt")
-        rsa        = getattr(self, "_struct_sasa_data", {})
-        phi_psi    = ad.get("phi_psi") or ad.get("ramachandran_data")
-        use_bf     = not getattr(self, "_struct_is_alphafold", False)
+        pdb_str   = getattr(self, "_struct_pdb_str", None)
+        rsa       = getattr(self, "_struct_sasa_data", {})
+        afd       = self.alphafold_data or {}
+        is_af     = getattr(self, "_struct_is_alphafold", False)
+        plddt_arr = afd.get("plddt") or (self._extract_bfactors_from_pdb(pdb_str) if pdb_str else [])
+        dm        = afd.get("dist_matrix")
+
+        if not pdb_str and not rsa:
+            self.struct_analyse_stats.setText(
+                "No structure loaded — open a PDB or fetch AlphaFold first.")
+            return
+
+        _TITLE_CSS = "font-size:7pt; color:#4361ee; font-weight:600; background:transparent;"
+        _BTN_CSS   = ("font-size:7pt; color:#4361ee; background:transparent; border:none;"
+                      " text-align:right; padding:0;")
+
+        def _add_block(fig, title: str, graph_name: str | None,
+                       height: int = 130) -> None:
+            """Add title + canvas + optional navigation link as a block."""
+            from PySide6.QtWidgets import QHBoxLayout as _QHL
+            container = QWidget()
+            vb = QVBoxLayout(container)
+            vb.setContentsMargins(0, 2, 0, 6)
+            vb.setSpacing(2)
+            lbl = QLabel(title)
+            lbl.setStyleSheet(_TITLE_CSS)
+            vb.addWidget(lbl)
+            fig.set_size_inches(2.6, height / fig.get_dpi())
+            try:
+                fig.tight_layout(pad=0.3)
+            except Exception:
+                pass
+            canvas = _FC(fig)
+            canvas.setFixedHeight(height)
+            vb.addWidget(canvas)
+            if graph_name:
+                row = QWidget(); rl = _QHL(row)
+                rl.setContentsMargins(0, 0, 0, 0)
+                rl.addStretch()
+                btn = QPushButton(f"\u2197 Full Graph")
+                btn.setStyleSheet(_BTN_CSS)
+                btn.setFixedHeight(16)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(lambda _, g=graph_name: self._jump_to_graph(g))
+                rl.addWidget(btn)
+                vb.addWidget(row)
+            lay.addWidget(container)
+            import matplotlib.pyplot as _plt; _plt.close(fig)
 
         stats_lines = []
-        if plddt_data:
-            vals = list(plddt_data) if not isinstance(plddt_data, list) else plddt_data
-            mean_b = sum(vals) / len(vals)
-            label  = "B-Factor" if use_bf else "pLDDT"
-            stats_lines.append(f"Mean {label}: {mean_b:.1f}")
+
+        # ── 1. pLDDT / B-factor ───────────────────────────────────────────────
+        if plddt_arr:
+            try:
+                vals = list(plddt_arr)
+                mean_b = sum(vals) / len(vals)
+                label  = "B-Factor" if not is_af else "pLDDT"
+                stats_lines.append(f"Mean {label}: {mean_b:.1f}")
+                fig = _Fig(figsize=(2.6, 1.35), dpi=100)
+                ax  = fig.add_subplot(111)
+                x   = range(1, len(vals) + 1)
+                if is_af:
+                    zones = [(90, 100, "#0053D6"), (70, 90, "#65CBF3"),
+                             (50, 70, "#FFDB13"),  (0,  50, "#FF7D45")]
+                else:
+                    zones = [(0, 20,  "#0053D6"), (20, 40, "#65CBF3"),
+                             (40, 60, "#FFDB13"), (60, max(100, max(vals)+5), "#FF7D45")]
+                for lo, hi, col in zones:
+                    ax.axhspan(lo, hi, alpha=0.18, color=col, linewidth=0)
+                ax.plot(x, vals, linewidth=0.9, color="#374151")
+                ax.set_xlim(1, len(vals)); ax.set_ylim(0 if is_af else 0, 100 if is_af else None)
+                ax.set_ylabel(label, fontsize=6); ax.tick_params(labelsize=5)
+                for spine in ("top", "right"): ax.spines[spine].set_visible(False)
+                fig.tight_layout(pad=0.3)
+                gname = "pLDDT Profile" if "pLDDT Profile" in self._graph_generators else None
+                _add_block(fig, label + " Profile", gname, height=110)
+            except Exception:
+                pass
+
+        # ── 2. SASA ───────────────────────────────────────────────────────────
         if rsa:
-            rsa_vals = list(rsa.values())
-            n_buried = sum(1 for v in rsa_vals if v < 0.2)
-            n_exp    = sum(1 for v in rsa_vals if v >= 0.5)
-            stats_lines.append(
-                f"SASA — buried: {n_buried}, partially buried: "
-                f"{len(rsa_vals)-n_buried-n_exp}, exposed: {n_exp}")
+            try:
+                xs = sorted(rsa.keys()); ys = [rsa[k] for k in xs]
+                n_buried  = sum(1 for v in ys if v < 0.2)
+                n_exp     = sum(1 for v in ys if v >= 0.5)
+                stats_lines.append(
+                    f"Buried: {n_buried}  Exposed: {n_exp}  "
+                    f"Partial: {len(ys)-n_buried-n_exp}")
+                fig = _Fig(figsize=(2.6, 1.35), dpi=100)
+                ax  = fig.add_subplot(111)
+                ax.fill_between(xs, ys, alpha=0.35, color="#4cc9f0", linewidth=0)
+                ax.plot(xs, ys, linewidth=0.9, color="#1a85c5")
+                ax.axhline(0.2, linewidth=0.6, linestyle="--", color="#94a3b8")
+                ax.axhline(0.5, linewidth=0.6, linestyle="--", color="#475569")
+                ax.set_ylim(0, 1); ax.set_ylabel("RSA", fontsize=6)
+                ax.tick_params(labelsize=5)
+                for spine in ("top", "right"): ax.spines[spine].set_visible(False)
+                fig.tight_layout(pad=0.3)
+                gname = "SASA Profile" if "SASA Profile" in self._graph_generators else None
+                _add_block(fig, "Solvent Accessibility (RSA)", gname, height=110)
+            except Exception:
+                pass
+
+        # ── 3. SS Composition ─────────────────────────────────────────────────
+        if pdb_str:
+            try:
+                ss = self._parse_ss_composition(pdb_str)
+                tot = ss["total"] or 1
+                h_pct = 100 * ss["helix"] / tot
+                s_pct = 100 * ss["sheet"] / tot
+                c_pct = 100 * ss["coil"]  / tot
+                stats_lines.append(
+                    f"Helix {h_pct:.0f}%  Sheet {s_pct:.0f}%  Coil {c_pct:.0f}%")
+                fig = _Fig(figsize=(2.6, 0.8), dpi=100)
+                ax  = fig.add_subplot(111)
+                cum = 0
+                for val, col, lbl in [(h_pct, "#FF6666", "Helix"),
+                                      (s_pct, "#FFD700", "Sheet"),
+                                      (c_pct, "#aaaaaa", "Coil")]:
+                    ax.barh(0, val, left=cum, color=col, height=0.6)
+                    if val > 8:
+                        ax.text(cum + val / 2, 0, f"{lbl}\n{val:.0f}%",
+                                ha="center", va="center", fontsize=5.5,
+                                color="white" if col == "#FF6666" else "#333333",
+                                fontweight="bold")
+                    cum += val
+                ax.set_xlim(0, 100); ax.set_ylim(-0.5, 0.5)
+                ax.set_xticks([]); ax.set_yticks([])
+                for spine in ax.spines.values(): spine.set_visible(False)
+                fig.tight_layout(pad=0.1)
+                _add_block(fig, "Secondary Structure Composition", None, height=55)
+            except Exception:
+                pass
+
+        # ── 4. Ramachandran ───────────────────────────────────────────────────
+        if pdb_str:
+            try:
+                pp = _extract_phi_psi(pdb_str)
+                if pp:
+                    fig = _Fig(figsize=(2.6, 2.4), dpi=100)
+                    ax  = fig.add_subplot(111)
+                    # background regions
+                    from matplotlib.patches import Rectangle as _Rect
+                    ax.add_patch(_Rect((-80, -60), 32, 40, color="#555", alpha=0.2, zorder=0))
+                    ax.add_patch(_Rect((-150, 90), 60, 70, color="#888", alpha=0.15, zorder=0))
+                    ax.axhline(0, color="#ccc", linewidth=0.4)
+                    ax.axvline(0, color="#ccc", linewidth=0.4)
+                    _SS_COL = {"H": "#1f77b4", "E": "#d62728", "C": "#aaaaaa"}
+                    for res in pp:
+                        phi, psi, ss = res.get("phi"), res.get("psi"), res.get("ss", "C")
+                        if phi is None or psi is None: continue
+                        ax.scatter(phi, psi, s=4, alpha=0.6,
+                                   color=_SS_COL.get(ss, "#aaa"), linewidths=0, zorder=3)
+                    ax.set_xlim(-180, 180); ax.set_ylim(-180, 180)
+                    ax.set_xticks(range(-180, 181, 90))
+                    ax.set_yticks(range(-180, 181, 90))
+                    ax.set_xlabel("\u03d5 (°)", fontsize=6)
+                    ax.set_ylabel("\u03c8 (°)", fontsize=6)
+                    ax.tick_params(labelsize=5)
+                    for spine in ("top", "right"): ax.spines[spine].set_visible(False)
+                    fig.tight_layout(pad=0.3)
+                    gname = "Ramachandran Plot" if "Ramachandran Plot" in self._graph_generators else None
+                    _add_block(fig, "Ramachandran Plot (\u03d5/\u03c8)", gname, height=160)
+            except Exception:
+                pass
+
+        # ── 5. Distance/Contact map ───────────────────────────────────────────
+        if dm is not None:
+            try:
+                dm_arr = _np.array(dm)
+                fig = _Fig(figsize=(2.6, 2.4), dpi=100)
+                ax  = fig.add_subplot(111)
+                n   = dm_arr.shape[0]
+                ax.imshow(dm_arr < 8.0, origin="lower", aspect="auto",
+                          cmap="Greys", interpolation="nearest")
+                ax.set_xlabel("Residue", fontsize=6)
+                ax.set_ylabel("Residue", fontsize=6)
+                ax.tick_params(labelsize=5)
+                fig.tight_layout(pad=0.3)
+                gname = "Distance Map" if "Distance Map" in self._graph_generators else None
+                _add_block(fig, "Contact Map (Cα < 8 \u00c5)", gname, height=155)
+            except Exception:
+                pass
+
         if stats_lines:
-            self.struct_analyse_stats.setText("\n".join(stats_lines))
-
-        def _add_canvas(fig):
-            fig.set_size_inches(2.8, 1.9)
-            fig.tight_layout(pad=0.4)
-            c = _FC(fig)
-            c.setFixedHeight(150)
-            lay.addWidget(c)
-            _plt.close(fig)
-
-        if plddt_data:
-            try:
-                fig = create_plddt_figure(
-                    plddt_data, label_font=8, tick_font=6, use_bfactor=use_bf)
-                _add_canvas(fig)
-            except Exception:
-                pass
-
-        if rsa:
-            try:
-                xs  = sorted(rsa.keys())
-                ys  = [rsa[k] for k in xs]
-                fig, ax = _plt.subplots(figsize=(2.8, 1.6))
-                ax.fill_between(xs, ys, alpha=0.4, color="#4cc9f0")
-                ax.plot(xs, ys, linewidth=0.8, color="#1a85c5")
-                ax.set_ylabel("RSA", fontsize=7)
-                ax.set_xlabel("Residue", fontsize=7)
-                ax.tick_params(labelsize=6)
-                ax.set_title("Solvent Accessibility", fontsize=8)
-                fig.tight_layout(pad=0.4)
-                _add_canvas(fig)
-            except Exception:
-                pass
-
-        if not plddt_data and not rsa:
+            self.struct_analyse_stats.setText("  ·  ".join(stats_lines))
+        else:
             self.struct_analyse_stats.setText(
-                "No structure data yet — load a structure and run analysis first.")
+                "No structure data — load a PDB or fetch AlphaFold.")
 
     def _on_struct_colorbar_toggled(self, checked: bool) -> None:
         self._js(f"setColorBarVisible({'true' if checked else 'false'});")
@@ -4443,6 +4633,7 @@ window.addEventListener("load",init);
         """Swap in a new structure without reloading the 3Dmol page."""
         if not _WEBENGINE_AVAILABLE or self.structure_viewer is None:
             return
+        self._struct_pdb_str = pdb_str          # keep for Ramachandran / SS extraction
         pdb_json = json.dumps(pdb_str)
         # Keep as pending so loadFinished can retry if the page is still loading.
         self._pending_pdb = pdb_json
@@ -4460,6 +4651,7 @@ window.addEventListener("load",init);
             self._populate_sasa_report_section()
             if self.analysis_data:
                 self.update_graph_tabs()
+            self._refresh_analyse_tab()
         _QT.singleShot(200, _deferred_sasa)
 
     @staticmethod
