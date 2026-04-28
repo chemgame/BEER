@@ -2663,13 +2663,29 @@ class ProteinAnalyzerGUI(QMainWindow):
             except Exception:
                 self._struct_bridge = None
 
+            # Inject bundled 3Dmol.js at DocumentCreation so $3Dmol is
+            # guaranteed to exist before any page script runs (avoids CDN dependency)
+            try:
+                import os as _os
+                from PySide6.QtWebEngineCore import QWebEngineScript as _WES
+                _3dmol_path = _os.path.join(_os.path.dirname(__file__), "3Dmol-min.js")
+                with open(_3dmol_path, "r", encoding="utf-8") as _f:
+                    _3dmol_src = _f.read()
+                _s = _WES()
+                _s.setName("3dmol-bundled")
+                _s.setSourceCode(_3dmol_src)
+                _s.setInjectionPoint(_WES.InjectionPoint.DocumentCreation)
+                _s.setWorldId(_WES.ScriptWorldId.MainWorld)
+                self.structure_viewer.page().scripts().insert(_s)
+            except Exception:
+                pass   # falls back to CDN script tag in HTML
+
             layout.addLayout(content_row, 1)
 
             # Load the base page once.  All subsequent structure swaps go via
             # loadPDB() JS call, never reloading the page.
             self.structure_viewer.setHtml(
-                self._3DMOL_HTML.format(pdb_json='null'),
-                QUrl("https://3dmol.org/"))
+                self._3DMOL_HTML.format(pdb_json='null'))
 
             # Populate scheme combo for the default mode
             self._update_scheme_combo(self.struct_color_mode_combo.currentText())
@@ -2778,7 +2794,8 @@ class ProteinAnalyzerGUI(QMainWindow):
   </div>
 </div>
 <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
-<script src="https://3dmol.org/build/3Dmol-min.js"></script>
+<!-- 3Dmol injected via QWebEngineScript (bundled); CDN below is fallback only -->
+<script src="https://3dmol.org/build/3Dmol-min.js" onerror="console.warn('3Dmol CDN unreachable; using bundled version')"></script>
 <script>
 var viewer   = null;
 var pdbData  = {pdb_json};       // null on initial empty load
@@ -3992,10 +4009,22 @@ window.addEventListener("load",init);
             f"</table>"
             f"<p>Mean RSA: <b>{mean_rsa:.3f}</b> &nbsp;|&nbsp; "
             f"Mean ASA: <b>{mean_asa:.1f} Å²</b></p>"
-            f"<p><em>See SASA Profile graph for the per-residue plot. "
-            f"The toggle in the graph tab switches between RSA (dimensionless, 0–1) "
+            f"<p><em>The toggle in the graph tab switches between RSA (dimensionless, 0–1) "
             f"and raw ASA (Å²).</em></p>"
             f"</body></html>"
+        )
+        # Append sparkline of RSA values
+        import urllib.parse as _up
+        spar_uri = self._make_sparkline_png(rsa_vals, "#4cc9f0", threshold=None)
+        href = "beer://graph/" + _up.quote("SASA Profile")
+        html += (
+            f"<div style='margin:10px 0 6px;'>"
+            f"<img src='{spar_uri}' style='width:100%;height:72px;"
+            f"border-radius:6px;display:block;'/>"
+            f"<div style='text-align:right;margin-top:3px;'>"
+            f"<a href='{href}' style='font-family:sans-serif;font-size:10px;"
+            f"color:#4361ee;text-decoration:none;'>\u2192 Full Graph</a>"
+            f"</div></div>"
         )
         self.report_section_tabs["SASA Profile"].setHtml(html)
         if self.analysis_data is not None:
@@ -9286,6 +9315,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         "Functional Motifs":      ("motif_bilstm_profile",    "Functional Motif Profile",        "#c4b5fd", 0.5),
         "Propeptide":             ("prop_bilstm_profile",     "Propeptide Profile",              "#fdba74", 0.5),
         "Repeat Regions":         ("rep_bilstm_profile",      "Repeat Region Profile",           "#67e8f9", 0.5),
+        "Amphipathic Helices":    ("moment_alpha",            "Hydrophobic Moment",              "#4cc9f0", None),
     }
 
     @staticmethod
@@ -9391,74 +9421,46 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             if "beer://graph/" not in current:
                 browser.setHtml(current + html_block)
 
-    # Maps section name → graph titles for sections not covered by sparklines
-    _MINI_GRAPH_MAP: dict[str, list[str]] = {
+    # Sections with a corresponding graph but no per-residue 1-D profile.
+    # Each entry gets a "→ View Graph" navigation link appended (no sparkline image).
+    _GRAPH_LINK_MAP: dict[str, list[str]] = {
         "Composition":         ["Amino Acid Composition (Bar)"],
         "Properties":          ["Isoelectric Focus", "Charge Decoration"],
         "Aromatic & \u03c0":   ["Cation\u2013\u03c0 Map"],
         "Sticker & Spacer":    ["Sticker Map"],
-        "Amphipathic Helices": ["Hydrophobic Moment"],
         "Repeat Motifs":       ["Annotation Track"],
         "LARKS":               ["Annotation Track"],
         "Linear Motifs":       ["Linear Sequence Map"],
         "Tandem Repeats":      ["Cleavage Map"],
         "Proteolytic Map":     ["Cleavage Map"],
-        "SASA Profile":        ["SASA Profile"],
     }
 
-    @staticmethod
-    def _fig_to_mini_png(fig) -> str:
-        """Render a matplotlib Figure to a compact PNG data URI (≈520×200px)."""
-        import io, base64
-        import matplotlib.pyplot as _plt
-        dpi = fig.get_dpi() or 96
-        fig.set_size_inches(520 / dpi, 200 / dpi)
-        try:
-            fig.tight_layout(pad=0.3)
-        except Exception:
-            pass
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.02,
-                    facecolor=fig.get_facecolor())
-        _plt.close(fig)
-        buf.seek(0)
-        return "data:image/png;base64," + base64.b64encode(buf.read()).decode()
-
     def _append_mini_graphs(self) -> None:
-        """Append a mini-figure thumbnail to report sections not covered by sparklines."""
+        """Append '→ View Graph' links to sections that have graphs but no sparkline."""
         import urllib.parse as _up
-        _rendered: dict[str, str] = {}  # cache title → data-uri within this call
-
-        for sec, graph_titles in self._MINI_GRAPH_MAP.items():
+        for sec, graph_titles in self._GRAPH_LINK_MAP.items():
             browser = self.report_section_tabs.get(sec)
             if browser is None:
                 continue
             current = browser.toHtml()
             if "beer://graph/" in current:
-                continue  # sparkline already present; skip
-            blocks = []
+                continue  # already wired
+            links = []
             for title in graph_titles:
-                gen = self._graph_generators.get(title)
-                if gen is None:
+                if title not in self._graph_generators:
                     continue
-                try:
-                    if title not in _rendered:
-                        _rendered[title] = self._fig_to_mini_png(gen())
-                    uri  = _rendered[title]
-                    href = "beer://graph/" + _up.quote(title)
-                    blocks.append(
-                        f"<div style='margin:10px 0 6px;'>"
-                        f"<img src='{uri}' style='width:100%;max-height:220px;"
-                        f"border-radius:6px;display:block;object-fit:contain;'/>"
-                        f"<div style='text-align:right;margin-top:3px;'>"
-                        f"<a href='{href}' style='font-family:sans-serif;font-size:10px;"
-                        f"color:#4361ee;text-decoration:none;'>\u2192 Full Graph</a>"
-                        f"</div></div>"
-                    )
-                except Exception:
-                    pass
-            if blocks:
-                browser.setHtml(current + "".join(blocks))
+                href = "beer://graph/" + _up.quote(title)
+                links.append(
+                    f"<a href='{href}' style='font-family:sans-serif;font-size:10px;"
+                    f"color:#4361ee;text-decoration:none;'>\u2192 {title}</a>"
+                )
+            if links:
+                block = (
+                    "<div style='margin:8px 0 4px;text-align:right;'>"
+                    + " &nbsp;|&nbsp; ".join(links)
+                    + "</div>"
+                )
+                browser.setHtml(current + block)
 
 
     # ── AI Predictions report sections ───────────────────────────────────────

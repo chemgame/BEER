@@ -54,4 +54,4 @@ where = ["."]
 include = ["beer*"]
 
 [tool.setuptools.package-data]
-beer = ["models/*.npz", "models/TMHMM2.0.model", "beer.png"]
+beer = ["models/*.npz", "models/TMHMM2.0.model", "beer.png", "gui/3Dmol-min.js"]

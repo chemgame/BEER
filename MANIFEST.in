@@ -3,3 +3,4 @@ include README.md
 include LICENSE
 include *.pdb
 include beer/models/*.npz
+include beer/gui/3Dmol-min.js
