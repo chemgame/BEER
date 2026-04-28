@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BEER — Biophysical Evaluation Engine for Residues</title>
+  <meta name="description" content="BEER is a desktop application for integrated AI-powered biophysical analysis of protein sequences. 50+ publication-quality graphs, ESM2 BiLSTM predictions, 3D structure viewer — fully offline." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── Tokens ─────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:     #080f24;
+      --navy-2:   #0e1a3a;
+      --navy-3:   #162046;
+      --blue:     #4361ee;
+      --blue-lt:  #6c8af5;
+      --amber:    #f59e0b;
+      --amber-lt: #fcd34d;
+      --text:     #dde3f0;
+      --text-dim: #7e8ea8;
+      --white:    #ffffff;
+      --card-bg:  rgba(255,255,255,0.035);
+      --card-bdr: rgba(255,255,255,0.07);
+      --font:     'Inter', system-ui, -apple-system, sans-serif;
+      --mono:     'JetBrains Mono', 'Courier New', monospace;
+      --radius:   14px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--navy);
+      color: var(--text);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .container {
+      max-width: 1160px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    /* ── Navbar ─────────────────────────────────────────────────────────── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(8,15,36,0.82);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-bottom: 1px solid rgba(255,255,255,0.055);
+    }
+
+    .nav-inner {
+      display: flex; align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+
+    .nav-logo {
+      font-size: 1.2rem; font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .nav-logo span { color: var(--blue-lt); }
+
+    .nav-links { display: flex; align-items: center; gap: 6px; }
+
+    .nav-links a {
+      font-size: 0.87rem; font-weight: 500;
+      color: var(--text-dim);
+      padding: 6px 13px; border-radius: 6px;
+      transition: color .15s, background .15s;
+    }
+    .nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.055); }
+    .nav-links .hide-sm { display: none; }
+
+    @media(min-width:700px) { .nav-links .hide-sm { display: inline-flex; } }
+
+    .nav-cta {
+      background: var(--blue) !important; color: var(--white) !important;
+      font-weight: 600 !important; display: inline-flex !important;
+      align-items: center !important; gap: 6px !important;
+    }
+    .nav-cta:hover { background: var(--blue-lt) !important; }
+
+    /* ── Hero ───────────────────────────────────────────────────────────── */
+    .hero {
+      padding: 88px 0 0;
+      position: relative; overflow: hidden;
+    }
+
+    /* Glow */
+    .hero::before {
+      content: '';
+      position: absolute; top: -80px; left: 50%;
+      transform: translateX(-50%);
+      width: 1000px; height: 500px;
+      background: radial-gradient(ellipse, rgba(67,97,238,.16) 0%, transparent 68%);
+      pointer-events: none;
+    }
+
+    .hero-head {
+      text-align: center;
+      max-width: 760px; margin: 0 auto;
+      position: relative; z-index: 1;
+      padding-bottom: 56px;
+    }
+
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(245,158,11,.10);
+      border: 1px solid rgba(245,158,11,.28);
+      color: var(--amber-lt);
+      font-size: 0.75rem; font-weight: 700;
+      letter-spacing: .07em; text-transform: uppercase;
+      padding: 5px 14px; border-radius: 100px;
+      margin-bottom: 22px;
+    }
+    .hero-badge::before { content: '●'; font-size: 0.5rem; }
+
+    .hero h1 {
+      font-size: clamp(2.4rem, 5vw, 3.8rem);
+      font-weight: 800; letter-spacing: -.04em;
+      line-height: 1.08; margin-bottom: 22px;
+    }
+
+    .hero h1 em {
+      font-style: normal;
+      background: linear-gradient(130deg, var(--blue-lt) 0%, #b197fc 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-sub {
+      font-size: 1.08rem; color: var(--text-dim);
+      line-height: 1.72; margin-bottom: 32px;
+    }
+
+    .hero-pills {
+      display: flex; flex-wrap: wrap;
+      gap: 9px; justify-content: center;
+      margin-bottom: 34px;
+    }
+
+    .pill {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 0.81rem; font-weight: 500;
+      padding: 5px 13px; border-radius: 100px;
+      border: 1px solid rgba(255,255,255,.09);
+      color: var(--text-dim); background: var(--card-bg);
+    }
+    .pill-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+    .cta-row {
+      display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 26px; border-radius: 8px;
+      font-weight: 600; font-size: 0.93rem;
+      transition: all .18s; cursor: pointer;
+    }
+    .btn-blue { background: var(--blue); color: var(--white); }
+    .btn-blue:hover { background: var(--blue-lt); transform: translateY(-1px); box-shadow: 0 10px 28px rgba(67,97,238,.35); }
+    .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid rgba(255,255,255,.13); }
+    .btn-ghost:hover { background: rgba(255,255,255,.055); color: var(--text); }
+
+    /* ── Screenshot strip ───────────────────────────────────────────────── */
+    .screenshots {
+      position: relative; z-index: 1;
+      /* bottom gradient fade into page */
+      -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+      mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+    }
+
+    .ss-grid {
+      display: grid;
+      grid-template-columns: 1.55fr 1fr 1fr;
+      gap: 14px;
+      align-items: end;
+    }
+
+    .ss-item {
+      border-radius: var(--radius) var(--radius) 0 0;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.09);
+      border-bottom: none;
+      box-shadow: 0 -8px 40px rgba(0,0,0,.45);
+      position: relative;
+    }
+
+    .ss-item img {
+      width: 100%; display: block;
+      object-fit: cover; object-position: top left;
+    }
+
+    /* Primary screenshot sits higher */
+    .ss-primary { transform: translateY(0); }
+    .ss-secondary { transform: translateY(32px); opacity: .88; }
+
+    /* Caption inside screenshot */
+    .ss-label {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: linear-gradient(to top, rgba(8,15,36,.92) 0%, transparent 100%);
+      padding: 28px 16px 14px;
+      font-size: 0.76rem; font-weight: 600;
+      color: rgba(255,255,255,.55); letter-spacing: .03em;
+      text-transform: uppercase;
+    }
+
+    /* ── Section shared ──────────────────────────────────────────────────── */
+    .section {
+      padding: 88px 0;
+      border-top: 1px solid rgba(255,255,255,.055);
+    }
+
+    .section-label {
+      font-size: 0.75rem; font-weight: 700;
+      letter-spacing: .10em; text-transform: uppercase;
+      color: var(--blue-lt); margin-bottom: 13px;
+    }
+
+    .section-title {
+      font-size: clamp(1.9rem, 3.2vw, 2.6rem);
+      font-weight: 800; letter-spacing: -.035em;
+      line-height: 1.18; margin-bottom: 14px;
+    }
+
+    .section-sub {
+      color: var(--text-dim); font-size: .98rem;
+      max-width: 560px; line-height: 1.72;
+    }
+
+    /* ── Differentiators ─────────────────────────────────────────────────── */
+    .diff-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 22px; margin-top: 52px;
+    }
+
+    .diff-card {
+      background: var(--card-bg); border: 1px solid var(--card-bdr);
+      border-radius: var(--radius); padding: 30px 26px;
+      transition: border-color .2s, background .2s;
+    }
+    .diff-card:hover { border-color: rgba(67,97,238,.35); background: rgba(67,97,238,.055); }
+
+    .diff-icon {
+      width: 42px; height: 42px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem; margin-bottom: 16px;
+    }
+
+    .diff-card h3 { font-size: 1.02rem; font-weight: 700; margin-bottom: 9px; color: var(--white); }
+    .diff-card p  { font-size: .88rem; color: var(--text-dim); line-height: 1.65; }
+
+    /* ── Feature cards ───────────────────────────────────────────────────── */
+    .feat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px; margin-top: 52px;
+    }
+
+    .feat-card {
+      background: var(--card-bg); border: 1px solid var(--card-bdr);
+      border-radius: var(--radius); padding: 32px 28px;
+    }
+
+    .feat-head {
+      display: flex; align-items: center; gap: 13px;
+      margin-bottom: 22px;
+    }
+
+    .feat-icon {
+      width: 38px; height: 38px; border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; flex-shrink: 0;
+    }
+
+    .feat-card h3 { font-size: 1.05rem; font-weight: 700; color: var(--white); }
+
+    .count-badge {
+      font-size: .72rem; font-weight: 600;
+      padding: 2px 8px; border-radius: 100px;
+      background: rgba(255,255,255,.07); color: var(--text-dim);
+      margin-left: 7px; vertical-align: middle;
+    }
+
+    .feat-list { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+    .feat-list li {
+      font-size: .88rem; color: var(--text-dim);
+      padding-left: 18px; position: relative; line-height: 1.55;
+    }
+    .feat-list li::before { content: '›'; position: absolute; left: 0; color: var(--blue-lt); font-weight: 700; }
+    .feat-list li strong { color: var(--text); font-weight: 600; }
+
+    /* ── Graph tags ──────────────────────────────────────────────────────── */
+    .graph-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 14px; margin-top: 48px;
+    }
+
+    .graph-cat {
+      background: var(--card-bg); border: 1px solid var(--card-bdr);
+      border-radius: 10px; padding: 18px 18px;
+    }
+
+    .graph-cat-label {
+      font-size: .72rem; font-weight: 700;
+      letter-spacing: .07em; text-transform: uppercase;
+      color: var(--blue-lt); margin-bottom: 10px;
+    }
+
+    .tag-row { display: flex; flex-wrap: wrap; gap: 5px; }
+
+    .tag {
+      font-size: .74rem; padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(255,255,255,.055);
+      color: var(--text-dim);
+      border: 1px solid rgba(255,255,255,.065);
+    }
+
+    /* ── Install ─────────────────────────────────────────────────────────── */
+    .install-layout {
+      display: grid;
+      grid-template-columns: 1fr 1.45fr;
+      gap: 60px; align-items: start;
+      margin-top: 52px;
+    }
+
+    .req-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+    .req-chip {
+      font-size: .79rem; padding: 4px 12px;
+      border-radius: 100px;
+      border: 1px solid rgba(255,255,255,.09);
+      color: var(--text-dim);
+    }
+
+    .terminal {
+      background: #01080f;
+      border: 1px solid rgba(255,255,255,.09);
+      border-radius: var(--radius); padding: 26px 28px;
+      font-family: var(--mono); font-size: .83rem;
+      line-height: 1.85; overflow-x: auto;
+      box-shadow: 0 24px 60px -12px rgba(0,0,0,.6);
+    }
+
+    .t-comment { color: #3e5673; }
+    .t-cmd     { color: #a6e22e; }
+    .t-str     { color: #e6db74; }
+    .t-kw      { color: #66d9e8; }
+    .t-dim     { color: #3e5673; }
+    .t-prompt  { color: #3e5673; user-select: none; }
+
+    .install-note { font-size: .84rem; color: var(--text-dim); margin-top: 18px; line-height: 1.65; }
+    .install-note a { color: var(--blue-lt); }
+    .install-note a:hover { text-decoration: underline; }
+
+    /* ── Citation ────────────────────────────────────────────────────────── */
+    .citation-box {
+      background: rgba(67,97,238,.07);
+      border: 1px solid rgba(67,97,238,.20);
+      border-radius: var(--radius); padding: 30px 34px;
+      display: flex; align-items: flex-start; gap: 18px;
+    }
+    .citation-box p { font-size: .90rem; color: var(--text-dim); line-height: 1.72; }
+    .citation-box strong { color: var(--text); }
+    .citation-box a { color: var(--blue-lt); }
+    .citation-box a:hover { text-decoration: underline; }
+
+    /* ── Footer ──────────────────────────────────────────────────────────── */
+    footer {
+      padding: 38px 0;
+      border-top: 1px solid rgba(255,255,255,.055);
+    }
+
+    .footer-inner {
+      display: flex; align-items: center;
+      justify-content: space-between; flex-wrap: wrap; gap: 14px;
+    }
+
+    .footer-left { font-size: .83rem; color: var(--text-dim); }
+    .footer-left a { color: var(--blue-lt); }
+    .footer-left a:hover { text-decoration: underline; }
+
+    .footer-links { display: flex; gap: 18px; }
+    .footer-links a { font-size: .83rem; color: var(--text-dim); transition: color .15s; }
+    .footer-links a:hover { color: var(--text); }
+
+    /* ── Responsive ──────────────────────────────────────────────────────── */
+    @media (max-width: 880px) {
+      .ss-grid { grid-template-columns: 1fr; gap: 10px; }
+      .ss-secondary { transform: none; opacity: 1; }
+      .diff-grid { grid-template-columns: 1fr; }
+      .feat-grid { grid-template-columns: 1fr; }
+      .install-layout { grid-template-columns: 1fr; gap: 36px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Navbar ──────────────────────────────────────────────────────────── -->
+<nav>
+  <div class="container nav-inner">
+    <a href="#" class="nav-logo">BEER <span>v2.0</span></a>
+    <div class="nav-links">
+      <a href="#why" class="hide-sm">Why BEER</a>
+      <a href="#features" class="hide-sm">Features</a>
+      <a href="#install">Install</a>
+      <a href="https://doi.org/10.48550/arXiv.2504.20561" target="_blank" rel="noopener" class="hide-sm">Paper</a>
+      <a href="https://github.com/chemgame/BEER" target="_blank" rel="noopener" class="btn nav-cta" style="padding:7px 16px;font-size:.85rem;border-radius:7px;">
+        GitHub ↗
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Hero ────────────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="container">
+
+    <div class="hero-head">
+      <div class="hero-badge">ESM2-powered · Fully offline · v2.0</div>
+
+      <h1>
+        Biophysical Evaluation<br/>
+        Engine for <em>Residues</em>
+      </h1>
+
+      <p class="hero-sub">
+        A cross-platform desktop tool that replaces a dozen web servers with a single, private, offline application — combining classical physicochemistry, 24 deep-learning prediction heads, and an interactive 3D structure viewer.
+      </p>
+
+      <div class="hero-pills">
+        <span class="pill"><span class="pill-dot" style="background:#10b981"></span>50+ publication-quality graphs</span>
+        <span class="pill"><span class="pill-dot" style="background:#4361ee"></span>24 AI prediction heads</span>
+        <span class="pill"><span class="pill-dot" style="background:#f59e0b"></span>Runs fully offline</span>
+        <span class="pill"><span class="pill-dot" style="background:#a78bfa"></span>macOS · Windows · Linux</span>
+      </div>
+
+      <div class="cta-row">
+        <a href="https://github.com/chemgame/BEER" class="btn btn-blue" target="_blank" rel="noopener">
+          Get BEER on GitHub
+        </a>
+        <a href="https://doi.org/10.48550/arXiv.2504.20561" class="btn btn-ghost" target="_blank" rel="noopener">
+          Read the preprint
+        </a>
+      </div>
+    </div>
+
+    <!-- Three screenshots in staggered strip -->
+    <div class="screenshots">
+      <div class="ss-grid">
+
+        <div class="ss-item ss-primary">
+          <img src="assets/screenshot-graphs.png"
+               alt="BEER Graphs tab — AI disorder prediction profile for P53"
+               loading="eager" />
+          <div class="ss-label">AI Prediction Graphs · P53 disorder profile</div>
+        </div>
+
+        <div class="ss-item ss-secondary">
+          <img src="assets/screenshot-structure.png"
+               alt="BEER Structure tab — AlphaFold 3D viewer for P53"
+               loading="lazy" />
+          <div class="ss-label">3D Structure Viewer · pLDDT colouring</div>
+        </div>
+
+        <div class="ss-item ss-secondary">
+          <img src="assets/screenshot-analysis.png"
+               alt="BEER Analysis tab — sequence viewer and database chips"
+               loading="lazy" />
+          <div class="ss-label">Analysis Tab · UniProt / PDB integration</div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ── Why BEER ─────────────────────────────────────────────────────────── -->
+<section class="section" id="why">
+  <div class="container">
+    <div class="section-label">Why BEER?</div>
+    <h2 class="section-title">One tool. Your data stays local.</h2>
+    <p class="section-sub">
+      Protein analysis typically means shuttling between a dozen specialised web servers — each with its own format, latency, and privacy concern. BEER replaces that workflow.
+    </p>
+
+    <div class="diff-grid">
+
+      <div class="diff-card">
+        <div class="diff-icon" style="background:rgba(67,97,238,.14);">🔒</div>
+        <h3>Privacy-first, offline-capable</h3>
+        <p>All classical analysis and AI predictions run entirely on your machine. No sequence leaves your computer unless you explicitly fetch from UniProt or RCSB.</p>
+      </div>
+
+      <div class="diff-card">
+        <div class="diff-icon" style="background:rgba(245,158,11,.14);">🧠</div>
+        <h3>AI and classical on the same axes</h3>
+        <p>24 ESM2 BiLSTM heads (disorder, signal peptide, transmembrane, active site, PTMs…) displayed alongside classical profiles — with UniProt curated annotations overlaid for direct visual comparison.</p>
+      </div>
+
+      <div class="diff-card">
+        <div class="diff-icon" style="background:rgba(16,185,129,.14);">📊</div>
+        <h3>Publication-ready, every time</h3>
+        <p>Every graph exports at 200 dpi in PNG, SVG, or PDF. Underlying data exports as CSV or JSON. A built-in Figure Composer assembles multi-panel publication figures without leaving the app.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Features ─────────────────────────────────────────────────────────── -->
+<section class="section" id="features">
+  <div class="container">
+    <div class="section-label">Capabilities</div>
+    <h2 class="section-title">Classical analysis meets deep learning</h2>
+
+    <div class="feat-grid">
+
+      <div class="feat-card">
+        <div class="feat-head">
+          <div class="feat-icon" style="background:rgba(67,97,238,.14);">⚗️</div>
+          <h3>Classical Analysis<span class="count-badge">14 sections</span></h3>
+        </div>
+        <ul class="feat-list">
+          <li><strong>Physicochemical</strong> — MW, pI, GRAVY, extinction coefficient, aliphatic index</li>
+          <li><strong>Charge patterning</strong> — FCR, NCPR, κ, Ω (Das-Pappu); sliding-window local charge</li>
+          <li><strong>Hydrophobicity</strong> — 9 scales (Kyte-Doolittle, Wimley-White, Hessa, GES…)</li>
+          <li><strong>Phase separation</strong> — catGRANULE score, LARKS, sticker-spacer model, Uversky plot</li>
+          <li><strong>β-Aggregation &amp; solubility</strong> — ZYGGREGATOR hotspots; CamSol profile</li>
+          <li><strong>Proteolytic map</strong> — 9 enzymes with peptide masses</li>
+          <li><strong>Linear motifs</strong> — NLS, NES, SUMOylation, 14-3-3, KFERQ, and more</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-head">
+          <div class="feat-icon" style="background:rgba(245,158,11,.14);">🤖</div>
+          <h3>AI Predictions<span class="count-badge">24 heads</span></h3>
+        </div>
+        <ul class="feat-list">
+          <li><strong>Architecture</strong> — ESM2-650M → 2-layer BiLSTM; focal loss; MMseqs2-clustered splits</li>
+          <li><strong>Disorder</strong> — AUROC 0.991, trained on DisProt curated regions</li>
+          <li><strong>Signal peptide</strong> — AUROC 0.9999; includes GPI anchor detection</li>
+          <li><strong>Transmembrane</strong> — BiLSTM-CRF with Viterbi topology decoding; AUROC 0.992</li>
+          <li><strong>Functional sites</strong> — active site, binding site, DNA/RNA binding (BioLiP)</li>
+          <li><strong>PTMs ×6</strong> — phospho, ubiquitin, acetyl, methyl, glyco, lipid (dbPTM)</li>
+          <li><strong>MC-Dropout uncertainty</strong> — ±1σ bands via 20 stochastic forward passes</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-head">
+          <div class="feat-icon" style="background:rgba(167,139,250,.14);">🔬</div>
+          <h3>Structure Integration</h3>
+        </div>
+        <ul class="feat-list">
+          <li><strong>Interactive 3D viewer</strong> — pLDDT, hydrophobicity, charge, SASA, chain, SS colour modes</li>
+          <li><strong>SASA profile</strong> — per-residue RSA/ASA via ShrakeRupley; B-factor profile for PDB</li>
+          <li><strong>Ramachandran plot</strong> — φ/ψ coloured by secondary structure class</li>
+          <li><strong>Distance map &amp; contact network</strong> — Cα pairwise heatmap with 8 Å contact contour</li>
+          <li><strong>One-click fetch</strong> — AlphaFold EBI, RCSB PDB; all chains selectable</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-head">
+          <div class="feat-icon" style="background:rgba(16,185,129,.14);">🔗</div>
+          <h3>External Databases</h3>
+        </div>
+        <ul class="feat-list">
+          <li><strong>Pfam, ELM</strong> — domain and linear motif annotations overlaid on graphs</li>
+          <li><strong>DisProt, MobiDB</strong> — experimental and consensus disorder annotations</li>
+          <li><strong>PhaSepDB, IntAct</strong> — phase separation and protein interaction data</li>
+          <li><strong>UniProt variants</strong> — natural variants and clinical pathogenicity data</li>
+          <li><strong>AlphaMissense</strong> — per-position pathogenicity heatmap (Google DeepMind)</li>
+          <li><strong>ESM2 Variant Effect Map</strong> — log-likelihood ratios for all 20×L substitutions</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Graphs ────────────────────────────────────────────────────────────── -->
+<section class="section" id="graphs">
+  <div class="container">
+    <div class="section-label">Visualization</div>
+    <h2 class="section-title">50+ graphs across 11 categories</h2>
+    <p class="section-sub">Every graph is interactive and zoomable. Inline format selector and colormap picker sit directly below each graph — no round-trip to a settings menu.</p>
+
+    <div class="graph-grid">
+
+      <div class="graph-cat">
+        <div class="graph-cat-label">AI Predictions</div>
+        <div class="tag-row">
+          <span class="tag">Disorder</span>
+          <span class="tag">Signal Peptide</span>
+          <span class="tag">Transmembrane</span>
+          <span class="tag">Coiled-Coil</span>
+          <span class="tag">DNA/RNA Binding</span>
+          <span class="tag">Active Site</span>
+          <span class="tag">Binding Site</span>
+          <span class="tag">PTMs ×6</span>
+          <span class="tag">Transit Peptide</span>
+        </div>
+      </div>
+
+      <div class="graph-cat">
+        <div class="graph-cat-label">Sequence Profiles</div>
+        <div class="tag-row">
+          <span class="tag">Hydrophobicity</span>
+          <span class="tag">Local Charge</span>
+          <span class="tag">SCD / SHD</span>
+          <span class="tag">β-Aggregation</span>
+          <span class="tag">Solubility</span>
+          <span class="tag">PLAAC</span>
+        </div>
+      </div>
+
+      <div class="graph-cat">
+        <div class="graph-cat-label">AlphaFold &amp; Structure</div>
+        <div class="tag-row">
+          <span class="tag">pLDDT / B-Factor</span>
+          <span class="tag">SASA Profile</span>
+          <span class="tag">Distance Map</span>
+          <span class="tag">Contact Network</span>
+          <span class="tag">Ramachandran</span>
+        </div>
+      </div>
+
+      <div class="graph-cat">
+        <div class="graph-cat-label">Charge &amp; π</div>
+        <div class="tag-row">
+          <span class="tag">Isoelectric Focus</span>
+          <span class="tag">Charge Decoration</span>
+          <span class="tag">Cation–π Map</span>
+        </div>
+      </div>
+
+      <div class="graph-cat">
+        <div class="graph-cat-label">Membrane</div>
+        <div class="tag-row">
+          <span class="tag">TM Topology</span>
+          <span class="tag">Helical Wheel</span>
+          <span class="tag">Hydrophobic Moment</span>
+        </div>
+      </div>
+
+      <div class="graph-cat">
+        <div class="graph-cat-label">Variant Effects</div>
+        <div class="tag-row">
+          <span class="tag">ESM2 Variant Map</span>
+          <span class="tag">AlphaMissense</span>
+          <span class="tag">Single-Residue Perturbation</span>
+        </div>
+      </div>
+
+      <div class="graph-cat">
+        <div class="graph-cat-label">Phase Sep &amp; IDP</div>
+        <div class="tag-row">
+          <span class="tag">Uversky Phase Plot</span>
+          <span class="tag">Sticker Map</span>
+          <span class="tag">LARKS</span>
+        </div>
+      </div>
+
+      <div class="graph-cat">
+        <div class="graph-cat-label">Evolutionary &amp; Comparative</div>
+        <div class="tag-row">
+          <span class="tag">MSA Conservation</span>
+          <span class="tag">MSA Covariance</span>
+          <span class="tag">Truncation Series</span>
+          <span class="tag">Complex Mass</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Install ───────────────────────────────────────────────────────────── -->
+<section class="section" id="install">
+  <div class="container">
+    <div class="section-label">Installation</div>
+    <h2 class="section-title">Up and running in three commands</h2>
+
+    <div class="install-layout">
+
+      <div>
+        <p class="section-sub" style="max-width:100%">
+          Classical analysis works out of the box. Add the optional PyTorch + ESM2 block to unlock all 24 AI prediction heads.
+        </p>
+
+        <div class="req-chips">
+          <span class="req-chip">Python ≥ 3.10</span>
+          <span class="req-chip">macOS</span>
+          <span class="req-chip">Windows</span>
+          <span class="req-chip">Linux</span>
+          <span class="req-chip">~200 MB</span>
+        </div>
+
+        <p class="install-note">
+          AI heads require <code style="font-family:var(--mono);font-size:.85em">torch ≥ 2.0</code> and <code style="font-family:var(--mono);font-size:.85em">fair-esm</code>.<br/><br/>
+          See the <a href="https://github.com/chemgame/BEER#installation" target="_blank" rel="noopener">full installation guide</a> for Linux Qt library setup and Windows-specific notes.
+        </p>
+      </div>
+
+      <div class="terminal">
+<span class="t-comment"># 1. Create a conda environment</span><br>
+<span class="t-prompt">$ </span><span class="t-cmd">conda create</span> -n beer <span class="t-kw">python</span>=3.12 -y<br>
+<span class="t-prompt">$ </span><span class="t-cmd">conda activate</span> beer<br>
+<br>
+<span class="t-comment"># 2. Clone and install</span><br>
+<span class="t-prompt">$ </span><span class="t-cmd">git clone</span> <span class="t-str">https://github.com/chemgame/BEER.git</span><br>
+<span class="t-prompt">$ </span><span class="t-cmd">cd</span> BEER &amp;&amp; <span class="t-cmd">pip install</span> .<br>
+<br>
+<span class="t-comment"># 3. Launch</span><br>
+<span class="t-prompt">$ </span><span class="t-cmd">beer</span><br>
+<br>
+<span class="t-dim">──────────────────────────────────────────</span><br>
+<span class="t-comment"># Optional — AI prediction heads (ESM2)</span><br>
+<span class="t-prompt">$ </span><span class="t-cmd">pip install</span> <span class="t-str">"torch&gt;=2.0"</span> \<br>
+&nbsp;&nbsp;&nbsp;&nbsp;--index-url <span class="t-str">https://download.pytorch.org/whl/cpu</span><br>
+<span class="t-prompt">$ </span><span class="t-cmd">pip install</span> fair-esm scipy
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Citation ──────────────────────────────────────────────────────────── -->
+<section class="section">
+  <div class="container">
+    <div class="citation-box">
+      <div style="font-size:1.5rem;flex-shrink:0;margin-top:2px;">📄</div>
+      <p>
+        <strong>If you use BEER in your research, please cite:</strong><br/><br/>
+        Mukherjee, S. <em>BEER: Biophysical Evaluation Engine for Residues.</em>
+        <em>arXiv</em> preprint arXiv:2504.20561 (2025).<br/>
+        <a href="https://doi.org/10.48550/arXiv.2504.20561" target="_blank" rel="noopener">
+          https://doi.org/10.48550/arXiv.2504.20561 ↗
+        </a>
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ────────────────────────────────────────────────────────────── -->
+<footer>
+  <div class="container footer-inner">
+    <div class="footer-left">
+      © 2025 <a href="https://www.saumyakmukherjee.com" target="_blank" rel="noopener">Saumyak Mukherjee</a>
+      · Released under the MIT License
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/chemgame/BEER" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://doi.org/10.48550/arXiv.2504.20561" target="_blank" rel="noopener">Preprint</a>
+      <a href="https://github.com/chemgame/BEER/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
