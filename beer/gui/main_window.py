@@ -796,8 +796,8 @@ class ProteinAnalyzerGUI(QMainWindow):
 
     def _jump_to_graph(self, graph_name: str) -> None:
         """Switch to the Graphs tab and select graph_name."""
-        for i in range(self.main_tabs.count()):
-            if self.main_tabs.tabText(i) == "Graphs":
+        for i in range(self.main_tabs.nav_list.count()):
+            if "Graphs" in self.main_tabs.nav_list.item(i).text():
                 self.main_tabs.setCurrentIndex(i)
                 break
         self._show_named_graph(graph_name)
@@ -2668,7 +2668,8 @@ class ProteinAnalyzerGUI(QMainWindow):
             # Load the base page once.  All subsequent structure swaps go via
             # loadPDB() JS call, never reloading the page.
             self.structure_viewer.setHtml(
-                self._3DMOL_HTML.format(pdb_json='null'))
+                self._3DMOL_HTML.format(pdb_json='null'),
+                QUrl("https://3dmol.org/"))
 
             # Populate scheme combo for the default mode
             self._update_scheme_combo(self.struct_color_mode_combo.currentText())
@@ -6837,6 +6838,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self.update_graph_tabs()
             self._sparkline_links_wired = False  # re-wire after theme reset
             self._append_sparklines(self.analysis_data)
+            self._append_mini_graphs()
 
         # Persist settings to disk
         _config.save({
@@ -7203,6 +7205,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._update_seq_viewer()
         self.update_graph_tabs()
         self._append_sparklines(data)
+        self._append_mini_graphs()
         if self._last_was_bilstm:
             # Full AI Analysis completed — populate all sections with real data.
             self._populate_ai_report_sections(data)
@@ -9387,6 +9390,75 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             current = browser.toHtml()
             if "beer://graph/" not in current:
                 browser.setHtml(current + html_block)
+
+    # Maps section name → graph titles for sections not covered by sparklines
+    _MINI_GRAPH_MAP: dict[str, list[str]] = {
+        "Composition":         ["Amino Acid Composition (Bar)"],
+        "Properties":          ["Isoelectric Focus", "Charge Decoration"],
+        "Aromatic & \u03c0":   ["Cation\u2013\u03c0 Map"],
+        "Sticker & Spacer":    ["Sticker Map"],
+        "Amphipathic Helices": ["Hydrophobic Moment"],
+        "Repeat Motifs":       ["Annotation Track"],
+        "LARKS":               ["Annotation Track"],
+        "Linear Motifs":       ["Linear Sequence Map"],
+        "Tandem Repeats":      ["Cleavage Map"],
+        "Proteolytic Map":     ["Cleavage Map"],
+        "SASA Profile":        ["SASA Profile"],
+    }
+
+    @staticmethod
+    def _fig_to_mini_png(fig) -> str:
+        """Render a matplotlib Figure to a compact PNG data URI (≈520×200px)."""
+        import io, base64
+        import matplotlib.pyplot as _plt
+        dpi = fig.get_dpi() or 96
+        fig.set_size_inches(520 / dpi, 200 / dpi)
+        try:
+            fig.tight_layout(pad=0.3)
+        except Exception:
+            pass
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.02,
+                    facecolor=fig.get_facecolor())
+        _plt.close(fig)
+        buf.seek(0)
+        return "data:image/png;base64," + base64.b64encode(buf.read()).decode()
+
+    def _append_mini_graphs(self) -> None:
+        """Append a mini-figure thumbnail to report sections not covered by sparklines."""
+        import urllib.parse as _up
+        _rendered: dict[str, str] = {}  # cache title → data-uri within this call
+
+        for sec, graph_titles in self._MINI_GRAPH_MAP.items():
+            browser = self.report_section_tabs.get(sec)
+            if browser is None:
+                continue
+            current = browser.toHtml()
+            if "beer://graph/" in current:
+                continue  # sparkline already present; skip
+            blocks = []
+            for title in graph_titles:
+                gen = self._graph_generators.get(title)
+                if gen is None:
+                    continue
+                try:
+                    if title not in _rendered:
+                        _rendered[title] = self._fig_to_mini_png(gen())
+                    uri  = _rendered[title]
+                    href = "beer://graph/" + _up.quote(title)
+                    blocks.append(
+                        f"<div style='margin:10px 0 6px;'>"
+                        f"<img src='{uri}' style='width:100%;max-height:220px;"
+                        f"border-radius:6px;display:block;object-fit:contain;'/>"
+                        f"<div style='text-align:right;margin-top:3px;'>"
+                        f"<a href='{href}' style='font-family:sans-serif;font-size:10px;"
+                        f"color:#4361ee;text-decoration:none;'>\u2192 Full Graph</a>"
+                        f"</div></div>"
+                    )
+                except Exception:
+                    pass
+            if blocks:
+                browser.setHtml(current + "".join(blocks))
 
 
     # ── AI Predictions report sections ───────────────────────────────────────
