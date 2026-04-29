@@ -177,29 +177,38 @@
     /* ── Screenshot carousel ───────────────────────────────────────────── */
     .screenshots {
       position: relative; z-index: 1;
-      -webkit-mask-image: linear-gradient(to bottom, black 72%, transparent 100%);
-      mask-image: linear-gradient(to bottom, black 72%, transparent 100%);
+    }
+
+    /* Separate clip wrapper — keeps mask-image off the overflow container
+       so CSS transforms on absolutely-positioned children clip correctly. */
+    .carousel-clip {
+      overflow: hidden;
+      position: relative;
+      /* bottom fade into page */
+      -webkit-mask-image: linear-gradient(to bottom, black 68%, transparent 100%);
+      mask-image: linear-gradient(to bottom, black 68%, transparent 100%);
     }
 
     .carousel {
       position: relative;
-      height: 380px;
-      overflow: hidden;
+      height: 390px;
     }
 
+    /* Items are centered by default via left:17% (=(100-66)/2).
+       Transforms then move them relative to that natural center. */
     .ss-item {
       position: absolute;
       top: 0;
-      left: 50%;
+      left: 17%;
       width: 66%;
-      height: 340px;
+      height: 350px;
       border-radius: var(--radius) var(--radius) 0 0;
       overflow: hidden;
       border: 1px solid rgba(255,255,255,.09);
       border-bottom: none;
       box-shadow: 0 -8px 40px rgba(0,0,0,.45);
-      transition: transform .65s cubic-bezier(.4,0,.2,1),
-                  opacity  .65s cubic-bezier(.4,0,.2,1);
+      transition: transform .45s cubic-bezier(.4,0,.2,1),
+                  opacity  .45s cubic-bezier(.4,0,.2,1);
       will-change: transform, opacity;
       cursor: pointer;
       user-select: none;
@@ -212,18 +221,20 @@
     }
 
     .ss-item.is-active {
-      transform: translateX(-50%) scale(1);
+      transform: translateX(0) scale(1);
       opacity: 1;
       z-index: 3;
     }
+    /* translateX % is relative to the element's own width (66 % of container).
+       ±82 % moves the item ≈54 % of the container, leaving ~12 % peeking in. */
     .ss-item.is-prev {
-      transform: translateX(calc(-50% - 64%)) scale(0.80);
-      opacity: 0.25;
+      transform: translateX(-82%) scale(0.86);
+      opacity: 0.48;
       z-index: 2;
     }
     .ss-item.is-next {
-      transform: translateX(calc(-50% + 64%)) scale(0.80);
-      opacity: 0.25;
+      transform: translateX(82%) scale(0.86);
+      opacity: 0.48;
       z-index: 2;
     }
 
@@ -240,7 +251,7 @@
     /* Dots */
     .carousel-dots {
       display: flex; justify-content: center; gap: 10px;
-      margin-top: 20px;
+      margin-top: 18px;
     }
     .carousel-dot {
       width: 8px; height: 8px; border-radius: 50%;
@@ -436,9 +447,9 @@
 
     /* ── Responsive ──────────────────────────────────────────────────────── */
     @media (max-width: 880px) {
-      .ss-item { width: 90%; }
-      .ss-item.is-prev { transform: translateX(calc(-50% - 95%)) scale(0.80); }
-      .ss-item.is-next { transform: translateX(calc(-50% + 95%)) scale(0.80); }
+      .ss-item { width: 88%; left: 6%; }
+      .ss-item.is-prev { transform: translateX(-92%) scale(0.86); }
+      .ss-item.is-next { transform: translateX(92%) scale(0.86); }
       .diff-grid { grid-template-columns: 1fr; }
       .feat-grid { grid-template-columns: 1fr; }
       .install-layout { grid-template-columns: 1fr; gap: 36px; }
@@ -475,13 +486,17 @@
         Engine for <em>Residues</em>
       </h1>
 
+      <p style="font-size:1.05rem; font-style:italic; color:var(--text-dim); margin-bottom:18px; letter-spacing:.01em;">
+        Every protein has a story. BEER helps you read it.
+      </p>
+
       <p class="hero-sub">
-        A cross-platform desktop tool that replaces a dozen web servers with a single, private, offline application — combining classical physicochemistry, 24 deep-learning prediction heads, and an interactive 3D structure viewer.
+        A cross-platform desktop tool that replaces a dozen web servers with a single, private, offline application — combining classical physicochemistry, 20+ deep-learning prediction heads, and an interactive 3D structure viewer.
       </p>
 
       <div class="hero-pills">
         <span class="pill"><span class="pill-dot" style="background:#10b981"></span>50+ publication-quality graphs</span>
-        <span class="pill"><span class="pill-dot" style="background:#4361ee"></span>24 AI prediction heads</span>
+        <span class="pill"><span class="pill-dot" style="background:#4361ee"></span>20+ AI prediction heads</span>
         <span class="pill"><span class="pill-dot" style="background:#f59e0b"></span>Runs fully offline</span>
         <span class="pill"><span class="pill-dot" style="background:#a78bfa"></span>macOS · Windows · Linux</span>
       </div>
@@ -498,6 +513,7 @@
 
     <!-- Rotating screenshot carousel -->
     <div class="screenshots">
+      <div class="carousel-clip">
       <div class="carousel" id="ss-carousel">
 
         <div class="ss-item is-active" data-idx="0">
@@ -522,6 +538,7 @@
         </div>
 
       </div>
+      </div><!-- /.carousel-clip -->
 
       <div class="carousel-dots" id="ss-dots">
         <button class="carousel-dot is-active" aria-label="Screenshot 1"></button>
@@ -593,7 +610,7 @@
       <div class="feat-card">
         <div class="feat-head">
           <div class="feat-icon" style="background:rgba(245,158,11,.14);">🤖</div>
-          <h3>AI Predictions<span class="count-badge">24 heads</span></h3>
+          <h3>AI Predictions<span class="count-badge">20+ heads</span></h3>
         </div>
         <ul class="feat-list">
           <li><strong>Architecture</strong> — ESM2-650M → 2-layer BiLSTM; focal loss; MMseqs2-clustered splits</li>
@@ -821,49 +838,50 @@
 
 <script>
 (function () {
-  var items   = Array.from(document.querySelectorAll('#ss-carousel .ss-item'));
-  var dots    = Array.from(document.querySelectorAll('#ss-dots .carousel-dot'));
-  var total   = items.length;
-  var current = 0;
-  var timer;
+  var carousel = document.getElementById('ss-carousel');
+  var items    = Array.from(document.querySelectorAll('#ss-carousel .ss-item'));
+  var dots     = Array.from(document.querySelectorAll('#ss-dots .carousel-dot'));
+  var total    = items.length;
+  var current  = 0;
+  var timer    = null;
+  var INTERVAL = 2000;
 
   function go(idx) {
-    current = (idx % total + total) % total;
+    current = ((idx % total) + total) % total;
     var prev = (current - 1 + total) % total;
     var next = (current + 1) % total;
     items.forEach(function (el, i) {
       el.classList.remove('is-active', 'is-prev', 'is-next');
-      if (i === current) el.classList.add('is-active');
-      else if (i === prev) el.classList.add('is-prev');
-      else if (i === next) el.classList.add('is-next');
+      if      (i === current) el.classList.add('is-active');
+      else if (i === prev)    el.classList.add('is-prev');
+      else if (i === next)    el.classList.add('is-next');
     });
     dots.forEach(function (d, i) {
       d.classList.toggle('is-active', i === current);
     });
   }
 
-  function start() {
-    timer = setInterval(function () { go(current + 1); }, 3800);
-  }
-
-  function reset() {
-    clearInterval(timer);
-    start();
-  }
+  function play()  { if (!timer) timer = setInterval(function () { go(current + 1); }, INTERVAL); }
+  function pause() { clearInterval(timer); timer = null; }
+  function restart() { pause(); play(); }
 
   /* dot clicks */
   dots.forEach(function (d, i) {
-    d.addEventListener('click', function () { go(i); reset(); });
+    d.addEventListener('click', function () { go(i); restart(); });
   });
 
-  /* click a side slide to bring it forward */
+  /* click a side slide to advance to it */
   items.forEach(function (el, i) {
-    el.addEventListener('click', function () {
-      if (i !== current) { go(i); reset(); }
-    });
+    el.addEventListener('click', function () { if (i !== current) { go(i); restart(); } });
   });
 
-  start();
+  /* pause while hovering the carousel */
+  carousel.addEventListener('mouseenter', pause);
+  carousel.addEventListener('mouseleave', play);
+
+  /* kick off */
+  go(0);
+  play();
 })();
 </script>
 </body>
