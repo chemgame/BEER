@@ -1,4 +1,4 @@
-"""Structural analysis figures: Ramachandran, contact network, pLDDT, distance map."""
+"""Structural analysis figures: Ramachandran, contact network, pLDDT, distance map, SS bead."""
 from __future__ import annotations
 
 import math
@@ -12,6 +12,130 @@ import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 
 from beer.graphs._style import _pub_style_ax
+
+
+def _bead_width_struct(n: int) -> float:
+    return max(8.0, min(22.0, 4.0 + n * 0.08))
+
+
+def _x_tick_step_struct(n: int) -> int:
+    if n <= 50:   return 10
+    if n <= 150:  return 25
+    if n <= 400:  return 50
+    return 100
+
+
+def create_bead_model_ss_figure(
+    pdb_str: str,
+    show_labels: bool = True,
+    label_font: int = 14,
+    tick_font: int = 12,
+) -> Figure:
+    """Linear bead model coloured by secondary structure (helix/sheet/coil) from PDB records."""
+    # Parse HELIX and SHEET records
+    helix_res: set[tuple[str, int]] = set()
+    sheet_res: set[tuple[str, int]] = set()
+    for line in pdb_str.splitlines():
+        if line.startswith("HELIX "):
+            try:
+                chain = line[19:20].strip()
+                start = int(line[21:25])
+                end   = int(line[33:37])
+                for r in range(start, end + 1):
+                    helix_res.add((chain, r))
+            except (ValueError, IndexError):
+                pass
+        elif line.startswith("SHEET "):
+            try:
+                chain = line[21:22].strip()
+                start = int(line[22:26])
+                end   = int(line[33:37])
+                for r in range(start, end + 1):
+                    sheet_res.add((chain, r))
+            except (ValueError, IndexError):
+                pass
+
+    # Collect ordered residues from ATOM records (first model, all chains)
+    seen: dict[tuple[str, int], str] = {}
+    for line in pdb_str.splitlines():
+        if line.startswith("END"):
+            break
+        if not line.startswith("ATOM  "):
+            continue
+        try:
+            chain = line[21:22].strip()
+            resi  = int(line[22:26])
+            resn  = line[17:20].strip()
+            key   = (chain, resi)
+            if key not in seen:
+                seen[key] = resn
+        except (ValueError, IndexError):
+            pass
+
+    if not seen:
+        fig = Figure(figsize=(8, 3), dpi=120)
+        fig.set_facecolor("#ffffff")
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "No ATOM records found in PDB",
+                ha="center", va="center", transform=ax.transAxes, fontsize=label_font)
+        return fig
+
+    keys   = list(seen.keys())
+    resns  = [seen[k] for k in keys]
+    n      = len(keys)
+    xs     = list(range(1, n + 1))
+
+    HELIX_C = "#FF6666"
+    SHEET_C = "#FFD700"
+    COIL_C  = "#aaaaaa"
+
+    cols = []
+    for key in keys:
+        if key in helix_res:
+            cols.append(HELIX_C)
+        elif key in sheet_res:
+            cols.append(SHEET_C)
+        else:
+            cols.append(COIL_C)
+
+    fig = Figure(figsize=(_bead_width_struct(n), 4.5), dpi=120)
+    fig.set_facecolor("#ffffff")
+    ax  = fig.add_subplot(111)
+    ax.scatter(xs, [1] * n, c=cols, s=220, linewidths=0.5, edgecolors="white", zorder=4)
+
+    legend_patches = [
+        Patch(color=HELIX_C, label="α-Helix"),
+        Patch(color=SHEET_C, label="β-Sheet"),
+        Patch(color=COIL_C,  label="Coil / Loop"),
+    ]
+    ax.legend(handles=legend_patches, loc="upper right",
+              fontsize=max(7, tick_font - 3), framealpha=0.85, edgecolor="#d1d5db")
+
+    ax.set_yticks([])
+    ax.set_xlim(0, n + 1)
+    ax.set_ylim(0.3, 1.7)
+
+    if show_labels and n <= 60:
+        for i, resn in enumerate(resns):
+            aa = resn[0] if len(resn) == 1 else resn
+            ax.text(xs[i], 1, aa[:1], ha="center", va="center",
+                    fontsize=max(5, label_font - 5),
+                    color="white" if cols[i] == HELIX_C else "#333333",
+                    fontweight="bold")
+
+    _step = _x_tick_step_struct(n)
+    ax.set_xticks(range(_step, n + 1, _step))
+    ax.tick_params(labelsize=tick_font - 2)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+
+    _pub_style_ax(ax, title="Secondary Structure Bead Model",
+                  xlabel="Residue Position", grid=False, despine=False,
+                  title_size=label_font - 1, label_size=label_font - 2,
+                  tick_size=tick_font - 2)
+    fig.tight_layout(pad=1.8)
+    return fig
 
 
 def _circular_layout(n: int) -> np.ndarray:

@@ -40,6 +40,7 @@ from beer.graphs.structural import (
     create_plddt_figure,
     create_sasa_figure,
     create_distance_map_figure,
+    create_bead_model_ss_figure,
 )
 from beer.graphs.comparative import (
     create_msa_conservation_figure,
@@ -82,6 +83,7 @@ __all__ = [
     "create_plddt_figure",
     "create_sasa_figure",
     "create_distance_map_figure",
+    "create_bead_model_ss_figure",
     "create_msa_conservation_figure",
     "create_msa_covariance_figure",
     "create_complex_mw_figure",

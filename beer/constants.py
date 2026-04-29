@@ -543,6 +543,7 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
     ("AlphaFold & Structure", [
         "pLDDT Profile",
         "SASA Profile",
+        "SS Bead Model",
         "Distance Map",
         "Residue Contact Network",
         "Ramachandran Plot",

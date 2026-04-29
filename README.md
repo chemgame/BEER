@@ -16,11 +16,12 @@ I built BEER because I wanted a single tool that handles everything from basic p
 Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewrite:
 
 - **Proper Python package** (`beer/`) — modular, installable via `pip`
-- **10 pre-trained ESM2 BiLSTM neural prediction heads** (disorder, signal peptide, transmembrane, intramembrane, coiled coil, DNA binding, RNA binding, active site, binding site, phosphorylation) — per-residue classifiers trained with focal loss and MMseqs2 clustered splits on curated structural databases (BioLiP, PDBTM, M-CSA, DisProt, dbPTM) where available. The full 24-head suite is in active training and will be released progressively.
+- **2 pre-trained ESM2 BiLSTM neural prediction heads** currently shipped: **Disorder** (BiLSTM, AUROC 0.991) and **Transmembrane** (BiLSTM-CRF with Viterbi topology decoding, AUROC 0.992). The remaining 22 heads are fully implemented and placeholders are shown in the sidebar; model weights are being retrained on curated databases (BioLiP, PDBTM, M-CSA, DisProt, dbPTM) and will be released progressively.
 - **On-demand AI section loading** — AI Predictions sections are computed lazily (click-to-compute, VMD/PyMOL style); each head shares the cached ESM2 embedding so subsequent heads are fast
 - **Unified BiLSTM overlay design** — each head shows a single figure; UniProt annotations (when fetched) are overlaid on the same axes as semi-transparent spans for direct visual comparison
-- **3D structure viewer** with multiple representations, colour modes, colour bar, spin, and snapshot export
-- **55 graphs** across 11 categories (up from ~12), including 24 AI Predictions graphs (one per head), Ramachandran, contact network, pLDDT/B-factor profile, domain architecture
+- **3D structure viewer** with multiple representations, colour modes, colour bar, spin, snapshot export; 3Dmol.js is bundled (fully offline, no CDN); H-bond and contact overlays with user-selectable colour, cylinder radius, and opacity
+- **SS Bead Model graph** — linear bead diagram coloured by secondary structure (helix/sheet/coil) from PDB HELIX/SHEET records, available in the Graphs tab after any structure load
+- **56 graphs** across 11 categories (up from ~12), including 24 AI Predictions graphs (one per head), Ramachandran, contact network, pLDDT/B-factor profile, SS Bead Model, domain architecture
 - **New analysis modules**: RNA binding (catRAPID), SCD/κ/Ω, LARKS, tandem repeats, TM topology (TMHMM 2.0 local), coiled coil (COILS), ELM linear motifs, phosphorylation PWMs (NetPhos-style), catGRANULE phase-separation, SignalP D-score
 - **New utility tabs**: BLAST, Multichain, Compare, Truncation Series, MSA Conservation, Complex Mass
 - **Protein summary bar**: fetches name, gene, organism, and function from UniProt or RCSB automatically after a fetch
@@ -239,7 +240,7 @@ Individual graphs and reports are exported per-section; there is no bulk "export
 | **Aggregation & Solubility** | β-Aggregation Profile, Solubility Profile |
 | **Phase Separation & IDP** | Uversky Phase Plot, Single-Residue Perturbation Map, Sticker Map, PLAAC Profile |
 | **Sequence Maps & Annotation** | Linear Sequence Map, Annotation Track, Domain Architecture, Cleavage Map |
-| **AlphaFold & Structure**† | pLDDT / B-Factor Profile, Distance Map, Residue Contact Network, Ramachandran Plot |
+| **AlphaFold & Structure**† | pLDDT / B-Factor Profile, SASA Profile, SS Bead Model, Distance Map, Residue Contact Network, Ramachandran Plot |
 | **Variant Effects**† | Variant Effect Map, AlphaMissense |
 | **Evolutionary & Comparative** | MSA Conservation, MSA Covariance, Truncation Series, Complex Mass |
 
@@ -253,7 +254,9 @@ Individual graphs and reports are exported per-section; there is no bulk "export
 
 ## Structure Tab
 
-Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu), embedded via Qt WebEngine (bundled with PySide6). The tab has a **left control panel** and a **3D canvas**. The default background is white.
+Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu) (bundled locally — fully offline, no CDN), embedded via Qt WebEngine. The tab has a **View** control panel, an **Interact** panel, and a **3D canvas**. The default background is white.
+
+**View tab controls**
 
 | Control | Options |
 |---------|---------|
@@ -261,10 +264,15 @@ Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu), embedde
 | **Color mode** | pLDDT/B-factor, Residue type, Chain, Charge, Hydrophobicity, Mass, Secondary Structure, Spectrum (N→C) |
 | **Color scheme** | Mode-dependent: Red-White-Blue, Rainbow, Shapely, Cyan-White-Orange, JMol, PyMOL, Spectrum, etc. |
 | **Color bar** | Toggleable gradient/categorical legend overlay (bottom-right) |
+| **H-bonds** | Toggle backbone N–O hydrogen bonds (< 3.5 Å); choose cylinder colour and radius |
+| **Contacts (8 Å)** | Toggle Cα–Cα contact lines; choose line colour and opacity |
 | **Background** | White (default), Black, Grey presets or custom color picker |
 | **Spin** | Continuous auto-rotation on X / Y / Z axis |
 | **Reset View** | Restores default representation, colour mode, white background, and camera position |
 | **Snapshot PNG** | Saves current view as PNG |
+| **Chains** | Toggle visibility of individual chains |
+
+**Interact tab** — residue selection (by number, range, name, or chain), distance / angle / dihedral measurements between clicked atoms.
 
 **Export Structure / Sequence** saves in PDB, mmCIF, GRO, XYZ, or FASTA format.
 
@@ -330,7 +338,7 @@ Click **Apply Settings** to save to `~/.beer/config.json`. **Reset to Defaults**
 
 ## ESM2 Neural Predictions
 
-BEER uses Meta's ESM2 650M protein language model with 10 pre-trained BiLSTM head weights bundled in `beer/models/`. The ESM2 backbone (~2.6 GB) downloads once on the first AI Predictions call and caches in `~/.cache/torch/hub/`.
+BEER uses Meta's ESM2 650M protein language model with pre-trained BiLSTM head weights bundled in `beer/models/`. Currently **2 heads** ship with model weights (disorder, transmembrane); the others are placeholders awaiting retraining. The ESM2 backbone (~2.6 GB) downloads once on the first AI Predictions call and caches in `~/.cache/torch/hub/`.
 
 **On-demand computation**: clicking any section under **AI Predictions** in the sidebar triggers computation of that head only. The ESM2 embedding is cached after the first head, so all subsequent heads reuse it and are fast. Running **AI Analysis** computes all available heads at once. Heads without a trained model file are silently skipped.
 
@@ -342,22 +350,14 @@ BEER uses Meta's ESM2 650M protein language model with 10 pre-trained BiLSTM hea
 | **BiLSTM-CRF** | Transmembrane | CRF decoder enforces valid TM topology (outside→helix→inside transitions) |
 | **BiLSTM-Window** | Aggregation | Window-average pooling over 9-residue context before sigmoid output |
 
-### Currently shipped heads (10)
+### Currently shipped heads (2)
 
-| Head | Training source | AUROC |
-|------|----------------|-------|
-| Disorder | DisProt experimental → UniProt ft_region:disordered fallback | 0.991 |
-| Signal Peptide | UniProt ft_signal (Swiss-Prot) | 0.9999 |
-| Transmembrane | UniProt ft_transmem → BiLSTM-CRF | 0.992 |
-| Intramembrane | UniProt ft_intramem | — |
-| Coiled Coil | UniProt ft_coiled | — |
-| DNA Binding | UniProt ft_dna_bind | — |
-| RNA Binding | UniProt ft_region:RNA-binding | — |
-| Active Site | M-CSA → UniProt ft_act_site fallback | — |
-| Binding Site | UniProt ft_binding | — |
-| Phosphorylation | UniProt ft_mod_res (phospho-Ser/Thr/Tyr) | — |
+| Head | Architecture | Training source | AUROC |
+|------|-------------|----------------|-------|
+| Disorder | BiLSTM | DisProt experimental → UniProt ft_region:disordered fallback | 0.991 |
+| Transmembrane | BiLSTM-CRF (Viterbi) | UniProt ft_transmem (Swiss-Prot) | 0.992 |
 
-*AUROC values marked — will be updated as retraining on curated databases completes.*
+The remaining 22 heads are implemented but model weights are being retrained on curated databases with MMseqs2-clustered splits and focal loss. They will be released progressively; their sidebar entries are visible but silently skipped if no model file is present.
 
 If ESM2 is not installed, BEER falls back automatically: disorder uses **metapredict** (Emenecker et al. 2021, *Cell Syst.*) if available, or a classical sliding-window propensity scale otherwise. All other analysis runs fully offline without ESM2. The BiLSTM head profiles are silently skipped if the head file is not present.
 

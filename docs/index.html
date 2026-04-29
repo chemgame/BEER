@@ -196,10 +196,11 @@
       border-bottom: none;
       box-shadow: 0 -8px 40px rgba(0,0,0,.45);
       position: relative;
+      height: 340px;
     }
 
     .ss-item img {
-      width: 100%; display: block;
+      width: 100%; height: 100%; display: block;
       object-fit: cover; object-position: top left;
     }
 
@@ -556,9 +557,9 @@
           <li><strong>Architecture</strong> — ESM2-650M → 2-layer BiLSTM; focal loss; MMseqs2-clustered splits</li>
           <li><strong>Disorder</strong> — AUROC 0.991, trained on DisProt curated regions</li>
           <li><strong>Signal peptide</strong> — AUROC 0.9999; includes GPI anchor detection</li>
-          <li><strong>Transmembrane</strong> — BiLSTM-CRF with Viterbi topology decoding; AUROC 0.992</li>
-          <li><strong>Functional sites</strong> — active site, binding site, DNA/RNA binding (BioLiP)</li>
-          <li><strong>PTMs ×6</strong> — phospho, ubiquitin, acetyl, methyl, glyco, lipid (dbPTM)</li>
+          <li><strong>Transmembrane</strong> — BiLSTM-CRF with Viterbi topology decoding (outside→TM→inside); AUROC 0.992</li>
+          <li><strong>Functional sites</strong> — active site, binding site, DNA/RNA binding (BioLiP) <em>— model weights in training</em></li>
+          <li><strong>PTMs ×6</strong> — phospho, ubiquitin, acetyl, methyl, glyco, lipid (dbPTM) <em>— model weights in training</em></li>
           <li><strong>MC-Dropout uncertainty</strong> — ±1σ bands via 20 stochastic forward passes</li>
         </ul>
       </div>
@@ -569,10 +570,10 @@
           <h3>Structure Integration</h3>
         </div>
         <ul class="feat-list">
-          <li><strong>Interactive 3D viewer</strong> — pLDDT, hydrophobicity, charge, SASA, chain, SS colour modes</li>
-          <li><strong>SASA profile</strong> — per-residue RSA/ASA via ShrakeRupley; B-factor profile for PDB</li>
-          <li><strong>Ramachandran plot</strong> — φ/ψ coloured by secondary structure class</li>
-          <li><strong>Distance map &amp; contact network</strong> — Cα pairwise heatmap with 8 Å contact contour</li>
+          <li><strong>Interactive 3D viewer</strong> — bundled 3Dmol.js (offline); pLDDT, hydrophobicity, charge, SASA, chain, SS colour modes</li>
+          <li><strong>H-bond &amp; contact overlays</strong> — user-selectable colour, radius (H-bonds) and opacity (contacts)</li>
+          <li><strong>SS Bead Model</strong> — linear bead diagram coloured by helix/sheet/coil from PDB HELIX/SHEET records</li>
+          <li><strong>SASA profile</strong> — per-residue RSA/ASA via Shrake-Rupley; Ramachandran φ/ψ; distance map</li>
           <li><strong>One-click fetch</strong> — AlphaFold EBI, RCSB PDB; all chains selectable</li>
         </ul>
       </div>
@@ -637,6 +638,7 @@
         <div class="tag-row">
           <span class="tag">pLDDT / B-Factor</span>
           <span class="tag">SASA Profile</span>
+          <span class="tag">SS Bead Model</span>
           <span class="tag">Distance Map</span>
           <span class="tag">Contact Network</span>
           <span class="tag">Ramachandran</span>

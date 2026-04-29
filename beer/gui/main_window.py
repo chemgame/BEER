@@ -126,7 +126,7 @@ from beer.graphs import (
     create_domain_architecture_figure, create_cation_pi_map_figure,
     create_local_complexity_figure, create_ramachandran_figure,
     create_contact_network_figure, create_plddt_figure, create_sasa_figure,
-    create_distance_map_figure,
+    create_distance_map_figure, create_bead_model_ss_figure,
     create_msa_conservation_figure, create_complex_mw_figure,
     create_truncation_series_figure,
     create_saturation_mutagenesis_figure, create_uversky_phase_plot,
@@ -621,6 +621,12 @@ class ProteinAnalyzerGUI(QMainWindow):
             "Coloured boxes = Pfam-A domains fetched from EBI REST API. "
             "Disorder (grey gradient) and TM helices (orange) overlaid when available.\n\n"
             "Reference: Mistry et al. (Pfam), Nucleic Acids Res. 49:D412, 2021."
+        ),
+        "SS Bead Model": (
+            "Linear bead model coloured by secondary structure from PDB HELIX/SHEET records.\n\n"
+            "Each bead = one residue. Red = \u03b1-Helix, Gold = \u03b2-Sheet, Grey = Coil/Loop.\n\n"
+            "Provides a sequence-level view of the fold topology — complement to the Ramachandran "
+            "plot. Available after any structure is loaded."
         ),
         "Ramachandran Plot": (
             "\u03c6/\u03c8 backbone dihedral angle scatter plot.\n\n"
@@ -2335,7 +2341,6 @@ class ProteinAnalyzerGUI(QMainWindow):
 
             view_l     = _tab_page("View")
             interact_l = _tab_page("Interact")
-            analyse_l  = _tab_page("Analyse")
 
             # ══ VIEW TAB ══════════════════════════════════════════════════════
 
@@ -2412,30 +2417,91 @@ class ProteinAnalyzerGUI(QMainWindow):
 
             # ── Overlays ─────────────────────────────────────────────────────
             ovr_grp = QGroupBox("Overlays")
-            ovr_gl = QVBoxLayout(ovr_grp)
+            ovr_gl = QFormLayout(ovr_grp)
             ovr_gl.setContentsMargins(8, 4, 8, 6)
             ovr_gl.setSpacing(4)
+
+            # H-bonds checkbox
             self.struct_hbond_cb = QCheckBox("H-bonds")
             self.struct_hbond_cb.setToolTip(
-                "Show backbone N–H···O hydrogen bonds as cyan dashed lines.\n"
-                "Detected by N–O distance < 3.5 Å, excluding adjacent residues.")
+                "Backbone N–H···O bonds (N–O < 3.5 Å, non-adjacent residues).")
             self.struct_hbond_cb.toggled.connect(
                 lambda on: self._js(f"toggleHBonds({'true' if on else 'false'});"))
-            ovr_gl.addWidget(self.struct_hbond_cb)
+            ovr_gl.addRow(self.struct_hbond_cb)
+
+            # H-bond style row
+            _hb_row = QWidget(); _hb_rl = QHBoxLayout(_hb_row)
+            _hb_rl.setContentsMargins(0, 0, 0, 0); _hb_rl.setSpacing(4)
+            self._hbond_color = "#44ccff"
+            self._hbond_color_btn = QPushButton()
+            self._hbond_color_btn.setFixedSize(22, 22)
+            self._hbond_color_btn.setStyleSheet(
+                f"background:{self._hbond_color};border:1px solid #ccc;border-radius:3px;")
+            self._hbond_color_btn.setToolTip("H-bond colour")
+            def _pick_hbond_color():
+                from PySide6.QtWidgets import QColorDialog as _CD
+                c = _CD.getColor(
+                    parent=self, title="H-bond colour",
+                    options=_CD.ColorDialogOption.ShowAlphaChannel)
+                if c.isValid():
+                    self._hbond_color = c.name()
+                    self._hbond_color_btn.setStyleSheet(
+                        f"background:{self._hbond_color};"
+                        f"border:1px solid #ccc;border-radius:3px;")
+                    self._js(f"setHBondStyle('{self._hbond_color}',{self._hbond_radius_sb.value():.2f});")
+            self._hbond_color_btn.clicked.connect(_pick_hbond_color)
+            _hb_rl.addWidget(self._hbond_color_btn)
+            _hb_rl.addWidget(QLabel("r:"))
+            from PySide6.QtWidgets import QDoubleSpinBox as _DSB
+            self._hbond_radius_sb = _DSB()
+            self._hbond_radius_sb.setRange(0.02, 0.25); self._hbond_radius_sb.setSingleStep(0.01)
+            self._hbond_radius_sb.setValue(0.07); self._hbond_radius_sb.setFixedWidth(58)
+            self._hbond_radius_sb.setToolTip("Cylinder radius (Å)")
+            self._hbond_radius_sb.valueChanged.connect(
+                lambda v: self._js(f"setHBondStyle('{self._hbond_color}',{v:.2f});"))
+            _hb_rl.addWidget(self._hbond_radius_sb)
+            _hb_rl.addStretch()
+            ovr_gl.addRow(_hb_row)
+
+            # Contacts checkbox + style
             self.struct_contacts_cb = QCheckBox("Contacts (8 Å)")
             self.struct_contacts_cb.setToolTip(
-                "Show all Cα–Cα contacts within 8 Å as faint grey lines.\n"
-                "May be dense for large structures (>300 residues).")
+                "Cα–Cα pairs within 8 Å — shows the spatial contact network.\n"
+                "Dense regions = packed core. Sparse = flexible loops.")
             self.struct_contacts_cb.toggled.connect(
                 lambda on: self._js(f"toggleContacts({'true' if on else 'false'});"))
-            ovr_gl.addWidget(self.struct_contacts_cb)
-            self.struct_sstrack_cb = QCheckBox("SS track")
-            self.struct_sstrack_cb.setToolTip(
-                "Show a 1-D secondary-structure bar at the bottom of the viewer.\n"
-                "Pink = helix, gold = strand, grey = coil/loop.")
-            self.struct_sstrack_cb.toggled.connect(
-                lambda on: self._js(f"toggleSSTrack({'true' if on else 'false'});"))
-            ovr_gl.addWidget(self.struct_sstrack_cb)
+            ovr_gl.addRow(self.struct_contacts_cb)
+
+            _ct_row = QWidget(); _ct_rl = QHBoxLayout(_ct_row)
+            _ct_rl.setContentsMargins(0, 0, 0, 0); _ct_rl.setSpacing(4)
+            self._contact_color = "#888888"
+            self._contact_color_btn = QPushButton()
+            self._contact_color_btn.setFixedSize(22, 22)
+            self._contact_color_btn.setStyleSheet(
+                f"background:{self._contact_color};border:1px solid #ccc;border-radius:3px;")
+            self._contact_color_btn.setToolTip("Contact line colour")
+            def _pick_contact_color():
+                from PySide6.QtWidgets import QColorDialog as _CD2
+                c = _CD2.getColor(parent=self, title="Contact colour")
+                if c.isValid():
+                    self._contact_color = c.name()
+                    self._contact_color_btn.setStyleSheet(
+                        f"background:{self._contact_color};"
+                        f"border:1px solid #ccc;border-radius:3px;")
+                    self._js(f"setContactStyle('{self._contact_color}',{self._contact_opacity_sb.value():.2f});")
+            self._contact_color_btn.clicked.connect(_pick_contact_color)
+            _ct_rl.addWidget(self._contact_color_btn)
+            _ct_rl.addWidget(QLabel("α:"))
+            self._contact_opacity_sb = _DSB()
+            self._contact_opacity_sb.setRange(0.05, 1.0); self._contact_opacity_sb.setSingleStep(0.05)
+            self._contact_opacity_sb.setValue(0.30); self._contact_opacity_sb.setFixedWidth(58)
+            self._contact_opacity_sb.setToolTip("Line opacity (0–1)")
+            self._contact_opacity_sb.valueChanged.connect(
+                lambda v: self._js(f"setContactStyle('{self._contact_color}',{v:.2f});"))
+            _ct_rl.addWidget(self._contact_opacity_sb)
+            _ct_rl.addStretch()
+            ovr_gl.addRow(_ct_row)
+
             view_l.addWidget(ovr_grp)
 
             # ── Background ───────────────────────────────────────────────────
@@ -2600,35 +2666,6 @@ class ProteinAnalyzerGUI(QMainWindow):
             interact_l.addWidget(self._marker_pos_lbl)
             interact_l.addStretch()
 
-            # ══ ANALYSE TAB ═══════════════════════════════════════════════════
-            analyse_info = QLabel(
-                "Structure-level analysis. Load a structure and click Refresh.")
-            analyse_info.setStyleSheet(
-                "color:#7880a8; font-size:8pt; padding:2px 0 6px 0; background:transparent;")
-            analyse_info.setWordWrap(True)
-            analyse_l.addWidget(analyse_info)
-
-            # Stats text
-            self.struct_analyse_stats = QLabel("—")
-            self.struct_analyse_stats.setWordWrap(True)
-            self.struct_analyse_stats.setStyleSheet(
-                "color:#2d3748; font-size:8pt; padding:4px 2px; background:transparent;")
-            analyse_l.addWidget(self.struct_analyse_stats)
-
-            # Inline mini-plot canvas area
-            self.struct_analyse_canvas_area = QWidget()
-            self.struct_analyse_canvas_layout = QVBoxLayout(self.struct_analyse_canvas_area)
-            self.struct_analyse_canvas_layout.setContentsMargins(0, 0, 0, 0)
-            self.struct_analyse_canvas_layout.setSpacing(6)
-            analyse_l.addWidget(self.struct_analyse_canvas_area)
-
-            refresh_analyse_btn = QPushButton("\u21ba  Refresh")
-            refresh_analyse_btn.setToolTip(
-                "Regenerate structure mini-plots from current structure data.")
-            refresh_analyse_btn.clicked.connect(self._refresh_analyse_tab)
-            refresh_analyse_btn.setFixedHeight(26)
-            analyse_l.addWidget(refresh_analyse_btn)
-            analyse_l.addStretch()
 
 
             content_row.addWidget(ctrl_tabs)
@@ -2751,17 +2788,10 @@ class ProteinAnalyzerGUI(QMainWindow):
   }}
   #popup-close:hover {{ color:#ffd700; }}
 
-  /* ── 1-D secondary-structure track ────────────────────────────────────── */
-  #ss-track {{
-    display:none; position:absolute; bottom:0; left:0; right:0; height:10px;
-    z-index:60; box-shadow:0 -1px 4px rgba(0,0,0,0.35);
-    cursor:default;
-  }}
 
 </style>
 </head><body>
 <div id="vp">
-  <div id="ss-track"></div>
   <div id="colorbar">
     <div id="cb-title"></div>
     <div id="cb-bar-wrap">
@@ -3229,10 +3259,25 @@ function _charge_neon(atom){{
 }}
 
 // ── H-bond / contact overlays ──────────────────────────────────────────────
-var hbondVisible   = false;
-var contactsVisible= false;
-var hbondShapes    = [];
-var contactShapes  = [];
+var hbondVisible    = false;
+var contactsVisible = false;
+var hbondShapes     = [];
+var contactShapes   = [];
+var hbondColor      = '#44ccff';
+var hbondRadius     = 0.07;
+var contactColor    = '#888888';
+var contactOpacity  = 0.30;
+
+function setHBondStyle(color, radius){{
+    hbondColor  = color  || '#44ccff';
+    hbondRadius = radius || 0.07;
+    if(hbondVisible){{ toggleHBonds(false); toggleHBonds(true); }}
+}}
+function setContactStyle(color, opacity){{
+    contactColor   = color   || '#888888';
+    contactOpacity = opacity || 0.30;
+    if(contactsVisible){{ toggleContacts(false); toggleContacts(true); }}
+}}
 
 function _detectBackboneHBonds(){{
     if(!viewer) return [];
@@ -3260,7 +3305,7 @@ function toggleHBonds(on){{
             hbondShapes.push(viewer.addCylinder({{
                 start:{{x:h.x1,y:h.y1,z:h.z1}},
                 end:{{x:h.x2,y:h.y2,z:h.z2}},
-                radius:0.07, color:'#44ccff', opacity:0.72,
+                radius:hbondRadius, color:hbondColor, opacity:0.72,
                 dashed:true, fromCap:0, toCap:0
             }}));
         }});
@@ -3284,41 +3329,13 @@ function toggleContacts(on){{
                     contactShapes.push(viewer.addLine({{
                         start:{{x:a.x,y:a.y,z:a.z}},
                         end:{{x:b.x,y:b.y,z:b.z}},
-                        color:'#888888', linewidth:0.5, opacity:0.3
+                        color:contactColor, linewidth:0.5, opacity:contactOpacity
                     }}));
                 }}
             }}
         }}
         viewer.render();
     }} else if(viewer){{ viewer.render(); }}
-}}
-
-// ── 1-D secondary-structure track ─────────────────────────────────────────
-var ssTrackVisible = false;
-
-function toggleSSTrack(on){{
-    ssTrackVisible = on;
-    var track = document.getElementById('ss-track');
-    if(!track) return;
-    if(!on || !viewer){{ track.style.display='none'; return; }}
-    var cas = viewer.selectedAtoms({{atom:'CA'}});
-    if(!cas || cas.length===0){{ track.style.display='none'; return; }}
-    cas.sort(function(a,b){{ return a.chain<b.chain?-1:a.chain>b.chain?1:a.resi-b.resi; }});
-    var n = cas.length;
-    var segW = (100/n).toFixed(4)+'%';
-    track.innerHTML='';
-    track.style.display='flex';
-    cas.forEach(function(atom){{
-        var seg=document.createElement('div');
-        seg.style.width=segW;
-        seg.style.height='100%';
-        seg.style.flexShrink='0';
-        var ss=(atom.ss||'c').toLowerCase();
-        if(ss==='h')      {{seg.style.background='#FF6666'; seg.title=atom.resn+atom.resi+' Helix';}}
-        else if(ss==='s') {{seg.style.background='#FFD700'; seg.title=atom.resn+atom.resi+' Sheet';}}
-        else              {{seg.style.background='#aaaaaa'; seg.title=atom.resn+atom.resi+' Coil';}}
-        track.appendChild(seg);
-    }});
 }}
 
 // ── Feature score coloring ────────────────────────────────────────────────
@@ -3448,7 +3465,6 @@ function loadPDB(data){{
         // re-apply any active overlays on new structure
         if(hbondVisible)    toggleHBonds(true);
         if(contactsVisible) toggleContacts(true);
-        if(ssTrackVisible)  toggleSSTrack(true);
     }} else {{
         viewer.render();
         updateColorBar();
@@ -4084,30 +4100,6 @@ window.addEventListener("load",init);
         self._js(f"setFeatureGradient({repr(grad_key)});")
 
     @staticmethod
-    def _extract_bfactors_from_pdb(pdb_str: str) -> list[float]:
-        """Return per-residue mean B-factor from ATOM records (first chain, first model)."""
-        from collections import defaultdict
-        resi_bvals: dict[int, list[float]] = defaultdict(list)
-        cur_chain = None
-        for line in pdb_str.splitlines():
-            if not line.startswith("ATOM  "):
-                continue
-            chain = line[21:22].strip()
-            if cur_chain is None:
-                cur_chain = chain
-            if chain != cur_chain:
-                break
-            try:
-                resi = int(line[22:26])
-                bfac = float(line[60:66])
-                resi_bvals[resi].append(bfac)
-            except (ValueError, IndexError):
-                pass
-        if not resi_bvals:
-            return []
-        return [sum(v) / len(v) for _, v in sorted(resi_bvals.items())]
-
-    @staticmethod
     def _parse_ss_composition(pdb_str: str) -> dict[str, int]:
         """Count residues assigned to helix / sheet / coil from HELIX+SHEET records."""
         helix_res: set[tuple[str, int]] = set()
@@ -4152,210 +4144,6 @@ window.addEventListener("load",init);
                 pass
         return {"helix": helix_count, "sheet": sheet_count,
                 "coil": max(0, total - helix_count - sheet_count), "total": total}
-
-    def _refresh_analyse_tab(self) -> None:
-        """Populate the Analyse tab with structure-only mini-graphs + navigation links."""
-        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as _FC
-        from matplotlib.figure import Figure as _Fig
-        import numpy as _np
-
-        lay = getattr(self, "struct_analyse_canvas_layout", None)
-        if lay is None:
-            return
-        while lay.count():
-            item = lay.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        pdb_str   = getattr(self, "_struct_pdb_str", None)
-        rsa       = getattr(self, "_struct_sasa_data", {})
-        afd       = self.alphafold_data or {}
-        is_af     = getattr(self, "_struct_is_alphafold", False)
-        plddt_arr = afd.get("plddt") or (self._extract_bfactors_from_pdb(pdb_str) if pdb_str else [])
-        dm        = afd.get("dist_matrix")
-
-        if not pdb_str and not rsa:
-            self.struct_analyse_stats.setText(
-                "No structure loaded — open a PDB or fetch AlphaFold first.")
-            return
-
-        _TITLE_CSS = "font-size:7pt; color:#4361ee; font-weight:600; background:transparent;"
-        _BTN_CSS   = ("font-size:7pt; color:#4361ee; background:transparent; border:none;"
-                      " text-align:right; padding:0;")
-
-        def _add_block(fig, title: str, graph_name: str | None,
-                       height: int = 130) -> None:
-            """Add title + canvas + optional navigation link as a block."""
-            from PySide6.QtWidgets import QHBoxLayout as _QHL
-            container = QWidget()
-            vb = QVBoxLayout(container)
-            vb.setContentsMargins(0, 2, 0, 6)
-            vb.setSpacing(2)
-            lbl = QLabel(title)
-            lbl.setStyleSheet(_TITLE_CSS)
-            vb.addWidget(lbl)
-            fig.set_size_inches(2.6, height / fig.get_dpi())
-            try:
-                fig.tight_layout(pad=0.3)
-            except Exception:
-                pass
-            canvas = _FC(fig)
-            canvas.setFixedHeight(height)
-            vb.addWidget(canvas)
-            if graph_name:
-                row = QWidget(); rl = _QHL(row)
-                rl.setContentsMargins(0, 0, 0, 0)
-                rl.addStretch()
-                btn = QPushButton(f"\u2197 Full Graph")
-                btn.setStyleSheet(_BTN_CSS)
-                btn.setFixedHeight(16)
-                btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                btn.clicked.connect(lambda _, g=graph_name: self._jump_to_graph(g))
-                rl.addWidget(btn)
-                vb.addWidget(row)
-            lay.addWidget(container)
-            import matplotlib.pyplot as _plt; _plt.close(fig)
-
-        stats_lines = []
-
-        # ── 1. pLDDT / B-factor ───────────────────────────────────────────────
-        if plddt_arr:
-            try:
-                vals = list(plddt_arr)
-                mean_b = sum(vals) / len(vals)
-                label  = "B-Factor" if not is_af else "pLDDT"
-                stats_lines.append(f"Mean {label}: {mean_b:.1f}")
-                fig = _Fig(figsize=(2.6, 1.35), dpi=100)
-                ax  = fig.add_subplot(111)
-                x   = range(1, len(vals) + 1)
-                if is_af:
-                    zones = [(90, 100, "#0053D6"), (70, 90, "#65CBF3"),
-                             (50, 70, "#FFDB13"),  (0,  50, "#FF7D45")]
-                else:
-                    zones = [(0, 20,  "#0053D6"), (20, 40, "#65CBF3"),
-                             (40, 60, "#FFDB13"), (60, max(100, max(vals)+5), "#FF7D45")]
-                for lo, hi, col in zones:
-                    ax.axhspan(lo, hi, alpha=0.18, color=col, linewidth=0)
-                ax.plot(x, vals, linewidth=0.9, color="#374151")
-                ax.set_xlim(1, len(vals)); ax.set_ylim(0 if is_af else 0, 100 if is_af else None)
-                ax.set_ylabel(label, fontsize=6); ax.tick_params(labelsize=5)
-                for spine in ("top", "right"): ax.spines[spine].set_visible(False)
-                fig.tight_layout(pad=0.3)
-                gname = "pLDDT Profile" if "pLDDT Profile" in self._graph_generators else None
-                _add_block(fig, label + " Profile", gname, height=110)
-            except Exception:
-                pass
-
-        # ── 2. SASA ───────────────────────────────────────────────────────────
-        if rsa:
-            try:
-                xs = sorted(rsa.keys()); ys = [rsa[k] for k in xs]
-                n_buried  = sum(1 for v in ys if v < 0.2)
-                n_exp     = sum(1 for v in ys if v >= 0.5)
-                stats_lines.append(
-                    f"Buried: {n_buried}  Exposed: {n_exp}  "
-                    f"Partial: {len(ys)-n_buried-n_exp}")
-                fig = _Fig(figsize=(2.6, 1.35), dpi=100)
-                ax  = fig.add_subplot(111)
-                ax.fill_between(xs, ys, alpha=0.35, color="#4cc9f0", linewidth=0)
-                ax.plot(xs, ys, linewidth=0.9, color="#1a85c5")
-                ax.axhline(0.2, linewidth=0.6, linestyle="--", color="#94a3b8")
-                ax.axhline(0.5, linewidth=0.6, linestyle="--", color="#475569")
-                ax.set_ylim(0, 1); ax.set_ylabel("RSA", fontsize=6)
-                ax.tick_params(labelsize=5)
-                for spine in ("top", "right"): ax.spines[spine].set_visible(False)
-                fig.tight_layout(pad=0.3)
-                gname = "SASA Profile" if "SASA Profile" in self._graph_generators else None
-                _add_block(fig, "Solvent Accessibility (RSA)", gname, height=110)
-            except Exception:
-                pass
-
-        # ── 3. SS Composition ─────────────────────────────────────────────────
-        if pdb_str:
-            try:
-                ss = self._parse_ss_composition(pdb_str)
-                tot = ss["total"] or 1
-                h_pct = 100 * ss["helix"] / tot
-                s_pct = 100 * ss["sheet"] / tot
-                c_pct = 100 * ss["coil"]  / tot
-                stats_lines.append(
-                    f"Helix {h_pct:.0f}%  Sheet {s_pct:.0f}%  Coil {c_pct:.0f}%")
-                fig = _Fig(figsize=(2.6, 0.8), dpi=100)
-                ax  = fig.add_subplot(111)
-                cum = 0
-                for val, col, lbl in [(h_pct, "#FF6666", "Helix"),
-                                      (s_pct, "#FFD700", "Sheet"),
-                                      (c_pct, "#aaaaaa", "Coil")]:
-                    ax.barh(0, val, left=cum, color=col, height=0.6)
-                    if val > 8:
-                        ax.text(cum + val / 2, 0, f"{lbl}\n{val:.0f}%",
-                                ha="center", va="center", fontsize=5.5,
-                                color="white" if col == "#FF6666" else "#333333",
-                                fontweight="bold")
-                    cum += val
-                ax.set_xlim(0, 100); ax.set_ylim(-0.5, 0.5)
-                ax.set_xticks([]); ax.set_yticks([])
-                for spine in ax.spines.values(): spine.set_visible(False)
-                fig.tight_layout(pad=0.1)
-                _add_block(fig, "Secondary Structure Composition", None, height=55)
-            except Exception:
-                pass
-
-        # ── 4. Ramachandran ───────────────────────────────────────────────────
-        if pdb_str:
-            try:
-                pp = _extract_phi_psi(pdb_str)
-                if pp:
-                    fig = _Fig(figsize=(2.6, 2.4), dpi=100)
-                    ax  = fig.add_subplot(111)
-                    # background regions
-                    from matplotlib.patches import Rectangle as _Rect
-                    ax.add_patch(_Rect((-80, -60), 32, 40, color="#555", alpha=0.2, zorder=0))
-                    ax.add_patch(_Rect((-150, 90), 60, 70, color="#888", alpha=0.15, zorder=0))
-                    ax.axhline(0, color="#ccc", linewidth=0.4)
-                    ax.axvline(0, color="#ccc", linewidth=0.4)
-                    _SS_COL = {"H": "#1f77b4", "E": "#d62728", "C": "#aaaaaa"}
-                    for res in pp:
-                        phi, psi, ss = res.get("phi"), res.get("psi"), res.get("ss", "C")
-                        if phi is None or psi is None: continue
-                        ax.scatter(phi, psi, s=4, alpha=0.6,
-                                   color=_SS_COL.get(ss, "#aaa"), linewidths=0, zorder=3)
-                    ax.set_xlim(-180, 180); ax.set_ylim(-180, 180)
-                    ax.set_xticks(range(-180, 181, 90))
-                    ax.set_yticks(range(-180, 181, 90))
-                    ax.set_xlabel("\u03d5 (°)", fontsize=6)
-                    ax.set_ylabel("\u03c8 (°)", fontsize=6)
-                    ax.tick_params(labelsize=5)
-                    for spine in ("top", "right"): ax.spines[spine].set_visible(False)
-                    fig.tight_layout(pad=0.3)
-                    gname = "Ramachandran Plot" if "Ramachandran Plot" in self._graph_generators else None
-                    _add_block(fig, "Ramachandran Plot (\u03d5/\u03c8)", gname, height=160)
-            except Exception:
-                pass
-
-        # ── 5. Distance/Contact map ───────────────────────────────────────────
-        if dm is not None:
-            try:
-                dm_arr = _np.array(dm)
-                fig = _Fig(figsize=(2.6, 2.4), dpi=100)
-                ax  = fig.add_subplot(111)
-                n   = dm_arr.shape[0]
-                ax.imshow(dm_arr < 8.0, origin="lower", aspect="auto",
-                          cmap="Greys", interpolation="nearest")
-                ax.set_xlabel("Residue", fontsize=6)
-                ax.set_ylabel("Residue", fontsize=6)
-                ax.tick_params(labelsize=5)
-                fig.tight_layout(pad=0.3)
-                gname = "Distance Map" if "Distance Map" in self._graph_generators else None
-                _add_block(fig, "Contact Map (Cα < 8 \u00c5)", gname, height=155)
-            except Exception:
-                pass
-
-        if stats_lines:
-            self.struct_analyse_stats.setText("  ·  ".join(stats_lines))
-        else:
-            self.struct_analyse_stats.setText(
-                "No structure data — load a PDB or fetch AlphaFold.")
 
     def _on_struct_colorbar_toggled(self, checked: bool) -> None:
         self._js(f"setColorBarVisible({'true' if checked else 'false'});")
@@ -4651,7 +4439,6 @@ window.addEventListener("load",init);
             self._populate_sasa_report_section()
             if self.analysis_data:
                 self.update_graph_tabs()
-            self._refresh_analyse_tab()
         _QT.singleShot(200, _deferred_sasa)
 
     @staticmethod
@@ -6333,6 +6120,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 ad["plaac"], label_font=lf, tick_font=tf))
 
         # Structure-derived (require loaded PDB — independent of AlphaFold)
+        _pdb_for_ss = getattr(self, "_struct_pdb_str", None)
+        if _pdb_for_ss:
+            gens["SS Bead Model"] = lambda _p=_pdb_for_ss: _wrap(
+                lambda: create_bead_model_ss_figure(
+                    _p, show_labels=True, label_font=lf, tick_font=tf))
+
         if getattr(self, "_struct_sasa_data", {}):
             _rsa = dict(self._struct_sasa_data)
             _asa = dict(self._struct_sasa_raw)
