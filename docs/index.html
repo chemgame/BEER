@@ -174,39 +174,58 @@
     .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid rgba(255,255,255,.13); }
     .btn-ghost:hover { background: rgba(255,255,255,.055); color: var(--text); }
 
-    /* ── Screenshot strip ───────────────────────────────────────────────── */
+    /* ── Screenshot carousel ───────────────────────────────────────────── */
     .screenshots {
       position: relative; z-index: 1;
-      /* bottom gradient fade into page */
-      -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
-      mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+      -webkit-mask-image: linear-gradient(to bottom, black 72%, transparent 100%);
+      mask-image: linear-gradient(to bottom, black 72%, transparent 100%);
     }
 
-    .ss-grid {
-      display: grid;
-      grid-template-columns: 1.55fr 1fr 1fr;
-      gap: 14px;
-      align-items: end;
+    .carousel {
+      position: relative;
+      height: 380px;
+      overflow: hidden;
     }
 
     .ss-item {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: 66%;
+      height: 340px;
       border-radius: var(--radius) var(--radius) 0 0;
       overflow: hidden;
       border: 1px solid rgba(255,255,255,.09);
       border-bottom: none;
       box-shadow: 0 -8px 40px rgba(0,0,0,.45);
-      position: relative;
-      height: 340px;
+      transition: transform .65s cubic-bezier(.4,0,.2,1),
+                  opacity  .65s cubic-bezier(.4,0,.2,1);
+      will-change: transform, opacity;
+      cursor: pointer;
+      user-select: none;
     }
 
     .ss-item img {
       width: 100%; height: 100%; display: block;
       object-fit: cover; object-position: top left;
+      pointer-events: none;
     }
 
-    /* Primary screenshot sits higher */
-    .ss-primary { transform: translateY(0); }
-    .ss-secondary { transform: translateY(32px); opacity: .88; }
+    .ss-item.is-active {
+      transform: translateX(-50%) scale(1);
+      opacity: 1;
+      z-index: 3;
+    }
+    .ss-item.is-prev {
+      transform: translateX(calc(-50% - 64%)) scale(0.80);
+      opacity: 0.25;
+      z-index: 2;
+    }
+    .ss-item.is-next {
+      transform: translateX(calc(-50% + 64%)) scale(0.80);
+      opacity: 0.25;
+      z-index: 2;
+    }
 
     /* Caption inside screenshot */
     .ss-label {
@@ -216,6 +235,22 @@
       font-size: 0.76rem; font-weight: 600;
       color: rgba(255,255,255,.55); letter-spacing: .03em;
       text-transform: uppercase;
+    }
+
+    /* Dots */
+    .carousel-dots {
+      display: flex; justify-content: center; gap: 10px;
+      margin-top: 20px;
+    }
+    .carousel-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: rgba(255,255,255,.18); border: none; padding: 0;
+      cursor: pointer;
+      transition: background .3s, transform .3s;
+    }
+    .carousel-dot.is-active {
+      background: var(--blue-lt);
+      transform: scale(1.35);
     }
 
     /* ── Section shared ──────────────────────────────────────────────────── */
@@ -401,8 +436,9 @@
 
     /* ── Responsive ──────────────────────────────────────────────────────── */
     @media (max-width: 880px) {
-      .ss-grid { grid-template-columns: 1fr; gap: 10px; }
-      .ss-secondary { transform: none; opacity: 1; }
+      .ss-item { width: 90%; }
+      .ss-item.is-prev { transform: translateX(calc(-50% - 95%)) scale(0.80); }
+      .ss-item.is-next { transform: translateX(calc(-50% + 95%)) scale(0.80); }
       .diff-grid { grid-template-columns: 1fr; }
       .feat-grid { grid-template-columns: 1fr; }
       .install-layout { grid-template-columns: 1fr; gap: 36px; }
@@ -460,31 +496,37 @@
       </div>
     </div>
 
-    <!-- Three screenshots in staggered strip -->
+    <!-- Rotating screenshot carousel -->
     <div class="screenshots">
-      <div class="ss-grid">
+      <div class="carousel" id="ss-carousel">
 
-        <div class="ss-item ss-primary">
+        <div class="ss-item is-active" data-idx="0">
           <img src="assets/screenshot-graphs.png"
                alt="BEER Graphs tab — AI disorder prediction profile for P53"
                loading="eager" />
           <div class="ss-label">AI Prediction Graphs · P53 disorder profile</div>
         </div>
 
-        <div class="ss-item ss-secondary">
+        <div class="ss-item is-next" data-idx="1">
           <img src="assets/screenshot-structure.png"
                alt="BEER Structure tab — AlphaFold 3D viewer for P53"
                loading="lazy" />
           <div class="ss-label">3D Structure Viewer · pLDDT colouring</div>
         </div>
 
-        <div class="ss-item ss-secondary">
+        <div class="ss-item is-prev" data-idx="2">
           <img src="assets/screenshot-analysis.png"
                alt="BEER Analysis tab — sequence viewer and database chips"
                loading="lazy" />
           <div class="ss-label">Analysis Tab · UniProt / PDB integration</div>
         </div>
 
+      </div>
+
+      <div class="carousel-dots" id="ss-dots">
+        <button class="carousel-dot is-active" aria-label="Screenshot 1"></button>
+        <button class="carousel-dot"           aria-label="Screenshot 2"></button>
+        <button class="carousel-dot"           aria-label="Screenshot 3"></button>
       </div>
     </div>
 
@@ -777,5 +819,52 @@
   </div>
 </footer>
 
+<script>
+(function () {
+  var items   = Array.from(document.querySelectorAll('#ss-carousel .ss-item'));
+  var dots    = Array.from(document.querySelectorAll('#ss-dots .carousel-dot'));
+  var total   = items.length;
+  var current = 0;
+  var timer;
+
+  function go(idx) {
+    current = (idx % total + total) % total;
+    var prev = (current - 1 + total) % total;
+    var next = (current + 1) % total;
+    items.forEach(function (el, i) {
+      el.classList.remove('is-active', 'is-prev', 'is-next');
+      if (i === current) el.classList.add('is-active');
+      else if (i === prev) el.classList.add('is-prev');
+      else if (i === next) el.classList.add('is-next');
+    });
+    dots.forEach(function (d, i) {
+      d.classList.toggle('is-active', i === current);
+    });
+  }
+
+  function start() {
+    timer = setInterval(function () { go(current + 1); }, 3800);
+  }
+
+  function reset() {
+    clearInterval(timer);
+    start();
+  }
+
+  /* dot clicks */
+  dots.forEach(function (d, i) {
+    d.addEventListener('click', function () { go(i); reset(); });
+  });
+
+  /* click a side slide to bring it forward */
+  items.forEach(function (el, i) {
+    el.addEventListener('click', function () {
+      if (i !== current) { go(i); reset(); }
+    });
+  });
+
+  start();
+})();
+</script>
 </body>
 </html>
