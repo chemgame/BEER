@@ -88,7 +88,7 @@ def create_local_charge_figure(
                     alpha=0.25, color=_FILL_BELOW, interpolate=True)
     ax.plot(xs, ncpr_profile, color=_PROFILE_LINE, linewidth=1.6, zorder=4)
     ax.axhline(0, color="#888", linewidth=0.8, linestyle="--", zorder=3)
-    _pub_style_ax(ax, title=f"Local Net Charge Per Residue  (window = {window_size})",
+    _pub_style_ax(ax, title="Local Charge Profile",
                   xlabel="Residue Position",
                   ylabel="Net Charge Per Residue",
                   grid=True, title_size=label_font - 1,

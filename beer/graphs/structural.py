@@ -221,7 +221,7 @@ def create_ramachandran_figure(
 
     ax.set_xlim(-180, 180)
     ax.set_ylim(-180, 180)
-    _pub_style_ax(ax, title="Ramachandran Plot",
+    _pub_style_ax(ax, title="Ramachandran Map",
                   xlabel=r"$\phi$ (°)", ylabel=r"$\psi$ (°)",
                   grid=True, despine=True,
                   title_size=label_font - 1,
@@ -317,7 +317,7 @@ def create_contact_network_figure(
     ax.axis("off")
     subtitle = f" — top {top_n} by degree" if large_protein else ""
     ax.set_title(
-        f"Contact Network  (Cα ≤ {cutoff_angstrom} Å){subtitle}",
+        "Contact Map",
         fontsize=label_font - 1, fontweight="bold", color="#1a1a2e", pad=8,
     )
     return fig
@@ -519,7 +519,7 @@ def create_distance_map_figure(
     cbar.ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")
     ax.contour(dist_matrix, levels=[8.0], colors=["#f72585"],
                linewidths=[0.6], alpha=0.7)
-    _pub_style_ax(ax, title=f"Cα Distance Map  ({n} aa)",
+    _pub_style_ax(ax, title="Cα Distance Map",
                   xlabel="Residue Position", ylabel="Residue Position",
                   grid=False, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)

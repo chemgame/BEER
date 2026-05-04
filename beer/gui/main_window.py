@@ -198,20 +198,20 @@ _REPORT_SECTION_GROUPS: list = [
 
 # AI Predictions head specs: (display_name, data_key, graph_title, auroc)
 _AI_HEAD_SPECS: list[tuple[str, str, str, str]] = [
-    ("Disorder",            "disorder_scores",          "Disorder Profile",       "0.9999"),
+    ("Disorder",            "disorder_scores",          "Disorder Profile",            "0.894"),
     ("Signal Peptide",      "sp_bilstm_profile",        "Signal Peptide Profile",      "0.9999"),
-    ("Transmembrane",       "tm_bilstm_profile",        "Transmembrane Profile",       "0.992"),
-    ("Intramembrane",       "intramem_bilstm_profile",  "Intramembrane Profile",       "—"),
-    ("Coiled-Coil",         "cc_bilstm_profile",        "Coiled-Coil Profile",         "—"),
+    ("Transmembrane",       "tm_bilstm_profile",        "Transmembrane Profile",       "0.985"),
+    ("Intramembrane",       "intramem_bilstm_profile",  "Intramembrane Profile",       "0.932"),
+    ("Coiled-Coil",         "cc_bilstm_profile",        "Coiled-Coil Profile",         "0.972"),
     ("DNA-Binding",         "dna_bilstm_profile",       "DNA-Binding Profile",         "0.998"),
     ("RNA Binding",         "rnabind_bilstm_profile",   "RNA Binding Profile",         "—"),
-    ("Active Site",         "act_bilstm_profile",       "Active Site Profile",         "—"),
+    ("Active Site",         "act_bilstm_profile",       "Active Site Profile",         "0.987"),
     ("Binding Site",        "bnd_bilstm_profile",       "Binding Site Profile",        "—"),
-    ("Phosphorylation",     "phos_bilstm_profile",      "Phosphorylation Profile",     "—"),
-    ("Low-Complexity",      "lcd_bilstm_profile",       "Low-Complexity Profile",      "—"),
+    ("Phosphorylation",     "phos_bilstm_profile",      "Phosphorylation Profile",     "0.980"),
+    ("Low-Complexity",      "lcd_bilstm_profile",       "Low-Complexity Profile",      "0.969"),
     ("Zinc Finger",         "znf_bilstm_profile",       "Zinc Finger Profile",         "—"),
-    ("Glycosylation",       "glyc_bilstm_profile",      "Glycosylation Profile",       "—"),
-    ("Ubiquitination",      "ubiq_bilstm_profile",      "Ubiquitination Profile",      "—"),
+    ("Glycosylation",       "glyc_bilstm_profile",      "Glycosylation Profile",       "0.995"),
+    ("Ubiquitination",      "ubiq_bilstm_profile",      "Ubiquitination Profile",      "0.981"),
     ("Methylation",         "meth_bilstm_profile",      "Methylation Profile",         "—"),
     ("Acetylation",         "acet_bilstm_profile",      "Acetylation Profile",         "—"),
     ("Lipidation",          "lipid_bilstm_profile",     "Lipidation Profile",          "—"),
@@ -415,8 +415,8 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.main_tabs = NavTabWidget()
         self.setCentralWidget(self.main_tabs)
         self.init_analysis_tab()
-        self.init_report_tab()
         self.init_summary_tab()
+        self.init_report_tab()
         self.init_graphs_tab()
         self.init_structure_tab()
         self.init_blast_tab()
@@ -2158,7 +2158,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         "Hydrophobicity":       ["Cyan-White-Orange", "Blue-White-Red", "Green-White-Red", "Thermal", "Purple-White-Green"],
         "Mass":                 ["Blue-to-Red", "Rainbow", "Sinebow", "Greyscale"],
         "Secondary Structure":  ["JMol", "PyMOL", "Pastel", "Lesk", "Cinema", "Vivid"],
-        "Spectrum (N→C)":       ["Rainbow (N→C)", "Blue→Red (N→C)", "Sinebow (N→C)", "Greyscale (N→C)", "Reverse (C→N)"],
+        "Residue Number":       ["Rainbow (N→C)", "Blue→Red (N→C)", "Sinebow (N→C)", "Plasma (N→C)", "Greyscale (N→C)", "Reverse (C→N)"],
         "Solvent Accessibility": [
             "Buried→Exposed (Blue→Red)",
             "Exposed→Buried (Red→Blue)",
@@ -2178,7 +2178,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         "Hydrophobicity":            "hydrophobicity",
         "Mass":                      "mass",
         "Secondary Structure":       "secondary_structure",
-        "Spectrum (N→C)":            "spectrum",
+        "Residue Number":            "spectrum",
         "Solvent Accessibility":     "sasa",
         "AI Features":               "feature",
         "Aggregation (ZYGGREGATOR)": "zyggregator",
@@ -2984,6 +2984,12 @@ function _spectrum_grey(atom){{
     var t=seqLen>1?Math.max(0,Math.min(1,(atom.resi-1)/(seqLen-1))):0;
     var v=Math.round(lerp(30,220,t)); return rgb(v,v,v);
 }}
+function _spectrum_plasma(atom){{
+    var t=seqLen>1?Math.max(0,Math.min(1,(atom.resi-1)/(seqLen-1))):0;
+    var stops=[[13,8,135],[86,30,156],[165,45,128],[227,111,64],[240,249,33]];
+    var seg=t*4; var i=Math.min(Math.floor(seg),3); var f=seg-i;
+    return rgb(lerp(stops[i][0],stops[i+1][0],f),lerp(stops[i][1],stops[i+1][1],f),lerp(stops[i][2],stops[i+1][2],f));
+}}
 function _spectrumScheme(){{
     var mx=seqLen>0?seqLen:9999;
     if(colorScheme==='Rainbow (N\u2192C)')        return {{gradient:'roygb',prop:'resi',min:mx,max:1}};
@@ -2991,6 +2997,7 @@ function _spectrumScheme(){{
     if(colorScheme==='Sinebow (N\u2192C)')        return {{gradient:'sinebow',prop:'resi',min:1,max:mx}};
     if(colorScheme==='Reverse (C\u2192N)')        return {{gradient:'roygb',prop:'resi',min:1,max:mx}};
     if(colorScheme==='Greyscale (N\u2192C)')      return null;
+    if(colorScheme==='Plasma (N\u2192C)')         return null;
     return {{gradient:'roygb',prop:'resi',min:mx,max:1}};
 }}
 
@@ -3024,6 +3031,7 @@ function _getColorFunc(){{
     }}
     if(colorMode==='plddt' && colorScheme==='Greyscale') return _plddt_grey;
     if(colorMode==='spectrum' && colorScheme==='Greyscale (N\u2192C)') return _spectrum_grey;
+    if(colorMode==='spectrum' && colorScheme==='Plasma (N\u2192C)')    return _spectrum_plasma;
     if(colorMode==='feature') return _feature_colorfunc;
     if(colorMode==='resi_colormap') return _resiColorMap_func;
     return null;
@@ -3053,7 +3061,7 @@ function _styleOpts(rep,opacity){{
         o[rep]={{colorscheme:'chain',opacity:op}};
     }} else if(colorMode==='spectrum'){{
         var spec=_spectrumScheme();
-        if(spec===null) o[rep]={{colorfunc:_spectrum_grey,opacity:op}};
+        if(spec===null) o[rep]={{colorfunc:_getColorFunc()||_spectrum_grey,opacity:op}};
         else if(typeof spec==='string') o[rep]={{colorscheme:spec,opacity:op}};
         else o[rep]={{colorscheme:spec,opacity:op}};
     }} else {{
@@ -3104,7 +3112,7 @@ function applyStyle(){{
         else if(colorMode==='chain')   sOpts.colorscheme='chain';
         else if(colorMode==='spectrum'){{
             var spec=_spectrumScheme();
-            if(spec===null) sOpts.colorfunc=_spectrum_grey;
+            if(spec===null) sOpts.colorfunc=_getColorFunc()||_spectrum_grey;
             else if(typeof spec==='string') sOpts.colorscheme=spec;
             else sOpts.colorscheme=spec;
         }} else                           sOpts.colorfunc=_getColorFunc();
@@ -3140,38 +3148,51 @@ var _CB = {{
     'Blue-White-Red':{{css:'linear-gradient(to top,#0044dd,#ffffff,#cc0000)',min:'0',mid:'50',max:'100',unit:'pLDDT score'}},
     'Rainbow':       {{css:'linear-gradient(to top,#ff0000,#ff8800,#ffff00,#00cc00,#0000ff)',min:'0',mid:'50',max:'100',unit:'pLDDT score'}},
     'Sinebow':       {{css:'linear-gradient(to top,#ff4040,#ffcc00,#40ff80,#0080ff,#cc00ff)',min:'0',mid:'50',max:'100',unit:'pLDDT score'}},
+    'Greyscale':     {{css:'linear-gradient(to top,#1e1e1e,#888888,#dddddd)',min:'0',mid:'50',max:'100',unit:'pLDDT score'}},
   }},
   hydrophobicity:{{
-    'Cyan-White-Orange':{{css:'linear-gradient(to top,#00b4d8,#caf0f8,#ffffff,#ffd6a5,#ff8800)',min:'-4.5',mid:'0.0',max:'+4.5',unit:'Kyte-Doolittle'}},
-    'Blue-White-Red':   {{css:'linear-gradient(to top,#3b82f6,#ffffff,#ef4444)',min:'-4.5',mid:'0.0',max:'+4.5',unit:'Kyte-Doolittle'}},
-    'Green-White-Red':  {{css:'linear-gradient(to top,#22c55e,#ffffff,#ef4444)',min:'-4.5',mid:'0.0',max:'+4.5',unit:'Kyte-Doolittle'}},
+    'Cyan-White-Orange':   {{css:'linear-gradient(to top,#00b4d8,#caf0f8,#ffffff,#ffd6a5,#ff8800)',min:'-4.5',mid:'0.0',max:'+4.5',unit:'Kyte-Doolittle'}},
+    'Blue-White-Red':      {{css:'linear-gradient(to top,#3b82f6,#ffffff,#ef4444)',min:'-4.5',mid:'0.0',max:'+4.5',unit:'Kyte-Doolittle'}},
+    'Green-White-Red':     {{css:'linear-gradient(to top,#22c55e,#ffffff,#ef4444)',min:'-4.5',mid:'0.0',max:'+4.5',unit:'Kyte-Doolittle'}},
+    'Thermal':             {{css:'linear-gradient(to top,#003cc8,#ffc83c,#ff5000)',min:'-4.5',mid:'0.0',max:'+4.5',unit:'Kyte-Doolittle'}},
+    'Purple-White-Green':  {{css:'linear-gradient(to top,#800080,#ffffff,#008000)',min:'-4.5',mid:'0.0',max:'+4.5',unit:'Kyte-Doolittle'}},
   }},
   mass:{{
     'Blue-to-Red':{{css:'linear-gradient(to top,#4477cc,#88bbee,#eeddaa,#cc5522)',min:'75 Da',mid:'~140',max:'204 Da',unit:'Residue mass (Da)'}},
     'Rainbow':    {{css:'linear-gradient(to top,#0000ff,#00ffff,#00ff00,#ffff00,#ff0000)',min:'75 Da',mid:'~140',max:'204 Da',unit:'Residue mass (Da)'}},
+    'Sinebow':    {{css:'linear-gradient(to top,#00cccc,#ccff00,#ff8800,#ff00cc,#00cccc)',min:'75 Da',mid:'~140',max:'204 Da',unit:'Residue mass (Da)'}},
+    'Greyscale':  {{css:'linear-gradient(to top,#1e1e1e,#7d7d7d,#dcdcdc)',min:'75 Da',mid:'~140',max:'204 Da',unit:'Residue mass (Da)'}},
   }},
-  charge:   {{type:'cat',entries:[
-    {{c:'#5588ff',l:'Positive (K/R/H)'}},{{c:'#ff5555',l:'Negative (D/E)'}},{{c:'#aaaaaa',l:'Neutral'}}
-  ]}},
-  residue:  {{type:'cat',entries:[
+  charge: {{
+    'Standard':   {{type:'cat',entries:[{{c:'#5588ff',l:'Positive (K/R/H)'}},{{c:'#ff5555',l:'Negative (D/E)'}},{{c:'#aaaaaa',l:'Neutral'}}]}},
+    'Vivid':      {{type:'cat',entries:[{{c:'#0033ff',l:'Positive (K/R/H)'}},{{c:'#ff0000',l:'Negative (D/E)'}},{{c:'#cccccc',l:'Neutral'}}]}},
+    'Pastel':     {{type:'cat',entries:[{{c:'#99b3ff',l:'Positive (K/R/H)'}},{{c:'#ffaaaa',l:'Negative (D/E)'}},{{c:'#eeeeee',l:'Neutral'}}]}},
+    'Monochrome': {{type:'cat',entries:[{{c:'#ffffff',l:'Positive (K/R/H)'}},{{c:'#222222',l:'Negative (D/E)'}},{{c:'#888888',l:'Neutral'}}]}},
+    'Neon':       {{type:'cat',entries:[{{c:'#0088ff',l:'Positive (K/R/H)'}},{{c:'#ff1155',l:'Negative (D/E)'}},{{c:'#aaaaaa',l:'Neutral'}}]}},
+  }},
+  residue: {{type:'cat',entries:[
     {{c:'#64F73F',l:'Nonpolar (A/V/I/L/M/F/W/P)'}},{{c:'#12D3FF',l:'Polar (S/T/C/Y/N/Q)'}},
     {{c:'#FF2655',l:'Negative (D/E)'}},{{c:'#4550FA',l:'Positive (K/R/H)'}},{{c:'#E2E2E2',l:'Glycine (G)'}}
   ]}},
-  chain:    {{type:'cat',entries:[
+  chain: {{type:'cat',entries:[
     {{c:'#ff8800',l:'Chain A'}},{{c:'#00aaff',l:'Chain B'}},
     {{c:'#ff44cc',l:'Chain C'}},{{c:'#44ff88',l:'Chain D'}},{{c:'#bbbbbb',l:'+ others'}}
   ]}},
-  secondary_structure: {{type:'cat',entries:[
-    {{c:'#FF0080',l:'Helix (JMol: pink / PyMOL: salmon)'}},
-    {{c:'#FFFF00',l:'Sheet (JMol: yellow / PyMOL: blue)'}},
-    {{c:'#FFFFFF',l:'Coil / loop'}}
-  ]}},
+  secondary_structure: {{
+    'JMol':   {{type:'cat',entries:[{{c:'#FF0080',l:'Helix'}},{{c:'#FFFF00',l:'Sheet'}},{{c:'#FFFFFF',l:'Coil'}}]}},
+    'PyMOL':  {{type:'cat',entries:[{{c:'#FF6666',l:'Helix'}},{{c:'#6699FF',l:'Sheet'}},{{c:'#CCCCCC',l:'Coil'}}]}},
+    'Pastel': {{type:'cat',entries:[{{c:'#ffb3c6',l:'Helix'}},{{c:'#b3d9ff',l:'Sheet'}},{{c:'#e8e8e8',l:'Coil'}}]}},
+    'Lesk':   {{type:'cat',entries:[{{c:'#ff0000',l:'Helix'}},{{c:'#ffff00',l:'Sheet'}},{{c:'#ffffff',l:'Coil'}}]}},
+    'Cinema': {{type:'cat',entries:[{{c:'#00BFFF',l:'Helix'}},{{c:'#FF8C00',l:'Sheet'}},{{c:'#dddddd',l:'Coil'}}]}},
+    'Vivid':  {{type:'cat',entries:[{{c:'#ee00ee',l:'Helix'}},{{c:'#00dddd',l:'Sheet'}},{{c:'#555555',l:'Coil'}}]}},
+  }},
   spectrum: {{
-    'Rainbow (N\u2192C)':   {{css:'linear-gradient(to top,#0000ff,#00ffff,#00ff00,#ffff00,#ff0000)',min:'N-term',mid:'middle',max:'C-term',unit:'Sequence position'}},
-    'Blue\u2192Red (N\u2192C)': {{css:'linear-gradient(to top,#0000ff,#ffffff,#ff0000)',min:'N-term',mid:'middle',max:'C-term',unit:'Sequence position'}},
-    'Sinebow (N\u2192C)':   {{css:'linear-gradient(to top,#4040ff,#40ffff,#40ff40,#ffff40,#ff4040)',min:'N-term',mid:'middle',max:'C-term',unit:'Sequence position'}},
-    'Greyscale (N\u2192C)': {{css:'linear-gradient(to top,#1e1e1e,#dddddd)',min:'N-term',mid:'middle',max:'C-term',unit:'Sequence position'}},
-    'Reverse (C\u2192N)':   {{css:'linear-gradient(to top,#ff0000,#ffff00,#00ff00,#00ffff,#0000ff)',min:'N-term',mid:'middle',max:'C-term',unit:'Sequence position'}},
+    'Rainbow (N\u2192C)':   {{css:'linear-gradient(to top,#0000ff,#00ffff,#00ff00,#ffff00,#ff0000)',min:'N-term',mid:'middle',max:'C-term',unit:'Residue number'}},
+    'Blue\u2192Red (N\u2192C)': {{css:'linear-gradient(to top,#0000ff,#ffffff,#ff0000)',min:'N-term',mid:'middle',max:'C-term',unit:'Residue number'}},
+    'Sinebow (N\u2192C)':   {{css:'linear-gradient(to top,#4040ff,#40ffff,#40ff40,#ffff40,#ff4040)',min:'N-term',mid:'middle',max:'C-term',unit:'Residue number'}},
+    'Plasma (N\u2192C)':    {{css:'linear-gradient(to top,#0d0887,#5601a4,#cc4778,#f89540,#f0f921)',min:'N-term',mid:'middle',max:'C-term',unit:'Residue number'}},
+    'Greyscale (N\u2192C)': {{css:'linear-gradient(to top,#1e1e1e,#dddddd)',min:'N-term',mid:'middle',max:'C-term',unit:'Residue number'}},
+    'Reverse (C\u2192N)':   {{css:'linear-gradient(to top,#ff0000,#ffff00,#00ff00,#00ffff,#0000ff)',min:'N-term',mid:'middle',max:'C-term',unit:'Residue number'}},
   }},
   feature: {{
     '_dyn': true,
@@ -3200,23 +3221,47 @@ function updateColorBar(){{
         wrap.style.display='flex'; unit.style.display='block';
         ents.style.display='none'; bar.classList.remove('cb-wide');
         title.textContent=featureName;
-        grad.style.background='linear-gradient(to top,#ffffff,'+featureColor+')';
+        var _gradCSS={{
+            'hot':    'linear-gradient(to top,#ffffff,#ffff00,#ff8800,#ff0000)',
+            'fire':   'linear-gradient(to top,#000000,#dc0000,#dc8c00,#ffff00,#ffffff)',
+            'plasma': 'linear-gradient(to top,#0d0887,#5601a4,#cc4778,#f89540,#f0f921)',
+            'viridis':'linear-gradient(to top,#440154,#31688e,#35b779,#fde725)',
+            'cold':   'linear-gradient(to top,#ffffff,#aaddff,#0040aa)',
+            'classic':'linear-gradient(to top,#ffffff,'+featureColor+')'
+        }};
+        grad.style.background=_gradCSS[featureGradient]||_gradCSS['classic'];
         tmax.textContent='1.0'; tmid.textContent='0.5'; tmin.textContent='0.0';
-        unit.textContent='Prediction score'; bar.style.display='block'; return;
+        unit.textContent='Prediction Score'; bar.style.display='block'; return;
     }}
     if(colorMode==='resi_colormap'){{
         wrap.style.display='flex'; unit.style.display='block';
         ents.style.display='none'; bar.classList.remove('cb-wide');
-        title.textContent=_resiColorMapName||'Solvent Accessibility';
-        // Show scheme name as the gradient label; actual colors vary per residue
-        grad.style.background='linear-gradient(to top,#313695,#ffffbf,#a50026)';
-        tmax.textContent='1.0 (exposed)'; tmid.textContent='0.5'; tmin.textContent='0.0 (buried)';
-        unit.textContent='RSA'; bar.style.display='block'; return;
+        title.textContent=_resiColorMapName||'Residue Color Map';
+        grad.style.background=_resiCBMeta.css||'linear-gradient(to top,#3b6fc9,#f7f7f7,#cc1111)';
+        tmax.textContent=_resiCBMeta.max||'1.0'; tmid.textContent=_resiCBMeta.mid||'0.5'; tmin.textContent=_resiCBMeta.min||'0.0';
+        unit.textContent=_resiCBMeta.unit||'RSA'; bar.style.display='block'; return;
     }}
-    if(meta.type==='cat'){{
+    // per-scheme categorical: charge and secondary_structure store their entries keyed by scheme name
+    var firstKey=Object.keys(meta)[0];
+    var firstVal=meta[firstKey];
+    if(firstVal && firstVal.type==='cat'){{
+        var schemeData=meta[colorScheme]||firstVal;
         wrap.style.display='none'; unit.style.display='none';
         ents.style.display='block'; bar.classList.add('cb-wide');
-        var label={{'charge':'Charge','residue':'Residue type','chain':'Chain'}};
+        var catLabel={{'charge':'Charge','secondary_structure':'Secondary Structure'}};
+        title.textContent=catLabel[colorMode]||colorMode;
+        ents.innerHTML='';
+        schemeData.entries.forEach(function(e){{
+            var row=document.createElement('div'); row.className='cb-entry';
+            var sw=document.createElement('div');  sw.className='cb-swatch'; sw.style.background=e.c;
+            var lbl=document.createElement('span'); lbl.textContent=e.l;
+            row.appendChild(sw); row.appendChild(lbl); ents.appendChild(row);
+        }});
+    }} else if(meta.type==='cat'){{
+        // flat categorical: residue type, chain
+        wrap.style.display='none'; unit.style.display='none';
+        ents.style.display='block'; bar.classList.add('cb-wide');
+        var label={{'residue':'Residue type','chain':'Chain'}};
         title.textContent=label[colorMode]||colorMode;
         ents.innerHTML='';
         meta.entries.forEach(function(e){{
@@ -3226,10 +3271,12 @@ function updateColorBar(){{
             row.appendChild(sw); row.appendChild(lbl); ents.appendChild(row);
         }});
     }} else {{
+        // per-scheme gradient: plddt, hydrophobicity, mass, spectrum
         var cfg=meta[colorScheme]||Object.values(meta)[0];
         wrap.style.display='flex'; unit.style.display='block';
         ents.style.display='none'; bar.classList.remove('cb-wide');
-        title.textContent=colorMode==='plddt'?'pLDDT':colorMode==='hydrophobicity'?'Hydrophobicity':colorMode==='spectrum'?'Sequence Position':'Mass';
+        var modeLabel={{'plddt':'pLDDT / B-factor','hydrophobicity':'Hydrophobicity','spectrum':'Residue Number','mass':'Residue Mass'}};
+        title.textContent=modeLabel[colorMode]||colorMode;
         grad.style.background=cfg.css;
         tmax.textContent=cfg.max; tmid.textContent=cfg.mid; tmin.textContent=cfg.min;
         unit.textContent=cfg.unit;
@@ -3425,10 +3472,12 @@ function setFeatureGradient(g){{
 // ── Pre-computed per-residue hex color map (e.g. SASA with matplotlib cmap) ─
 var _resiColorMap = {{}};   // {{resi: '#rrggbb'}}
 var _resiColorMapName = '';
+var _resiCBMeta = {{css:'linear-gradient(to top,#3b6fc9,#f7f7f7,#cc1111)',min:'0.0 (buried)',mid:'0.5',max:'1.0 (exposed)',unit:'RSA'}};
 
-function setResidueColorMap(colorMap, name){{
+function setResidueColorMap(colorMap, name, meta){{
     _resiColorMap = colorMap || {{}};
     _resiColorMapName = name || '';
+    if(meta) _resiCBMeta = meta;
     colorMode = 'resi_colormap';
     applyStyle();
     updateColorBar();
@@ -3450,6 +3499,8 @@ function _refreshAllChains(){{
     allChains = Object.keys(_cs);
 }}
 
+var _structFmt = 'pdb';  // 'pdb' or 'cif'; set before calling loadPDB for CIF data
+
 function loadPDB(data){{
     pdbData = data || null;   // always store first — init() picks this up if viewer not ready yet
     hiddenChains = {{}};       // reset chain visibility on every new structure
@@ -3457,7 +3508,14 @@ function loadPDB(data){{
     if(!viewer) return;        // CDN still loading; init() will load pdbData when ready
     viewer.clear();
     if(pdbData){{
-        viewer.addModel(pdbData, "pdb");
+        // Auto-detect CIF format: CIF files start with "data_"
+        var fmt = (pdbData.trimStart().startsWith('data_')) ? 'cif' : 'pdb';
+        _structFmt = fmt;
+        try {{
+            viewer.addModel(pdbData, fmt);
+        }} catch(e) {{
+            console.warn('loadPDB: addModel failed (' + fmt + '):', e);
+        }}
         _refreshAllChains();
         viewer.zoomTo();
         applyStyle();
@@ -3799,7 +3857,13 @@ function _installClickHandler(){{
 function init(){{
     viewer=$3Dmol.createViewer("vp",{{backgroundColor:"#ffffff",antialias:true}});
     if(pdbData){{          // null on the initial empty-page load
-        viewer.addModel(pdbData,"pdb");
+        var fmt = (pdbData.trimStart().startsWith('data_')) ? 'cif' : 'pdb';
+        _structFmt = fmt;
+        try {{
+            viewer.addModel(pdbData, fmt);
+        }} catch(e) {{
+            console.warn('init: addModel failed (' + fmt + '):', e);
+        }}
         _refreshAllChains();
         viewer.zoomTo();   // set camera BEFORE rendering
         applyStyle();      // renders with correct camera
@@ -3916,12 +3980,21 @@ window.addEventListener("load",init);
             "Inferno": "inferno",
             "Viridis": "viridis",
         }
+        _AGGR_CB_META = {
+            "Fire":    {"css": "linear-gradient(to top,#000000,#aa3300,#ff6600,#ffaa00,#ffff00)",
+                        "min": "0.0", "mid": "0.5", "max": "max", "unit": "Normalised \u03b2-aggregation"},
+            "Inferno": {"css": "linear-gradient(to top,#000004,#3b0f70,#8c2981,#de4968,#fcfdbf)",
+                        "min": "0.0", "mid": "0.5", "max": "max", "unit": "Normalised \u03b2-aggregation"},
+            "Viridis": {"css": "linear-gradient(to top,#440154,#31688e,#35b779,#fde725)",
+                        "min": "0.0", "mid": "0.5", "max": "max", "unit": "Normalised \u03b2-aggregation"},
+        }
         if scheme in _AGGR_CMAP:
             cmap = _cm.get_cmap(_AGGR_CMAP[scheme])
             resi_colors = {i + 1: _mc.to_hex(cmap(v)) for i, v in enumerate(norm_scores)}
+            meta = _AGGR_CB_META[scheme]
             self._js(
                 f"setResidueColorMap({_json.dumps(resi_colors)},"
-                f"'ZYGGREGATOR \u03b2-Aggregation');"
+                f"'ZYGGREGATOR \u03b2-Aggregation',{_json.dumps(meta)});"
             )
             return
         if scheme == "Hotspots Only":
@@ -3956,15 +4029,40 @@ window.addEventListener("load",init);
             return
 
         _SCHEME_CMAP = {
-            "Buried→Exposed (Blue→Red)":    ("RdBu_r",   False),
-            "Exposed→Buried (Red→Blue)":    ("RdBu",     False),
-            "Viridis (Buried→Exposed)":     ("viridis",  False),
-            "Plasma (Buried→Exposed)":      ("plasma",   False),
-            "Magma (Buried→Exposed)":       ("magma",    False),
-            "Cyan→Orange":                  ("PuOr_r",   False),
+            "Buried→Exposed (Blue→Red)":    "RdBu_r",
+            "Exposed→Buried (Red→Blue)":    "RdBu",
+            "Viridis (Buried→Exposed)":     "viridis",
+            "Plasma (Buried→Exposed)":      "plasma",
+            "Magma (Buried→Exposed)":       "magma",
+            "Cyan→Orange":                  "PuOr_r",
         }
-        cmap_name, _ = _SCHEME_CMAP.get(scheme, ("RdBu_r", False))
+        _SCHEME_CB_META = {
+            "Buried→Exposed (Blue→Red)":
+                {"css": "linear-gradient(to top,#3b6fc9,#f7f7f7,#cc1111)",
+                 "min": "0.0 (buried)", "mid": "0.5", "max": "1.0 (exposed)", "unit": "RSA"},
+            "Exposed→Buried (Red→Blue)":
+                {"css": "linear-gradient(to top,#cc1111,#f7f7f7,#3b6fc9)",
+                 "min": "0.0 (buried)", "mid": "0.5", "max": "1.0 (exposed)", "unit": "RSA"},
+            "Viridis (Buried→Exposed)":
+                {"css": "linear-gradient(to top,#440154,#31688e,#35b779,#fde725)",
+                 "min": "0.0 (buried)", "mid": "0.5", "max": "1.0 (exposed)", "unit": "RSA"},
+            "Plasma (Buried→Exposed)":
+                {"css": "linear-gradient(to top,#0d0887,#7e03a8,#cc4778,#f89540,#f0f921)",
+                 "min": "0.0 (buried)", "mid": "0.5", "max": "1.0 (exposed)", "unit": "RSA"},
+            "Magma (Buried→Exposed)":
+                {"css": "linear-gradient(to top,#000004,#3b0f70,#8c2981,#de4968,#fcfdbf)",
+                 "min": "0.0 (buried)", "mid": "0.5", "max": "1.0 (exposed)", "unit": "RSA"},
+            "Cyan→Orange":
+                {"css": "linear-gradient(to top,#7b3294,#c2a5cf,#f7f7f7,#fdae61,#e66101)",
+                 "min": "0.0 (buried)", "mid": "0.5", "max": "1.0 (exposed)", "unit": "RSA"},
+        }
+        cmap_name = _SCHEME_CMAP.get(scheme, "RdBu_r")
         cmap = _cm.get_cmap(cmap_name)
+        meta = _SCHEME_CB_META.get(
+            scheme,
+            {"css": "linear-gradient(to top,#3b6fc9,#f7f7f7,#cc1111)",
+             "min": "0.0 (buried)", "mid": "0.5", "max": "1.0 (exposed)", "unit": "RSA"},
+        )
 
         # Pre-compute a hex color per residue and push as per-residue color dict
         resi_colors: dict[int, str] = {}
@@ -3972,10 +4070,10 @@ window.addEventListener("load",init);
             rgba = cmap(float(rsa))
             resi_colors[resi] = _mc.to_hex(rgba)
 
-        # Push via dedicated JS function that accepts {resi: hexColor} directly
+        # Push via dedicated JS function that accepts {resi: hexColor} and colorbar metadata
         self._js(
             f"setResidueColorMap({_json.dumps(resi_colors)}, "
-            f"'Solvent Accessibility (RSA)');"
+            f"'Solvent Accessibility (RSA)', {_json.dumps(meta)});"
         )
 
     def _populate_sasa_report_section(self) -> None:
@@ -4071,7 +4169,7 @@ window.addEventListener("load",init);
             self._push_zyggregator_scores(scheme)
         elif mode == "Solvent Accessibility":
             self._push_sasa_scores(scheme)
-        elif mode == "Spectrum (N→C)":
+        elif mode == "Residue Number":
             seq_len = len((self.analysis_data or {}).get("seq", "")) or 9999
             self._js(f"setColorMode('{key}','{scheme}',{seq_len});")
         else:
@@ -4089,7 +4187,7 @@ window.addEventListener("load",init);
             self._push_zyggregator_scores(scheme)
         elif mode == "Solvent Accessibility":
             self._push_sasa_scores(scheme)
-        elif mode == "Spectrum (N→C)":
+        elif mode == "Residue Number":
             seq_len = len((self.analysis_data or {}).get("seq", "")) or 9999
             self._js(f"setScheme('{scheme}',{seq_len});")
         else:
@@ -4443,13 +4541,42 @@ window.addEventListener("load",init);
 
     @staticmethod
     def _parse_pdb_chains(pdb_str: str) -> list[str]:
-        """Return sorted list of unique chain IDs found in ATOM/HETATM records."""
+        """Return sorted list of unique chain IDs (handles PDB and mmCIF)."""
         seen: dict = {}
+        # PDB format: chain ID at column 22 (0-indexed 21)
         for line in pdb_str.splitlines():
             if line.startswith(("ATOM  ", "HETATM")):
                 chain = line[21:22].strip()
                 if chain and chain not in seen:
                     seen[chain] = None
+        if seen:
+            return sorted(seen.keys())
+        # mmCIF format: find auth_asym_id column in _atom_site loop
+        import re as _re
+        headers: list[str] = []
+        asym_idx = -1
+        in_loop = False
+        for line in pdb_str.splitlines():
+            s = line.strip()
+            if s.startswith("_atom_site."):
+                headers.append(s)
+                in_loop = True
+            elif in_loop and s and not s.startswith("_") and not s.startswith("#"):
+                if asym_idx < 0:
+                    for i, h in enumerate(headers):
+                        if "auth_asym_id" in h:
+                            asym_idx = i
+                            break
+                if asym_idx >= 0:
+                    parts = s.split()
+                    if len(parts) > asym_idx:
+                        chain = parts[asym_idx].strip("\"'.")
+                        if chain and chain not in seen:
+                            seen[chain] = None
+            elif in_loop and s.startswith("#"):
+                in_loop = False
+                headers = []
+                asym_idx = -1
         return sorted(seen.keys())
 
     def _populate_chain_controls(self, pdb_str: str) -> None:
@@ -5936,8 +6063,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             else:
                 html_lines.append(f'<span style="color:{text_color};">{ln}</span>')
         html = (
-            f'<style>body{{font-family:"Courier New",monospace;font-size:10pt;'
-            f'background:{bg_color};padding:8px;line-height:2.0;}}</style>'
+            f'<style>body{{font-family:"Courier New",Courier,monospace;font-size:10pt;'
+            f'background:{bg_color};padding:10px 12px;line-height:1.7;'
+            f'white-space:pre;}}</style>'
             + "<br>".join(html_lines)
         )
         self.seq_viewer.setHtml(html)
@@ -9274,25 +9402,25 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     # title (for navigation), sparkline colour, optional threshold value.
     _SPARKLINE_MAP: dict[str, tuple[str, str, str, float | None]] = {
         # section                     data_key                    graph_title                       colour     threshold
-        "Disorder":               ("disorder_scores",         "Disorder Profile", "#4361ee", 0.5),
+        "Disorder":               ("disorder_scores",         "Disorder Profile",               "#4361ee", 0.56235),
         "Hydrophobicity":         ("hydro_profile",           "Hydrophobicity Profile",         "#f77f00", 0.0),
-        "Charge":                 ("ncpr_profile",            "Local Charge Profile",            "#e63946", 0.0),
+        "Charge":                 ("ncpr_profile",            "Local Charge Profile",           "#e63946", 0.0),
         "Charge Decoration (SCD)":("scd_profile",             "SCD Profile",                    "#9b5de5", None),
         "Hydrophobicity Decoration (SHD)": ("shd_profile",   "SHD Profile",                    "#f77f00", None),
         "RNA Binding":            ("rbp_profile",             "RNA-Binding Profile",             "#2dc653", None),
         "β-Aggregation & Solubility": ("aggr_profile",        "β-Aggregation Profile",          "#e07a5f", 1.0),
-        "Signal Peptide & GPI":   ("sp_bilstm_profile",       "Signal Peptide Profile",          "#f72585", 0.5),
-        "TM Helices":             ("tm_bilstm_profile",       "Transmembrane Profile",           "#34d399", 0.5),
-        "Intramembrane":          ("intramem_bilstm_profile", "Intramembrane Profile",           "#6ee7b7", 0.5),
-        "Coiled-Coil":            ("cc_bilstm_profile",       "Coiled-Coil Profile",             "#fb923c", 0.5),
-        "DNA-Binding":            ("dna_bilstm_profile",      "DNA-Binding Profile",             "#60a5fa", 0.5),
-        "Active Site":            ("act_bilstm_profile",      "Active Site Profile",             "#f87171", 0.5),
-        "Binding Site":           ("bnd_bilstm_profile",      "Binding Site Profile",            "#a78bfa", 0.5),
-        "Phosphorylation":        ("phos_bilstm_profile",     "Phosphorylation Profile",         "#fbbf24", 0.5),
-        "Low-Complexity":         ("lcd_bilstm_profile",      "Low-Complexity Profile",          "#94a3b8", 0.5),
+        "Signal Peptide & GPI":   ("sp_bilstm_profile",       "Signal Peptide Profile",          "#f72585", 0.70173),
+        "TM Helices":             ("tm_bilstm_profile",       "Transmembrane Profile",           "#34d399", 0.81339),
+        "Intramembrane":          ("intramem_bilstm_profile", "Intramembrane Profile",           "#6ee7b7", 0.67273),
+        "Coiled-Coil":            ("cc_bilstm_profile",       "Coiled-Coil Profile",             "#fb923c", 0.62214),
+        "DNA-Binding":            ("dna_bilstm_profile",      "DNA-Binding Profile",             "#60a5fa", 0.87760),
+        "Active Site":            ("act_bilstm_profile",      "Active Site Profile",             "#f87171", 0.86688),
+        "Binding Site":           ("bnd_bilstm_profile",      "Binding Site Profile",            "#a78bfa", 0.98014),
+        "Phosphorylation":        ("phos_bilstm_profile",     "Phosphorylation Profile",         "#fbbf24", 0.79967),
+        "Low-Complexity":         ("lcd_bilstm_profile",      "Low-Complexity Profile",          "#94a3b8", 0.65838),
         "Zinc Finger":            ("znf_bilstm_profile",      "Zinc Finger Profile",             "#4ade80", 0.5),
-        "Glycosylation":          ("glyc_bilstm_profile",     "Glycosylation Profile",           "#f9a8d4", 0.5),
-        "Ubiquitination":         ("ubiq_bilstm_profile",     "Ubiquitination Profile",          "#fb7185", 0.5),
+        "Glycosylation":          ("glyc_bilstm_profile",     "Glycosylation Profile",           "#f9a8d4", 0.80024),
+        "Ubiquitination":         ("ubiq_bilstm_profile",     "Ubiquitination Profile",          "#fb7185", 0.83320),
         "Methylation":            ("meth_bilstm_profile",     "Methylation Profile",             "#a3e635", 0.5),
         "Acetylation":            ("acet_bilstm_profile",     "Acetylation Profile",             "#38bdf8", 0.5),
         "Lipidation":             ("lipid_bilstm_profile",    "Lipidation Profile",              "#e879f9", 0.5),
@@ -9467,6 +9595,14 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             regions.append((start + 1, len(scores)))
         return regions
 
+    # One-letter → three-letter amino acid code
+    _AA1_TO_3: dict[str, str] = {
+        "A": "Ala", "R": "Arg", "N": "Asn", "D": "Asp", "C": "Cys",
+        "Q": "Gln", "E": "Glu", "G": "Gly", "H": "His", "I": "Ile",
+        "L": "Leu", "K": "Lys", "M": "Met", "F": "Phe", "P": "Pro",
+        "S": "Ser", "T": "Thr", "W": "Trp", "Y": "Tyr", "V": "Val",
+    }
+
     def _build_ai_head_html(
         self,
         display_name: str,
@@ -9478,13 +9614,19 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     ) -> str:
         """Return HTML for one AI Predictions head section."""
         import urllib.parse as _up
+        seq = (self.analysis_data or {}).get("seq", "")
         mean_score = sum(scores) / len(scores) if scores else 0.0
         regions = self._get_predicted_regions(scores, threshold)
         graph_href = "beer://graph/" + _up.quote(graph_title)
+
+        def _res_label(pos: int) -> str:
+            aa = seq[pos - 1] if seq and 0 < pos <= len(seq) else ""
+            return f"{self._AA1_TO_3.get(aa, aa)}-{pos}" if aa else str(pos)
+
         # Build regions table
         if regions:
             region_rows = "".join(
-                f"<tr><td>{k}</td><td>{s}–{e}</td><td>{e - s + 1}</td></tr>"
+                f"<tr><td>{k}</td><td>{_res_label(s)} – {_res_label(e)}</td><td>{e - s + 1}</td></tr>"
                 for k, (s, e) in enumerate(regions, 1)
             )
             regions_html = (
@@ -9693,8 +9835,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
         from beer.reports.css import make_style_tag
         _style = make_style_tag(dark=getattr(self, "_is_dark", False))
+        thr = threshold if threshold is not None else 0.5
         html = _style + self._build_ai_head_html(
-            display_name, scores, graph_title, auroc, sparkline_uri=sparkline_uri)
+            display_name, scores, graph_title, auroc, threshold=thr,
+            sparkline_uri=sparkline_uri)
 
         browser = self.report_section_tabs.get(sec_key)
         if browser:
@@ -9808,8 +9952,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             vb.addLayout(btn_row)
             browser = QTextBrowser()
             _install_beer_link_filter(browser, self._on_report_link_clicked)
+            thr = threshold if threshold is not None else 0.5
             html = _style + self._build_ai_head_html(
-                display_name, scores, graph_title, auroc, sparkline_uri=sparkline_uri)
+                display_name, scores, graph_title, auroc, threshold=thr,
+                sparkline_uri=sparkline_uri)
             browser.setHtml(html)
             vb.addWidget(browser)
 

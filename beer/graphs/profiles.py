@@ -61,7 +61,7 @@ def create_hydrophobicity_figure(
     ax.axhline(0, color="#888", linewidth=0.7, linestyle="--", zorder=3)
     _ylabel = HYDROPHOBICITY_SCALES.get(scale_name, {}).get("ylabel", "Score")
     _pub_style_ax(ax,
-                  title=f"Hydrophobicity Profile  (window = {window_size},  {scale_name})",
+                  title="Hydrophobicity Profile",
                   xlabel="Residue Position", ylabel=_ylabel,
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
@@ -104,8 +104,8 @@ def create_aggregation_profile_figure(
                           label="Hotspot region" if idx == 0 else "_nolegend_")
         ax.add_patch(rect)
 
-    _pub_style_ax(ax, title="β-Aggregation Propensity (ZYGGREGATOR Z-score)",
-                  xlabel="Residue Position", ylabel="Beta-Aggregation Z-Score",
+    _pub_style_ax(ax, title="β-Aggregation Profile",
+                  xlabel="Residue Position", ylabel="β-Aggregation Z-Score",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(x[0], x[-1])
@@ -136,7 +136,7 @@ def create_solubility_profile_figure(
                     color=_FILL_BELOW, alpha=0.30)
     ax.axhline(0.0, color="#888", linestyle="--", linewidth=0.8)
 
-    _pub_style_ax(ax, title="CamSol Solubility",
+    _pub_style_ax(ax, title="Solubility Profile",
                   xlabel="Residue Position", ylabel="CamSol Solubility Score",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
@@ -174,8 +174,8 @@ def create_scd_profile_figure(
                     color=_FILL_BELOW, alpha=0.30)
     ax.axhline(0.0, color="#888", linestyle="--", linewidth=0.8)
 
-    _pub_style_ax(ax, title=f"Sequence Charge Decoration  (window = {window})",
-                  xlabel="Residue Position", ylabel="Sequence Charge Decoration",
+    _pub_style_ax(ax, title="Charge Decoration Profile",
+                  xlabel="Residue Position", ylabel="Charge Decoration (SCD)",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(1, seq_len)
@@ -213,7 +213,7 @@ def create_rbp_profile_figure(
         end = motif.get("end", start)
         ax.axvspan(start - 0.5, end + 0.5, color=_FILL_ABOVE, alpha=0.22, zorder=0)
 
-    _pub_style_ax(ax, title="RNA-Binding Propensity",
+    _pub_style_ax(ax, title="RNA-Binding Profile",
                   xlabel="Residue Position", ylabel="RNA-Binding Propensity Score",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
@@ -244,9 +244,9 @@ def create_disorder_profile_figure(
     ax.plot(xs, disorder_scores, color="#f3722c", linewidth=1.6, zorder=4)
     ax.axhline(0.5, color="#888", linewidth=0.9, linestyle="--",
                zorder=3, label="Threshold (0.5)")
-    _pub_style_ax(ax, title="Disorder Profile — Classical (Uversky 2003)",
+    _pub_style_ax(ax, title="Disorder Profile",
                   xlabel="Residue Position",
-                  ylabel="Disorder Propensity (normalised)",
+                  ylabel="Disorder Propensity (Normalised)",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_ylim(-0.02, 1.05)
@@ -283,7 +283,7 @@ def create_plaac_profile_figure(
     ax.plot(xs, profile, color=_PROFILE_LINE, linewidth=0.8, alpha=0.7)
     ax.axhline(0, color="#aaa", linewidth=0.8, linestyle="--")
 
-    _pub_style_ax(ax, title="PLAAC Prion-like Composition Profile",
+    _pub_style_ax(ax, title="Prion-like Domain Profile",
                   xlabel="Residue Position", ylabel="PLAAC Log-Odds Score",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
@@ -310,11 +310,28 @@ def _bilstm_predicted_regions(scores_np, threshold: float = 0.5) -> list[tuple[i
     return regions
 
 
+_BILSTM_THRESHOLDS: dict[str, float] = {
+    "disorder":        0.56235,
+    "signal_peptide":  0.70173,
+    "transmembrane":   0.81339,
+    "intramembrane":   0.67273,
+    "coiled_coil":     0.62214,
+    "dna_binding":     0.87760,
+    "active_site":     0.86688,
+    "binding_site":    0.98014,
+    "phosphorylation": 0.79967,
+    "lcd":             0.65838,
+    "glycosylation":   0.80024,
+    "ubiquitination":  0.83320,
+}
+
+
 def create_bilstm_profile_figure(
     feature: str,
     scores: "list[float]",
     uncertainty: "list[float] | None" = None,
     uniprot_regions: "list[dict] | None" = None,
+    threshold: "float | None" = None,
     label_font: int = 14,
     tick_font: int = 12,
 ) -> Figure:
@@ -337,6 +354,7 @@ def create_bilstm_profile_figure(
     has_uniprot = bool(uniprot_regions)
     n  = len(scores)
     xs = list(range(1, n + 1))
+    thr = threshold if threshold is not None else _BILSTM_THRESHOLDS.get(feature, 0.5)
 
     fig = Figure(figsize=(_adaptive_width(n), 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
@@ -362,11 +380,11 @@ def create_bilstm_profile_figure(
                         linewidth=0)
 
     # ── BiLSTM curve (primary) ────────────────────────────────────────────
-    ax.fill_between(xs, scores_np, 0.5,
-                    where=scores_np > 0.5,
+    ax.fill_between(xs, scores_np, thr,
+                    where=scores_np > thr,
                     alpha=0.28, color=_FILL_ABOVE, interpolate=True, zorder=4)
-    ax.fill_between(xs, scores_np, 0.5,
-                    where=scores_np <= 0.5,
+    ax.fill_between(xs, scores_np, thr,
+                    where=scores_np <= thr,
                     alpha=0.18, color=_FILL_BELOW, interpolate=True, zorder=4)
     if uncertainty is not None:
         unc_np = np.array(uncertainty[:n], dtype=float)
@@ -381,11 +399,11 @@ def create_bilstm_profile_figure(
         ax.plot(xs, lo, color="#64748b", linewidth=0.6,
                 linestyle="--", alpha=0.7, zorder=2)
     ax.plot(xs, scores_np, color=_PROFILE_LINE, linewidth=1.6, zorder=5)
-    ax.axhline(0.5, color="#888888", linewidth=0.9, linestyle="--", zorder=3)
+    ax.axhline(thr, color="#888888", linewidth=0.9, linestyle="--", zorder=3)
 
     # ── Axes styling ─────────────────────────────────────────────────────
-    title = f"{feat_display} — AI Head (ESM2 650M)"
-    ylabel = f"{feat_display} Prediction score"
+    title = f"{feat_display} Profile"
+    ylabel = f"{feat_display} Prediction Score"
     _pub_style_ax(ax, title=title, xlabel="Residue Position", ylabel=ylabel,
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
@@ -466,9 +484,9 @@ def create_shd_profile_figure(
     ax.axhline(0.0, color="#888", linestyle="--", linewidth=0.8)
 
     _pub_style_ax(ax,
-                  title=f"Sequence Hydrophobicity Decoration  (window = {window},  {scale_name})",
+                  title="Hydrophobicity Decoration Profile",
                   xlabel="Residue Position",
-                  ylabel="Sequence Hydrophobicity Decoration",
+                  ylabel="Hydrophobicity Decoration (SHD)",
                   grid=True, title_size=label_font - 1,
                   label_size=label_font - 1, tick_size=tick_font - 1)
     ax.set_xlim(1, seq_len)
@@ -483,20 +501,20 @@ def create_shd_profile_figure(
 # (data_key, label, color, threshold_at_f1max)
 # Thresholds from per-head *_results.json; 0.5 where no calibration file exists yet.
 _AI_OVERVIEW_HEADS: list[tuple[str, str, str, float]] = [
-    ("disorder_scores",          "Disorder",           "#4361ee", 0.75825),
-    ("sp_bilstm_profile",        "Signal Peptide",     "#f72585", 0.97196),
+    ("disorder_scores",          "Disorder",           "#4361ee", 0.56235),
+    ("sp_bilstm_profile",        "Signal Peptide",     "#f72585", 0.70173),
     ("tm_bilstm_profile",        "Transmembrane",      "#34d399", 0.81339),
-    ("intramem_bilstm_profile",  "Intramembrane",      "#6ee7b7", 0.89391),
-    ("cc_bilstm_profile",        "Coiled-Coil",        "#fb923c", 0.74601),
+    ("intramem_bilstm_profile",  "Intramembrane",      "#6ee7b7", 0.67273),
+    ("cc_bilstm_profile",        "Coiled-Coil",        "#fb923c", 0.62214),
     ("dna_bilstm_profile",       "DNA-Binding",        "#60a5fa", 0.87760),
     ("rnabind_bilstm_profile",   "RNA-Binding",        "#2dc653", 0.86266),
-    ("act_bilstm_profile",       "Active Site",        "#f87171", 0.99947),
+    ("act_bilstm_profile",       "Active Site",        "#f87171", 0.86688),
     ("bnd_bilstm_profile",       "Binding Site",       "#a78bfa", 0.98014),
-    ("phos_bilstm_profile",      "Phosphorylation",    "#fbbf24", 0.5),
-    ("lcd_bilstm_profile",       "Low-Complexity",     "#94a3b8", 0.5),
+    ("phos_bilstm_profile",      "Phosphorylation",    "#fbbf24", 0.79967),
+    ("lcd_bilstm_profile",       "Low-Complexity",     "#94a3b8", 0.65838),
     ("znf_bilstm_profile",       "Zinc Finger",        "#4ade80", 0.5),
-    ("glyc_bilstm_profile",      "Glycosylation",      "#f9a8d4", 0.5),
-    ("ubiq_bilstm_profile",      "Ubiquitination",     "#fb7185", 0.5),
+    ("glyc_bilstm_profile",      "Glycosylation",      "#f9a8d4", 0.80024),
+    ("ubiq_bilstm_profile",      "Ubiquitination",     "#fb7185", 0.83320),
     ("meth_bilstm_profile",      "Methylation",        "#a3e635", 0.5),
     ("acet_bilstm_profile",      "Acetylation",        "#38bdf8", 0.5),
     ("lipid_bilstm_profile",     "Lipidation",         "#e879f9", 0.5),
