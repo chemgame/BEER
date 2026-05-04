@@ -396,7 +396,7 @@ If ESM2 is not installed, BEER falls back automatically: disorder uses **metapre
 
 ## License
 
-GNU General Public License v2. See `LICENSE`.
+GNU General Public License v3. See `LICENSE`.
 
 ---
 
