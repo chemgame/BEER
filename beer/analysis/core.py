@@ -170,7 +170,7 @@ def _make_summary_bullets(
     )
 
     # --- Disorder ---
-    if disorder_scores:
+    if disorder_scores and seq_length > 0:
         d_frac = sum(1 for v in disorder_scores if v > 0.5) / seq_length
         if d_frac >= 0.5:
             bullets.append(
@@ -263,6 +263,8 @@ class AnalysisTools:
         embedder: SequenceEmbedder | None = None,
         hydro_scale: str = "Kyte-Doolittle",
     ) -> dict[str, Any]:
+        if not seq:
+            raise ValueError("Cannot analyse an empty sequence.")
         pa          = BPProteinAnalysis(seq)
         aa_counts   = pa.count_amino_acids()
         seq_length  = len(seq)
@@ -465,7 +467,7 @@ class AnalysisTools:
                 if _mc is not None:
                     disorder_scores, disorder_uncertainty = _mc
 
-        mean_disorder = sum(disorder_scores) / seq_length if disorder_scores else 0.0
+        mean_disorder = sum(disorder_scores) / seq_length if (disorder_scores and seq_length > 0) else 0.0
 
         # Disorder HTML — placeholder when scores not yet computed
         def _contiguous_regions(scores, threshold=0.5):
@@ -483,7 +485,7 @@ class AnalysisTools:
                 regions.append((start + 1, len(scores)))
             return regions
 
-        if disorder_scores:
+        if disorder_scores and seq_length > 0:
             disordered_frac = sum(1 for v in disorder_scores if v > 0.5) / seq_length
             _disordered_frac_html = (
                 f"<tr><td>Disordered fraction (score &gt; 0.5)</td>"
@@ -577,7 +579,7 @@ class AnalysisTools:
             round(
                 (1.325 * sum(_cg_per[j] for j in range(i, i + _cg_win)) / _cg_win
                  + 0.647 * (sum(disorder_scores[j] for j in range(i, i + _cg_win)) / _cg_win
-                            if disorder_scores else 0.0)
+                            if disorder_scores and len(disorder_scores) == seq_length else 0.0)
                  - 1.490 * sum(KYTE_DOOLITTLE.get(seq[j], 0.0) for j in range(i, i + _cg_win)) / _cg_win
                  - 0.256),
                 4,

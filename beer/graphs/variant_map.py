@@ -52,7 +52,7 @@ def create_variant_effect_figure(
     ax_mean = fig.add_subplot(gs[1], sharex=ax_heat)
     from beer.analysis.variant_scoring import mean_effect_per_position
     mean_llr = mean_effect_per_position(llr_matrix)
-    positions = np.arange(1, L + 1)
+    positions = np.arange(0, L)   # 0-based to match imshow shared x-axis
     ax_mean.bar(positions, mean_llr,
                 color=["#f72585" if v < 0 else "#4361ee" for v in mean_llr],
                 width=0.8, alpha=0.85)
@@ -60,8 +60,8 @@ def create_variant_effect_figure(
     # Sparse, adaptive x-ticks only on the bottom panel
     step = max(1, L // 20)
     xticks = list(range(step, L + 1, step))
-    ax_mean.set_xticks([x - 1 for x in xticks])  # imshow uses 0-based indices
-    ax_mean.set_xticklabels([str(x) for x in xticks], fontsize=max(tick_font - 2, 7))
+    ax_mean.set_xticks([x - 1 for x in xticks])  # 0-based to match imshow
+    ax_mean.set_xticklabels([str(x) for x in xticks], fontsize=max(tick_font - 2, 7))  # 1-based labels
     _pub_style_ax(ax_mean, title="",
                   xlabel="Residue Position",
                   ylabel="Mean Log-Likelihood Ratio",

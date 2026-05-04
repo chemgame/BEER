@@ -31,11 +31,15 @@ def sliding_window_hydrophobicity(seq: str, window_size: int = 9, scale: dict = 
         Per-residue hydrophobicity values. Defaults to Kyte-Doolittle.
     """
     _scale = scale if scale is not None else KYTE_DOOLITTLE
-    if window_size > len(seq):
-        return [sum(_scale.get(aa, 0.0) for aa in seq) / len(seq)]
+    n = len(seq)
+    if n == 0:
+        return []
+    if window_size > n:
+        avg = sum(_scale.get(aa, 0.0) for aa in seq) / n
+        return [avg] * n
     return [
         sum(_scale.get(aa, 0.0) for aa in seq[i:i + window_size]) / window_size
-        for i in range(len(seq) - window_size + 1)
+        for i in range(n - window_size + 1)
     ]
 
 
@@ -52,24 +56,32 @@ def sliding_window_ncpr(seq: str, window_size: int = 9) -> list:
     """Net charge per residue in a sliding window (K,R positive; D,E negative)."""
     pos = set("KR")
     neg = set("DE")
-    if window_size > len(seq):
+    n = len(seq)
+    if n == 0:
+        return []
+    if window_size > n:
         p = sum(1 for aa in seq if aa in pos)
-        n = sum(1 for aa in seq if aa in neg)
-        return [(p - n) / len(seq)]
+        m = sum(1 for aa in seq if aa in neg)
+        avg = (p - m) / n
+        return [avg] * n
     return [
         (sum(1 for aa in seq[i:i + window_size] if aa in pos) -
          sum(1 for aa in seq[i:i + window_size] if aa in neg)) / window_size
-        for i in range(len(seq) - window_size + 1)
+        for i in range(n - window_size + 1)
     ]
 
 
 def sliding_window_entropy(seq: str, window_size: int = 9) -> list:
     """Shannon entropy in a sliding window."""
-    if window_size > len(seq):
-        return [calc_shannon_entropy(seq)]
+    n = len(seq)
+    if n == 0:
+        return []
+    if window_size > n:
+        val = calc_shannon_entropy(seq)
+        return [val] * n
     return [
         calc_shannon_entropy(seq[i:i + window_size])
-        for i in range(len(seq) - window_size + 1)
+        for i in range(n - window_size + 1)
     ]
 
 

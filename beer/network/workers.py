@@ -368,6 +368,7 @@ class BlastWorker(QThread):
             result_handle = NCBIWWW.qblast(
                 "blastp", self.database, self.seq,
                 hitlist_size=self.hitlist_size,
+                timeout=120,
             )
             # If cancel() was called while qblast() was blocking, discard results.
             if self._cancelled or self.isInterruptionRequested():
@@ -499,6 +500,13 @@ class AISectionWorker(QThread):
         self.embedder    = embedder
 
     def run(self) -> None:
+        if self.embedder is None or not self.embedder.is_available():
+            self.error.emit(
+                self.section_key,
+                "ESM2 model is not available on this system. "
+                "Install fair-esm (pip install fair-esm) to enable AI predictions."
+            )
+            return
         try:
             from beer.analysis.core import compute_single_bilstm_head
             scores = compute_single_bilstm_head(self.data_key, self.seq, self.embedder)
@@ -652,6 +660,9 @@ class DeepTMHMMWorker(QThread):
             if len(parts) >= 9 and "TMhelix" in parts[2]:
                 start = int(parts[3]) - 1   # GFF3 is 1-based
                 end   = int(parts[4]) - 1
+                seq_len = len(self._seq)
+                if not (0 <= start < seq_len and 0 < end <= seq_len and start < end):
+                    continue
                 helices.append({
                     "start": start,
                     "end": end,
@@ -847,7 +858,14 @@ class UniProtFeaturesWorker(QThread):
                 f"https://rest.uniprot.org/uniprotkb/{self._acc}.json"
                 f"?fields=accession,{fields}"
             )
-            with urllib.request.urlopen(url, timeout=20) as resp:
+            try:
+                resp_cm = urllib.request.urlopen(url, timeout=20)
+            except urllib.error.HTTPError as _he:
+                if _he.code == 404:
+                    self.finished.emit({})
+                    return
+                raise
+            with resp_cm as resp:
                 data = json.loads(resp.read())
 
             result: dict[str, list] = {}

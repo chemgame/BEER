@@ -158,7 +158,7 @@ def create_scd_profile_figure(
     # Centre each window value on the middle residue of its window so that the
     # x-axis aligns with sequence position rather than window-start position.
     half = window // 2
-    x_start = half + 1
+    x_start = half  # window i=0 spans positions 1..W; center at W//2 (1-based)
     x = np.arange(x_start, x_start + n, dtype=float)
     y = np.asarray(scd_profile, dtype=float)
     x, y = _maybe_downsample(x, y)
@@ -467,7 +467,7 @@ def create_shd_profile_figure(
     seq_len = len(seq)
     n = len(shd_profile)
     half = window // 2
-    x_start = half + 1
+    x_start = half  # same centering convention as SCD
     x = np.arange(x_start, x_start + n, dtype=float)
     y = np.asarray(shd_profile, dtype=float)
     x, y = _maybe_downsample(x, y)

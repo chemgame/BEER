@@ -242,6 +242,12 @@ def create_contact_network_figure(
 ) -> Figure:
     """Residue contact network derived from Ca distance matrix."""
     n = len(seq)
+    if n < 2:
+        fig = Figure(figsize=(7, 4), dpi=120)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "Sequence too short for contact network",
+                ha="center", va="center", transform=ax.transAxes, fontsize=11)
+        return fig
     dist_matrix = np.asarray(dist_matrix, dtype=float)
 
     adj = np.zeros((n, n), dtype=bool)
@@ -252,7 +258,8 @@ def create_contact_network_figure(
                 adj[j, i] = True
 
     degree = adj.sum(axis=1).astype(float)
-    max_deg = degree.max() if degree.max() > 0 else 1.0
+    _max_d = degree.max() if n > 0 else 0.0
+    max_deg = _max_d if _max_d > 0 else 1.0
 
     large_protein = n > 100
     top_n = 30
@@ -511,9 +518,10 @@ def create_distance_map_figure(
     fig.set_facecolor("#ffffff")
     ax = fig.add_subplot(111)
     ax.set_facecolor("#fafbff")
+    _vmax = float(dist_matrix.max()) if dist_matrix.size > 0 else 40.0
     im = ax.imshow(dist_matrix, cmap=cmap, aspect="auto",
                    origin="upper", interpolation="nearest",
-                   vmin=0, vmax=min(40, dist_matrix.max()))
+                   vmin=0, vmax=min(40, _vmax))
     cbar = fig.colorbar(im, ax=ax, shrink=0.85, aspect=20, pad=0.02)
     cbar.set_label("Cα Pairwise Distance (Å)", fontsize=tick_font - 1, color="#4a5568")
     cbar.ax.tick_params(labelsize=tick_font - 2, colors="#4a5568")

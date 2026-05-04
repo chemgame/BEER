@@ -153,9 +153,12 @@ from beer.embeddings.base import SequenceEmbedder
 def _calc_batch_stats(seq: str, data: dict) -> tuple:
     """Return (hydro%, hydrophil%, pos%, neg%, neu%) for a sequence."""
     length = len(seq)
+    if length == 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+    aa_counts = data.get("aa_counts", {})
     hydro = sum(1 for aa in seq if KYTE_DOOLITTLE.get(aa, 0.0) > 0) / length * 100
-    pos   = sum(data["aa_counts"].get(k, 0) for k in ("K", "R", "H")) / length * 100
-    neg   = sum(data["aa_counts"].get(k, 0) for k in ("D", "E")) / length * 100
+    pos   = sum(aa_counts.get(k, 0) for k in ("K", "R", "H")) / length * 100
+    neg   = sum(aa_counts.get(k, 0) for k in ("D", "E")) / length * 100
     neu   = 100 - (pos + neg)
     return hydro, 100 - hydro, pos, neg, neu
 
@@ -1183,13 +1186,22 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.alphafold_data       = None
         self._struct_is_alphafold = False
         self.export_structure_btn.setEnabled(False)
+        skipped = []
         for rec_id, seq in entries:
-            if not is_valid_protein(seq):
+            if not is_valid_protein(seq) or len(seq) < 5:
+                skipped.append(rec_id)
                 continue
             data = AnalysisTools.analyze_sequence(seq, 7.0, self.default_window_size, self.use_reducing, self.custom_pka, hydro_scale=self.hydro_scale, embedder=self._embedder)
             self.batch_data.append((rec_id, seq, data))
             self._populate_batch_row(rec_id, seq, data)
         self._populate_chain_combo()
+        if skipped:
+            names = ", ".join(skipped[:5]) + ("…" if len(skipped) > 5 else "")
+            QMessageBox.warning(
+                self, "Sequences Skipped",
+                f"{len(skipped)} sequence(s) were skipped due to invalid or "
+                f"unsupported characters, or being shorter than 5 residues:\n{names}"
+            )
 
     # --- Tab builders ---
 
@@ -1268,21 +1280,11 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.analyze_btn = QPushButton("Analyze  [Ctrl+\u21b5]")
         self.analyze_btn.setToolTip(
             "Run classical biophysical analysis (composition, charge, hydrophobicity, etc.).\n"
-            "Fast — does not use ESM2. Use AI Analysis for deep-learning predictions.")
+            "AI prediction heads are computed on demand when you click them in Graphs or Reports.")
         self.analyze_btn.setMinimumHeight(30)
         self.analyze_btn.setObjectName("primary_btn")
         self.analyze_btn.clicked.connect(self.on_analyze)
         row2.addWidget(self.analyze_btn)
-
-        self.bilstm_analyze_btn = QPushButton("AI Analysis")
-        self.bilstm_analyze_btn.setToolTip(
-            "Run ESM2 650M embedding + all AI prediction heads (ESM2 → BiLSTM classifiers).\n"
-            "Run classical Analyze first, then click this to add AI annotations.\n"
-            "Note: embedding a long protein on CPU can take several minutes.")
-        self.bilstm_analyze_btn.setMinimumHeight(30)
-        self.bilstm_analyze_btn.setEnabled(False)
-        self.bilstm_analyze_btn.clicked.connect(self.on_bilstm_analyze)
-        row2.addWidget(self.bilstm_analyze_btn)
 
         row2.addSpacing(8)
         row2.addWidget(QLabel("History:"))
@@ -3909,8 +3911,12 @@ window.addEventListener("load",init);
     }
 
     def _available_feature_schemes(self) -> list[str]:
-        """Return all AI feature names (all 24 heads). Uncomputed ones show a popup on select."""
-        return list(self._FEATURE_SCORE_KEYS.keys())
+        """Return AI feature names for heads that have already been computed."""
+        ad = self.analysis_data or {}
+        return [
+            label for label, key in self._FEATURE_SCORE_KEYS.items()
+            if ad.get(key)
+        ]
 
     def _update_scheme_combo(self, mode: str) -> None:
         if mode == "AI Features":
@@ -3942,10 +3948,10 @@ window.addEventListener("load",init);
         scores = ad.get(key) or []
         if not scores:
             QMessageBox.information(
-                self, "AI Predictions Not Yet Computed",
-                f"AI Predictions have not been run yet.\n\n"
-                "Click the \u2018AI Analysis\u2019 button (next to Analyze) to compute "
-                "all 23 per-residue prediction heads, then select this color scheme again.")
+                self, "AI Prediction Not Yet Computed",
+                f"\u2018{feature_label}\u2019 has not been computed yet.\n\n"
+                "Click the feature in the Graphs or Reports tab to trigger computation,\n"
+                "then return here to use it for structure coloring.")
             return
         feat_key = feature_label.lower().replace(" ", "_")
         color = FEATURE_COLORS.get(feat_key, "#f3722c")
@@ -4162,6 +4168,8 @@ window.addEventListener("load",init);
         key = self._STRUCT_MODE_KEY.get(mode, "plddt")
         scheme = self.struct_scheme_combo.currentText()
         if mode == "AI Features":
+            if not scheme:
+                return
             grad = getattr(self, "struct_ai_gradient_combo", None)
             self._push_feature_scores(
                 scheme, gradient=grad.currentText() if grad else "Hot (White→Red)")
@@ -5725,8 +5733,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def sort_composition(self, mode: str):
         if not self.analysis_data:
             return
-        counts = self.analysis_data["aa_counts"]
-        freq   = self.analysis_data["aa_freq"]
+        counts = self.analysis_data.get("aa_counts", {})
+        freq   = self.analysis_data.get("aa_freq", {})
+        if not counts or not freq:
+            return
         items  = list(counts.items())
         if mode == "alpha":
             items.sort(key=lambda x: x[0])
@@ -5824,6 +5834,13 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 "Ensure sequences contain only standard amino acid letters (ACDEFGHIKLMNPQRSTVWY)."
             )
             return
+        entries = [(rid, seq) for rid, seq in entries if len(seq) >= 5]
+        if not entries:
+            QMessageBox.warning(
+                self, "Sequence Too Short",
+                "Sequences must be at least 5 amino acids long to analyse."
+            )
+            return
 
         if len(entries) > 1:
             # Multiple sequences → load as batch and show first
@@ -5880,7 +5897,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
         self._last_was_bilstm = False
         self.analyze_btn.setEnabled(False)
-        self.bilstm_analyze_btn.setEnabled(False)
         self.statusBar.showMessage("Analyzing…")
 
         self._progress_dlg = QProgressDialog(
@@ -5890,6 +5906,13 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._progress_dlg.setMinimumDuration(500)
         self._progress_dlg.canceled.connect(self._cancel_analysis)
         self._progress_dlg.show()
+
+        # Disconnect stale signals from any previous worker before replacing it.
+        if self._analysis_worker is not None:
+            try: self._analysis_worker.finished.disconnect()
+            except RuntimeError: pass
+            try: self._analysis_worker.error.disconnect()
+            except RuntimeError: pass
 
         # Classical analysis: embedder=None skips ESM2 and all BiLSTM heads
         self._analysis_worker = AnalysisWorker(
@@ -5943,7 +5966,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                     return
 
         self._last_was_bilstm = True
-        self.bilstm_analyze_btn.setEnabled(False)
         self.analyze_btn.setEnabled(False)
         self.statusBar.showMessage("Running AI Analysis (ESM2 650M)…")
 
@@ -5992,13 +6014,17 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         name = self.sequence_name or ""
         text = format_sequence_block(seq, name=name)
 
-        # Pre-compile highlight pattern
+        # Pre-compile highlight pattern — guard against ReDoS from user input.
+        # Reject nested quantifiers and excessively long patterns.
         hl_re = None
-        if highlight_pattern:
-            try:
-                hl_re = re.compile(highlight_pattern.upper())
-            except re.error:
-                hl_re = None
+        if highlight_pattern and len(highlight_pattern) <= 80:
+            _pat = highlight_pattern.upper()
+            _safe = not bool(re.search(r'\([^)]*[+*][^)]*\)[+*?]|\(\?[^)]*\)[+*]', _pat))
+            if _safe:
+                try:
+                    hl_re = re.compile(_pat)
+                except re.error:
+                    hl_re = None
 
         def _colour_residues(chunk: str) -> str:
             """Wrap each residue letter in a coloured span, with optional highlight."""
@@ -6371,6 +6397,14 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         title = item.data(0, Qt.ItemDataRole.UserRole)
         if not title or title not in self._graph_title_to_stack_idx:
             return
+        if not self.analysis_data:
+            QMessageBox.information(
+                self, "Analysis Required",
+                "<b>No analysis data available.</b><br><br>"
+                "Enter a protein sequence in the Analysis tab and click "
+                "<b>Analyze</b> to compute biophysical properties.<br><br>"
+                "Graphs will become available once analysis is complete.")
+            return
         self.graph_stack.setCurrentIndex(self._graph_title_to_stack_idx[title])
         # If this is a BiLSTM graph and the data isn't ready yet, trigger it.
         data_key = _GRAPH_TITLE_TO_AI_DATA_KEY.get(title)
@@ -6395,6 +6429,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _graph_nav_step(self, direction: int) -> None:
         """Move to the next (+1) or previous (-1) leaf item in the graph tree."""
+        if not self.analysis_data:
+            return
         leaves = []
         for i in range(self.graph_tree.topLevelItemCount()):
             cat = self.graph_tree.topLevelItem(i)
@@ -6467,7 +6503,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                         f.write(seq[i:i + 60] + "\n")
 
             else:
-                pdb_str = self.alphafold_data["pdb_str"]
+                pdb_str = (self.alphafold_data or {}).get("pdb_str") or ""
+                if not pdb_str:
+                    QMessageBox.warning(self, "Export Error", "No structure data available.")
+                    return
                 if fmt == "pdb":
                     content = pdb_str
                 elif fmt == "mmcif":
@@ -6973,9 +7012,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._apply_browser_palette()
 
         if self.analysis_data:
+            _sections = self.analysis_data.get("report_sections", {})
             for sec, browser in self.report_section_tabs.items():
-                if sec in self.analysis_data["report_sections"]:
-                    browser.setHtml(self.analysis_data["report_sections"][sec])
+                if sec in _sections:
+                    browser.setHtml(_sections[sec])
             self._update_seq_viewer()
             self.update_graph_tabs()
             self._sparkline_links_wired = False  # re-wire after theme reset
@@ -7031,6 +7071,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     # --- DeepTMHMM / AlphaMissense ---
 
     def _run_deeptmlhmm(self):
+        if getattr(self, "_deeptmlhmm_worker", None) and self._deeptmlhmm_worker.isRunning():
+            return
         if not self.analysis_data:
             return
         seq = self.analysis_data.get("seq", "")
@@ -7089,6 +7131,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     # --- SignalP 6.0 ---
 
     def _run_signalp6(self):
+        if getattr(self, "_signalp6_worker", None) and self._signalp6_worker.isRunning():
+            return
         if not self.analysis_data:
             return
         seq = self.analysis_data.get("seq", "")
@@ -7341,32 +7385,23 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self._add_to_history(self.sequence_name, seq, data)
         # ── Populate Summary tab ──────────────────────────────────────────
         self._summary_tab_browser.setHtml(self._build_summary_tab_html(data))
+        _rsecs = data.get("report_sections", {})
         for sec, browser in self.report_section_tabs.items():
-            if sec in data["report_sections"]:
-                browser.setHtml(data["report_sections"][sec])
+            if sec in _rsecs:
+                browser.setHtml(_rsecs[sec])
         self._update_seq_viewer()
         self.update_graph_tabs()
         self._append_sparklines(data)
         self._append_mini_graphs()
-        if self._last_was_bilstm:
-            # Full AI Analysis completed — populate all sections with real data.
-            self._populate_ai_report_sections(data)
-            self._ai_computed_sections = {
-                f"AI:{name}"
-                for name, dk, _, _ in _AI_HEAD_SPECS
-                if data.get(dk)
-            }
-        else:
-            # Classical analysis — populate sidebar with lazy-load placeholders.
-            self._ai_computed_sections.clear()
-            self._setup_ai_section_placeholders()
+        # Classical analysis — populate sidebar with lazy-load placeholders.
+        self._ai_computed_sections.clear()
+        self._setup_ai_section_placeholders()
         # Refresh AI Features scheme combo so newly available heads appear
         if hasattr(self, "struct_color_mode_combo"):
             cur_mode = self.struct_color_mode_combo.currentText()
             if cur_mode == "AI Features":
                 self._update_scheme_combo("AI Features")
         self.analyze_btn.setEnabled(True)
-        self.bilstm_analyze_btn.setEnabled(True)
         # Enable all analysis-dependent buttons
         for btn in (self.mutate_btn, self.trunc_run_btn,
                     self.fetch_deeptmhmm_btn, self.fetch_signalp6_btn,
@@ -7385,6 +7420,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if hasattr(self, "_progress_dlg") and self._progress_dlg:
             self._progress_dlg.close()
             self._progress_dlg = None
+        self.analysis_data = None
+        self._ai_computed_sections.clear()
         self.analyze_btn.setEnabled(True)
         self.statusBar.showMessage("Analysis failed", 3000)
         QMessageBox.critical(self, "Analysis Error", msg)
@@ -7469,7 +7506,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._do_reset()
 
         # Restore core state
-        self.sequence_name      = snap["name"]
+        self.sequence_name      = snap.get("name", "Sequence")
         self.current_accession  = snap.get("accession", "")
         self._source_id         = snap.get("source_id", snap.get("accession", ""))
         self._last_was_bilstm   = snap.get("last_was_bilstm", False)
@@ -7495,9 +7532,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             if pdb_str:
                 self._load_structure_viewer(pdb_str)
             self.export_structure_btn.setEnabled(True)
-            n_res = len(self.alphafold_data.get("plddt", []))
-            mean_plddt = (sum(self.alphafold_data["plddt"]) / n_res
-                         if n_res else 0)
+            _plddt_arr = self.alphafold_data.get("plddt", [])
+            n_res = len(_plddt_arr)
+            mean_plddt = sum(_plddt_arr) / n_res if n_res else 0
             src = self.alphafold_data.get("accession", self.sequence_name)
             self.af_status_lbl.setText(
                 f"Structure: {src}  ({n_res} residues, mean pLDDT = {mean_plddt:.1f})")
@@ -7527,7 +7564,25 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             if data else f"Restored: {snap['name']}", 3000)
 
     def closeEvent(self, event):
-        """On close, wipe history from config so next session starts clean."""
+        """Terminate running worker threads and wipe history on close."""
+        _worker_attrs = [
+            "_analysis_worker", "_alphafold_worker", "_pfam_worker",
+            "_blast_worker", "_active_ai_worker", "_am_worker",
+            "_elm_worker", "_disprot_worker", "_phasepdb_worker",
+            "_mobidb_worker", "_uniprot_feat_worker", "_seq_search_worker",
+            "_variants_worker", "_intact_worker",
+            "_deeptmlhmm_worker", "_signalp6_worker",
+        ]
+        for _attr in _worker_attrs:
+            _w = getattr(self, _attr, None)
+            if _w is not None:
+                try:
+                    if _w.isRunning():
+                        _w.quit()
+                        if not _w.wait(1500):
+                            _w.terminate()
+                except RuntimeError:
+                    pass
         _config.set_value("recent_sequences", [])
         super().closeEvent(event)
 
@@ -7832,10 +7887,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.fetch_af_btn.setEnabled(True)
         self._mark_chip_fetched(self.fetch_af_btn)
         self.export_structure_btn.setEnabled(True)
-        n_res = len(data.get("plddt", []))
-        mean_plddt = (sum(data["plddt"]) / n_res) if n_res else 0
+        _af_plddt = data.get("plddt", [])
+        n_res = len(_af_plddt)
+        mean_plddt = (sum(_af_plddt) / n_res) if n_res else 0
+        _af_acc = data.get("accession", self.sequence_name or "Unknown")
         self.af_status_lbl.setText(
-            f"Loaded AlphaFold structure for {data['accession']}  "
+            f"Loaded AlphaFold structure for {_af_acc}  "
             f"({n_res} residues, mean pLDDT = {mean_plddt:.1f})"
         )
         self.af_status_lbl.setProperty("status_state", "success")
@@ -7845,7 +7902,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self.analysis_data:
             self.update_graph_tabs()
         self.statusBar.showMessage(
-            f"AlphaFold structure loaded  ({data['accession']})", 4000)
+            f"AlphaFold structure loaded  ({_af_acc})", 4000)
 
     def _on_alphafold_error(self, msg: str):
         self.fetch_af_btn.setEnabled(True)
@@ -8163,7 +8220,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         for btn in (self.mutate_btn,
                     self.export_structure_btn, self.find_uniprot_btn,
                     self.trunc_run_btn, self.fetch_signalp6_btn,
-                    self.bilstm_analyze_btn, self._graphs_uniprot_btn):
+                    self._graphs_uniprot_btn):
             btn.setEnabled(False)
         chip_buttons = self._db_fetch_btns + [
             self.fetch_uniprot_tracks_btn, self.fetch_deeptmhmm_btn,
@@ -8785,15 +8842,16 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             QMessageBox.information(self, "DisProt",
                 "This protein is not in DisProt, or has no annotated disorder regions.")
         else:
+            from html import escape as _he
             frac = data.get("fraction_disordered", 0)
-            lines = [f"<h2>DisProt: {data.get('disprot_id','?')}</h2>"
-                     f"<p>{data.get('protein_name','')}</p>"
+            lines = [f"<h2>DisProt: {_he(data.get('disprot_id','?'))}</h2>"
+                     f"<p>{_he(data.get('protein_name',''))}</p>"
                      f"<p>Fraction disordered: {frac:.3f}</p>"
                      "<table><tr><th>Start</th><th>End</th><th>Type</th></tr>"]
             for r in regions:
                 lines.append(
                     f"<tr><td>{r['start']}</td><td>{r['end']}</td>"
-                    f"<td>{r.get('type','IDR')}</td></tr>")
+                    f"<td>{_he(r.get('type','IDR'))}</td></tr>")
             lines.append("</table>")
             dlg = QDialog(self); dlg.setWindowTitle("DisProt Disorder Regions")
             dlg.resize(500, 350)

@@ -88,7 +88,12 @@ class ESM2Embedder(SequenceEmbedder):
                 self._cache.popitem(last=False)
             self._cache[key] = emb
             return emb
-        except Exception:  # pylint: disable=broad-except
+        except Exception as _exc:  # pylint: disable=broad-except
+            import logging as _log
+            _log.getLogger("beer.embeddings").warning(
+                "ESM2 embedding failed for sequence of length %d: %s",
+                len(seq), _exc, exc_info=True,
+            )
             return None
 
     def clear_cache(self) -> None:

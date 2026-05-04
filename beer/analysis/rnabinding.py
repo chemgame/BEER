@@ -129,10 +129,12 @@ def calc_rbp_profile(seq: str, window: int = 11) -> list[float]:
     if n == 0:
         return []
     vals = [_catrapid_residue(aa) for aa in seq]
-    w = min(window, n)
+    if window >= n:
+        avg = round(sum(vals) / n, 4)
+        return [avg] * n
     result: list[float] = []
-    for i in range(n - w + 1):
-        result.append(round(sum(vals[i:i + w]) / w, 4))
+    for i in range(n - window + 1):
+        result.append(round(sum(vals[i:i + window]) / window, 4))
     return result
 
 

@@ -15,7 +15,8 @@ class ExportTools:
 
         import re as _re
 
-        header_name = seq_name or "Protein Sequence"
+        from html import escape as _he
+        header_name = _he(seq_name) if seq_name else "Protein Sequence"
         seq = analysis_data.get("seq", "")
         seq_block = format_sequence_block(seq, name=seq_name)
         seq_block_html = seq_block.replace("&", "&amp;").replace("<", "&lt;")

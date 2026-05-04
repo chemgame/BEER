@@ -70,15 +70,16 @@ def compute_single_mutant_llr(
             # position offset: +1 for BOS token
             for pos in positions:
                 wt_aa  = seq[pos]
-                wt_idx = AA_ORDER.index(wt_aa) if wt_aa in AA_ORDER else -1
-                tok_pos = pos + 1  # offset for BOS
-                wt_log_p = log_probs[tok_pos, alphabet.get_idx(wt_aa)] if wt_aa in AA_ORDER else 0.0
+                if wt_aa not in AA_ORDER:
+                    # Non-canonical residue: leave row as zeros to avoid biased LLR.
+                    continue
+                wt_idx   = AA_ORDER.index(wt_aa)
+                tok_pos  = pos + 1  # offset for BOS
+                wt_log_p = log_probs[tok_pos, alphabet.get_idx(wt_aa)]
                 for j, mut_aa in enumerate(AA_ORDER):
                     mut_log_p = log_probs[tok_pos, aa_tokens[j]]
                     llr_matrix[pos, j] = float(mut_log_p - wt_log_p)
-                # WT → 0 by definition
-                if wt_idx >= 0:
-                    llr_matrix[pos, wt_idx] = 0.0
+                llr_matrix[pos, wt_idx] = 0.0  # WT → 0 by definition
 
         return llr_matrix
 
@@ -87,11 +88,11 @@ def compute_single_mutant_llr(
 
 
 def mean_effect_per_position(llr_matrix: np.ndarray) -> np.ndarray:
-    """Return per-position mean LLR across all non-WT substitutions."""
-    # Exclude WT (where LLR=0) by averaging the 19 non-zero columns per row
-    means = np.zeros(len(llr_matrix))
-    for i in range(len(llr_matrix)):
-        vals = llr_matrix[i]
-        nonzero = vals[vals != 0.0]
-        means[i] = float(np.mean(nonzero)) if len(nonzero) else 0.0
-    return means
+    """Return per-position mean LLR across all 20 substitutions.
+
+    The WT column is 0 by definition, so including it merely shifts the mean
+    by 1/20th of the WT contribution (zero) — mathematically equivalent to
+    averaging all 20 values. Filtering by != 0.0 incorrectly drops legitimate
+    neutral mutations whose LLR happens to be exactly 0.
+    """
+    return np.mean(llr_matrix, axis=1)
