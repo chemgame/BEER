@@ -68,7 +68,9 @@
     .nav-logo {
       font-size: 1.2rem; font-weight: 800;
       letter-spacing: -0.02em;
+      display: flex; align-items: center; gap: 8px;
     }
+    .nav-logo img { height: 40px; width: auto; mix-blend-mode: screen; }
     .nav-logo span { color: var(--blue-lt); }
 
     .nav-links { display: flex; align-items: center; gap: 6px; }
@@ -455,7 +457,7 @@
 <!-- ── Navbar ──────────────────────────────────────────────────────────── -->
 <nav>
   <div class="container nav-inner">
-    <a href="#" class="nav-logo">BEER <span>v2.0</span></a>
+    <a href="#" class="nav-logo"><img src="assets/beer_logo.png" alt="BEER logo">BEER <span>v2.0</span></a>
     <div class="nav-links">
       <a href="#why" class="hide-sm">Why BEER</a>
       <a href="#features" class="hide-sm">Features</a>
