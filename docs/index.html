@@ -346,6 +346,51 @@
     .feat-list li::before { content: '›'; position: absolute; left: 0; color: var(--blue-lt); font-weight: 700; }
     .feat-list li strong { color: var(--text); font-weight: 600; }
 
+    /* ── Advanced tool cards ─────────────────────────────────────────────── */
+    .adv-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 22px; margin-top: 52px;
+    }
+
+    .adv-card {
+      background: var(--card-bg); border: 1px solid var(--card-bdr);
+      border-radius: var(--radius); padding: 28px 24px;
+      transition: border-color .2s, background .2s;
+    }
+    .adv-card:hover { border-color: rgba(67,97,238,.35); background: rgba(67,97,238,.055); }
+
+    .adv-head {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .adv-icon {
+      width: 38px; height: 38px; border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; flex-shrink: 0;
+    }
+
+    .adv-card h3 { font-size: 1.0rem; font-weight: 700; color: var(--white); }
+    .adv-card p  { font-size: .87rem; color: var(--text-dim); line-height: 1.65; }
+
+    .adv-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
+    .adv-tag {
+      font-size: .72rem; padding: 2px 8px; border-radius: 4px;
+      background: rgba(67,97,238,.12); color: var(--blue-lt);
+      border: 1px solid rgba(67,97,238,.22);
+    }
+
+    .cli-snippet {
+      background: #01080f;
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: 8px; padding: 14px 16px;
+      font-family: var(--mono); font-size: .78rem;
+      line-height: 1.8; margin-top: 14px; overflow-x: auto;
+    }
+
+    @media (max-width: 880px) { .adv-grid { grid-template-columns: 1fr; } }
+
     /* ── Graph tags ──────────────────────────────────────────────────────── */
     .graph-grid {
       display: grid;
@@ -461,6 +506,7 @@
     <div class="nav-links">
       <a href="#why" class="hide-sm">Why BEER</a>
       <a href="#features" class="hide-sm">Features</a>
+      <a href="#advanced" class="hide-sm">Advanced</a>
       <a href="#install">Install</a>
       <a href="https://doi.org/10.48550/arXiv.2504.20561" target="_blank" rel="noopener" class="hide-sm">Paper</a>
       <a href="https://github.com/chemgame/BEER" target="_blank" rel="noopener" class="btn nav-cta" style="padding:7px 16px;font-size:.85rem;border-radius:7px;">
@@ -575,7 +621,7 @@
       <div class="diff-card">
         <div class="diff-icon" style="background:rgba(16,185,129,.14);">📊</div>
         <h3>Publication-ready, every time</h3>
-        <p>Every graph exports at 200 dpi in PNG, SVG, or PDF. Underlying data exports as CSV or JSON. A built-in Figure Composer assembles multi-panel publication figures without leaving the app.</p>
+        <p>Every graph exports at 200 dpi in PNG, SVG, or PDF. Underlying data exports as CSV or JSON. The built-in Figure Composer assembles 1×1 → 3×3 multi-panel publication figures, and full sessions save and restore without recomputation.</p>
       </div>
 
     </div>
@@ -649,6 +695,129 @@
           <li><strong>AlphaMissense</strong> — per-position pathogenicity heatmap (Google DeepMind)</li>
           <li><strong>ESM2 Variant Effect Map</strong> — log-likelihood ratios for all 20×L substitutions</li>
         </ul>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Advanced Tools ────────────────────────────────────────────────────── -->
+<section class="section" id="advanced">
+  <div class="container">
+    <div class="section-label">Advanced Tools</div>
+    <h2 class="section-title">Built for complex, real-world workflows</h2>
+    <p class="section-sub">Beyond single-sequence analysis — BEER ships a suite of specialist tools for homology search, complex assembly, comparative analysis, and scripted pipelines.</p>
+
+    <div class="adv-grid">
+
+      <!-- BLAST -->
+      <div class="adv-card">
+        <div class="adv-head">
+          <div class="adv-icon" style="background:rgba(67,97,238,.14);">🔍</div>
+          <h3>NCBI BLAST Search</h3>
+        </div>
+        <p>Submit the current sequence to NCBI BLAST directly from BEER. Browse top hits in a sortable table and load any homolog into the analysis pipeline with one click.</p>
+        <div class="adv-tags">
+          <span class="adv-tag">nr</span>
+          <span class="adv-tag">swissprot</span>
+          <span class="adv-tag">pdb</span>
+          <span class="adv-tag">refseq_protein</span>
+          <span class="adv-tag">E-value · Identity %</span>
+          <span class="adv-tag">Cancellable</span>
+        </div>
+      </div>
+
+      <!-- Multi-Chain -->
+      <div class="adv-card">
+        <div class="adv-head">
+          <div class="adv-icon" style="background:rgba(16,185,129,.14);">🧬</div>
+          <h3>Multi-Chain Complex Analysis</h3>
+        </div>
+        <p>Load a multi-FASTA file or a multi-chain PDB/mmCIF structure. A property table lists all chains — double-click any row to analyze it. Complex-wide molecular weight and stoichiometry are computed automatically.</p>
+        <div class="adv-tags">
+          <span class="adv-tag">Multi-FASTA</span>
+          <span class="adv-tag">PDB / mmCIF</span>
+          <span class="adv-tag">Complex Mass</span>
+          <span class="adv-tag">Stoichiometry</span>
+          <span class="adv-tag">Chain Navigator</span>
+        </div>
+      </div>
+
+      <!-- Sequence Comparison -->
+      <div class="adv-card">
+        <div class="adv-head">
+          <div class="adv-icon" style="background:rgba(245,158,11,.14);">⚖️</div>
+          <h3>Sequence Comparison</h3>
+        </div>
+        <p>Paste two sequences (or FASTA entries) and compare their biophysical profiles side-by-side. Overlaid hydrophobicity, charge, and disorder profiles reveal property-level differences at a glance.</p>
+        <div class="adv-tags">
+          <span class="adv-tag">Hydrophobicity overlay</span>
+          <span class="adv-tag">Charge profile</span>
+          <span class="adv-tag">Disorder overlay</span>
+          <span class="adv-tag">Difference map</span>
+        </div>
+      </div>
+
+      <!-- Truncation Series & Alanine Scan -->
+      <div class="adv-card">
+        <div class="adv-head">
+          <div class="adv-icon" style="background:rgba(167,139,250,.14);">✂️</div>
+          <h3>Truncation Series &amp; Alanine Scan</h3>
+        </div>
+        <p>Systematically truncate from the N- or C-terminus and track how MW, charge, hydrophobicity, and disorder evolve. Alanine scanning maps per-residue ΔGRAVY contributions across any selected region — results exportable to CSV.</p>
+        <div class="adv-tags">
+          <span class="adv-tag">N / C truncation</span>
+          <span class="adv-tag">ΔGRAVY per residue</span>
+          <span class="adv-tag">MW · pI · disorder</span>
+          <span class="adv-tag">CSV export</span>
+        </div>
+      </div>
+
+      <!-- Mutation Tool -->
+      <div class="adv-card">
+        <div class="adv-head">
+          <div class="adv-icon" style="background:rgba(239,68,68,.14);">✏️</div>
+          <h3>Point Mutation Tool</h3>
+        </div>
+        <p>Introduce any single point mutation at any position via a dedicated dialog. The full analysis reruns instantly on the mutant sequence. Ctrl+Z reverts the change, making iterative mutagenesis studies fast and non-destructive.</p>
+        <div class="adv-tags">
+          <span class="adv-tag">Any position</span>
+          <span class="adv-tag">Any amino acid</span>
+          <span class="adv-tag">Instant re-analysis</span>
+          <span class="adv-tag">Ctrl+Z undo</span>
+        </div>
+      </div>
+
+      <!-- CLI / Headless -->
+      <div class="adv-card">
+        <div class="adv-head">
+          <div class="adv-icon" style="background:rgba(20,184,166,.14);">💻</div>
+          <h3>CLI / Headless Mode</h3>
+        </div>
+        <p>Script BEER without the GUI. Accepts a raw sequence, a FASTA file, or a UniProt/PDB accession; writes JSON, CSV, TSV, or HTML. Pass <code style="font-family:var(--mono);font-size:.85em">--no-esm2</code> for fast classical-only runs.</p>
+        <div class="cli-snippet">
+<span class="t-comment"># analyze from accession, output JSON</span><br>
+<span class="t-prompt">$ </span><span class="t-cmd">beer analyze</span> <span class="t-kw">-a</span> P04637 <span class="t-kw">-o</span> p53.json<br>
+<br>
+<span class="t-comment"># FASTA file → HTML report, skip ESM2</span><br>
+<span class="t-prompt">$ </span><span class="t-cmd">beer analyze</span> <span class="t-kw">-f</span> seqs.fa <span class="t-kw">--format</span> html <span class="t-kw">--no-esm2</span>
+        </div>
+      </div>
+
+      <!-- Session & Figure Composer -->
+      <div class="adv-card" style="grid-column: 1 / -1;">
+        <div class="adv-head">
+          <div class="adv-icon" style="background:rgba(251,146,60,.14);">💾</div>
+          <h3>Session Save / Load &amp; Figure Composer</h3>
+        </div>
+        <p>Save your entire workspace — all computed graphs, tables, AI predictions, and structure data — to a session file and restore it later with no recomputation. The built-in <strong style="color:var(--text);">Figure Composer</strong> then lets you drag any graph into a 1×1 → 3×3 multi-panel canvas and export the assembled figure at 200 dpi in PNG, SVG, or PDF.</p>
+        <div class="adv-tags">
+          <span class="adv-tag">Versioned session files</span>
+          <span class="adv-tag">Full state restore</span>
+          <span class="adv-tag">1×1 → 3×3 layouts</span>
+          <span class="adv-tag">PNG · SVG · PDF export</span>
+          <span class="adv-tag">CSV / JSON data export per graph</span>
+        </div>
       </div>
 
     </div>
@@ -746,6 +915,8 @@
           <span class="tag">MSA Covariance</span>
           <span class="tag">Truncation Series</span>
           <span class="tag">Complex Mass</span>
+          <span class="tag">Alanine Scan ΔGRAVY</span>
+          <span class="tag">Sequence Comparison</span>
         </div>
       </div>
 
