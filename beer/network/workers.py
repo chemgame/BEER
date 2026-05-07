@@ -368,7 +368,6 @@ class BlastWorker(QThread):
             result_handle = NCBIWWW.qblast(
                 "blastp", self.database, self.seq,
                 hitlist_size=self.hitlist_size,
-                timeout=120,
             )
             # If cancel() was called while qblast() was blocking, discard results.
             if self._cancelled or self.isInterruptionRequested():

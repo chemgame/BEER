@@ -66,7 +66,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QProgressDialog, QAbstractItemView,
     QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QStackedWidget,
     QInputDialog, QApplication, QDoubleSpinBox, QGroupBox, QMenu, QSlider,
-    QColorDialog, QSizePolicy, QStyleFactory,
+    QColorDialog, QSizePolicy, QStyleFactory, QButtonGroup,
 )
 from PySide6.QtGui import QFont, QKeySequence, QAction, QShortcut, QImage, QIcon, QPixmap
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QEvent, QUrl
@@ -1283,7 +1283,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             "AI prediction heads are computed on demand when you click them in Graphs or Reports.")
         self.analyze_btn.setMinimumHeight(30)
         self.analyze_btn.setObjectName("primary_btn")
-        self.analyze_btn.clicked.connect(self.on_analyze)
+        self.analyze_btn.clicked.connect(self._on_analyze_btn_clicked)
         row2.addWidget(self.analyze_btn)
 
         row2.addSpacing(8)
@@ -2185,6 +2185,26 @@ class ProteinAnalyzerGUI(QMainWindow):
         "AI Features":               "feature",
         "Aggregation (ZYGGREGATOR)": "zyggregator",
     }
+    _AI_GRADIENT_MAP = {
+        "Plasma (Purple→Yellow)":   "plasma",
+        "Viridis (Purple→Lime)":    "viridis",
+        "Blue→Red (Diverging)":     "bwr",
+        "Teal→Orange":              "RdYlGn_r",
+        "Green→Purple":             "PRGn_r",
+        "Fire (Black→Yellow)":      "afmhot",
+        "Hot (Black→Red→White)":    "hot",
+        "Cold (White→Blue)":        "Blues",
+        "Coolwarm":                 "coolwarm",
+    }
+    _AI_COLOR_ITEMS = [
+        ("Orange",  "#f3722c"),
+        ("Cyan",    "#00b4d8"),
+        ("Magenta", "#f72585"),
+        ("Green",   "#2dc653"),
+        ("Blue",    "#3a86ff"),
+        ("Red",     "#e63946"),
+        ("Custom",  None),
+    ]
     _STRUCT_PANEL_CSS_LIGHT = """
         QScrollArea { border: none; background: transparent; }
         QWidget#structCtrl { background: transparent; }
@@ -2371,19 +2391,58 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.struct_scheme_combo = QComboBox()
             self.struct_scheme_combo.currentTextChanged.connect(self._on_struct_scheme_changed)
             color_gl.addRow("Scheme:", self.struct_scheme_combo)
-            self.struct_ai_gradient_lbl = QLabel("Gradient:")
+            # ── AI Features: style toggle + gradient/color selectors ──────────
+            self._struct_ai_color      = "#f3722c"
+            self._struct_ai_color_mode = "gradient"   # 'gradient' | 'binary'
+
+            # Toggle row
+            self.struct_ai_style_lbl = QLabel("Style:")
+            _toggle_w  = QWidget()
+            _toggle_hb = QHBoxLayout(_toggle_w)
+            _toggle_hb.setContentsMargins(0, 0, 0, 0)
+            _toggle_hb.setSpacing(0)
+            self._ai_grad_btn = QPushButton("Gradient")
+            self._ai_grad_btn.setCheckable(True)
+            self._ai_grad_btn.setChecked(True)
+            self._ai_grad_btn.setFixedHeight(21)
+            self._ai_bin_btn  = QPushButton("Binary")
+            self._ai_bin_btn.setCheckable(True)
+            self._ai_bin_btn.setChecked(False)
+            self._ai_bin_btn.setFixedHeight(21)
+            self._ai_style_grp = QButtonGroup(self)
+            self._ai_style_grp.setExclusive(True)
+            self._ai_style_grp.addButton(self._ai_grad_btn, 0)
+            self._ai_style_grp.addButton(self._ai_bin_btn,  1)
+            self._ai_style_grp.buttonClicked.connect(self._on_ai_style_toggled)
+            _toggle_hb.addWidget(self._ai_grad_btn)
+            _toggle_hb.addWidget(self._ai_bin_btn)
+            _toggle_hb.addStretch()
+            color_gl.addRow(self.struct_ai_style_lbl, _toggle_w)
+            self.struct_ai_style_lbl.setVisible(False)
+            _toggle_w.setVisible(False)
+            self._struct_ai_toggle_row = _toggle_w
+
+            # Colormap dropdown (gradient mode)
+            self.struct_ai_gradient_lbl   = QLabel("Colormap:")
             self.struct_ai_gradient_combo = QComboBox()
-            self.struct_ai_gradient_combo.addItems(
-                ["Hot (White→Red)", "Fire (Black→Yellow)", "Plasma",
-                 "Viridis", "Cold (White→Blue)", "Classic (White→Color)"])
-            self.struct_ai_gradient_combo.setToolTip(
-                "Colormap applied to AI feature prediction scores.\n"
-                "Only active when 'AI Features' color mode is selected.")
+            self.struct_ai_gradient_combo.addItems(list(self._AI_GRADIENT_MAP.keys()))
+            self.struct_ai_gradient_combo.setCurrentText("Plasma (Purple→Yellow)")
             self.struct_ai_gradient_combo.currentTextChanged.connect(
-                self._on_struct_ai_gradient_changed)
+                self._on_ai_gradient_combo_changed)
             color_gl.addRow(self.struct_ai_gradient_lbl, self.struct_ai_gradient_combo)
             self.struct_ai_gradient_lbl.setVisible(False)
             self.struct_ai_gradient_combo.setVisible(False)
+
+            # Color dropdown (binary mode)
+            self.struct_ai_color_lbl   = QLabel("Color:")
+            self.struct_ai_color_combo = QComboBox()
+            for _cn, _ in self._AI_COLOR_ITEMS:
+                self.struct_ai_color_combo.addItem(_cn)
+            self.struct_ai_color_combo.currentTextChanged.connect(
+                self._on_ai_color_combo_changed)
+            color_gl.addRow(self.struct_ai_color_lbl, self.struct_ai_color_combo)
+            self.struct_ai_color_lbl.setVisible(False)
+            self.struct_ai_color_combo.setVisible(False)
             view_l.addWidget(color_grp)
 
             # ── Residue Labels ────────────────────────────────────────────────
@@ -3223,17 +3282,11 @@ function updateColorBar(){{
         wrap.style.display='flex'; unit.style.display='block';
         ents.style.display='none'; bar.classList.remove('cb-wide');
         title.textContent=featureName;
-        var _gradCSS={{
-            'hot':    'linear-gradient(to top,#ffffff,#ffff00,#ff8800,#ff0000)',
-            'fire':   'linear-gradient(to top,#000000,#dc0000,#dc8c00,#ffff00,#ffffff)',
-            'plasma': 'linear-gradient(to top,#0d0887,#5601a4,#cc4778,#f89540,#f0f921)',
-            'viridis':'linear-gradient(to top,#440154,#31688e,#35b779,#fde725)',
-            'cold':   'linear-gradient(to top,#ffffff,#aaddff,#0040aa)',
-            'classic':'linear-gradient(to top,#ffffff,'+featureColor+')'
-        }};
-        grad.style.background=_gradCSS[featureGradient]||_gradCSS['classic'];
-        tmax.textContent='1.0'; tmid.textContent='0.5'; tmin.textContent='0.0';
-        unit.textContent='Prediction Score'; bar.style.display='block'; return;
+        grad.style.background='linear-gradient(to top,#aaaaaa 50%,'+featureColor+' 50%)';
+        tmax.textContent='Predicted'; tmid.textContent='≥ '+featureThreshold.toFixed(3);
+        tmin.textContent='Not pred.';
+        unit.textContent='Threshold = '+featureThreshold.toFixed(3);
+        bar.style.display='block'; return;
     }}
     if(colorMode==='resi_colormap'){{
         wrap.style.display='flex'; unit.style.display='block';
@@ -3387,88 +3440,25 @@ function toggleContacts(on){{
     }} else if(viewer){{ viewer.render(); }}
 }}
 
-// ── Feature score coloring ────────────────────────────────────────────────
-var featureScores = {{}};   // {{resi(1-based): score 0..1}}
-var featureColor  = '#f3722c';
-var featureName   = 'disorder';
-var featureGradient = 'hot';   // 'hot' | 'plasma' | 'viridis' | 'fire' | 'cold' | 'classic'
-
-function _hexToRgb(h){{
-    var r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);
-    return [r,g,b];
-}}
-
-// Gradient helpers: t in [0,1] → rgb(...)
-function _gradient_hot(t){{
-    // white → yellow → orange → red
-    if(t<0.5){{var s=t*2; return 'rgb(255,'+Math.round(255-s*55)+','+Math.round(255*(1-s))+')';}}
-    var s=(t-0.5)*2;
-    return 'rgb(255,'+Math.round(200*(1-s))+',0)';
-}}
-function _gradient_fire(t){{
-    // black → red → orange → yellow (afmhot-like)
-    if(t<0.33){{var s=t/0.33; return 'rgb('+Math.round(s*220)+',0,0)';}}
-    if(t<0.66){{var s=(t-0.33)/0.33; return 'rgb(220,'+Math.round(s*140)+',0)';}}
-    var s=(t-0.66)/0.34;
-    return 'rgb('+Math.round(220+s*35)+','+Math.round(140+s*115)+','+Math.round(s*200)+')';
-}}
-function _gradient_plasma(t){{
-    // simplified plasma: dark purple → pink-purple → orange → yellow
-    var stops=[
-        [13,8,135],[84,2,163],[139,10,165],[185,50,137],
-        [219,92,104],[244,136,73],[253,187,44],[240,249,33]
-    ];
-    var n=stops.length-1;
-    var i=Math.min(Math.floor(t*n),n-1);
-    var f=t*n-i;
-    var a=stops[i],b=stops[i+1];
-    return 'rgb('+Math.round(a[0]+(b[0]-a[0])*f)+','+
-                  Math.round(a[1]+(b[1]-a[1])*f)+','+
-                  Math.round(a[2]+(b[2]-a[2])*f)+')';
-}}
-function _gradient_viridis(t){{
-    var stops=[
-        [68,1,84],[72,40,120],[62,83,160],[49,124,183],
-        [38,173,166],[53,183,121],[110,206,88],[180,222,44],[253,231,37]
-    ];
-    var n=stops.length-1;
-    var i=Math.min(Math.floor(t*n),n-1);
-    var f=t*n-i;
-    var a=stops[i],b=stops[i+1];
-    return 'rgb('+Math.round(a[0]+(b[0]-a[0])*f)+','+
-                  Math.round(a[1]+(b[1]-a[1])*f)+','+
-                  Math.round(a[2]+(b[2]-a[2])*f)+')';
-}}
-function _gradient_cold(t){{
-    // white → light blue → deep navy
-    var r=Math.round(255-t*215), g=Math.round(255-t*175), b=255;
-    return 'rgb('+r+','+g+','+b+')';
-}}
+// ── Feature score coloring (binary threshold) ────────────────────────────
+var featureScores    = {{}};   // {{resi(1-based): score 0..1}}
+var featureColor     = '#f3722c';
+var featureName      = 'disorder';
+var featureThreshold = 0.5;   // F1-max threshold; residues >= this get featureColor
 
 function _feature_colorfunc(atom){{
-    var score=featureScores[atom.resi];
-    if(score===undefined) return '#cccccc';
-    var t=Math.max(0,Math.min(1,score));
-    if(featureGradient==='hot')     return _gradient_hot(t);
-    if(featureGradient==='fire')    return _gradient_fire(t);
-    if(featureGradient==='plasma')  return _gradient_plasma(t);
-    if(featureGradient==='viridis') return _gradient_viridis(t);
-    if(featureGradient==='cold')    return _gradient_cold(t);
-    // classic: white → featureColor
-    var c=_hexToRgb(featureColor);
-    return 'rgb('+Math.round(255+(c[0]-255)*t)+','+
-                  Math.round(255+(c[1]-255)*t)+','+
-                  Math.round(255+(c[2]-255)*t)+')';
+    var score = featureScores[atom.resi];
+    if(score === undefined) return '#aaaaaa';
+    return (score >= featureThreshold) ? featureColor : '#aaaaaa';
 }}
-function setFeatureData(name, scores, hexColor){{
-    featureName=name; featureScores=scores; featureColor=hexColor||'#f3722c';
-    colorMode='feature';
+function setFeatureData(name, scores, hexColor, threshold){{
+    featureName      = name;
+    featureScores    = scores;
+    featureColor     = hexColor  || '#f3722c';
+    featureThreshold = (threshold !== undefined) ? threshold : 0.5;
+    colorMode = 'feature';
     applyStyle();
     updateColorBar();
-}}
-function setFeatureGradient(g){{
-    featureGradient=g||'hot';
-    if(colorMode==='feature'){{ applyStyle(); updateColorBar(); }}
 }}
 
 // ── Pre-computed per-residue hex color map (e.g. SASA with matplotlib cmap) ─
@@ -3928,20 +3918,25 @@ window.addEventListener("load",init);
         self.struct_scheme_combo.addItems(schemes)
         self.struct_scheme_combo.blockSignals(False)
 
-    # Maps human-readable gradient combo text → JS featureGradient key
-    _AI_GRADIENT_MAP = {
-        "Hot (White→Red)":       "hot",
-        "Fire (Black→Yellow)":   "fire",
-        "Plasma":                "plasma",
-        "Viridis":               "viridis",
-        "Cold (White→Blue)":     "cold",
-        "Classic (White→Color)": "classic",
+
+    # Per-feature F1-maximising thresholds (from training validation sets)
+    _FEATURE_THRESHOLDS: dict[str, float] = {
+        "Disorder":        0.56235,
+        "Signal Peptide":  0.70173,
+        "Transmembrane":   0.81339,
+        "Intramembrane":   0.67273,
+        "Coiled-Coil":     0.62214,
+        "DNA-Binding":     0.87760,
+        "Active Site":     0.86688,
+        "Binding Site":    0.98014,
+        "Phosphorylation": 0.79967,
+        "Low Complexity":  0.65838,
+        "Glycosylation":   0.80024,
+        "Ubiquitination":  0.83320,
     }
 
-    def _push_feature_scores(self, feature_label: str,
-                             gradient: str = "Hot (White→Red)") -> None:
-        """Send per-residue scores for feature_label to the 3Dmol JS layer."""
-        from beer.graphs._style import FEATURE_COLORS
+    def _push_feature_scores(self, feature_label: str) -> None:
+        """Send per-residue scores to JS for structure coloring (gradient or binary)."""
         import json as _json
         ad = self.analysis_data or {}
         key = self._FEATURE_SCORE_KEYS.get(feature_label, "disorder_scores")
@@ -3949,21 +3944,96 @@ window.addEventListener("load",init);
         if not scores:
             QMessageBox.information(
                 self, "AI Prediction Not Yet Computed",
-                f"\u2018{feature_label}\u2019 has not been computed yet.\n\n"
+                f"’{feature_label}’ has not been computed yet.\n\n"
                 "Click the feature in the Graphs or Reports tab to trigger computation,\n"
                 "then return here to use it for structure coloring.")
             return
-        feat_key = feature_label.lower().replace(" ", "_")
-        color = FEATURE_COLORS.get(feat_key, "#f3722c")
-        scores_dict = {i + 1: float(v) for i, v in enumerate(scores)}
-        grad_key = self._AI_GRADIENT_MAP.get(gradient, "hot")
-        self._js(
-            f"setFeatureData({_json.dumps(feature_label)},"
-            f"{_json.dumps(scores_dict)},"
-            f"{_json.dumps(color)});"
-        )
-        self._js(f"setFeatureGradient({_json.dumps(grad_key)});")
+        threshold  = self._FEATURE_THRESHOLDS.get(feature_label, 0.5)
+        color_mode = getattr(self, "_struct_ai_color_mode", "gradient")
+        if color_mode == "gradient":
+            import matplotlib.cm as _cm
+            import matplotlib.colors as _mc
+            grad_text = self.struct_ai_gradient_combo.currentText()
+            cmap_name = self._AI_GRADIENT_MAP.get(grad_text, "plasma")
+            cmap      = _cm.get_cmap(cmap_name)
+            resi_colors = {i + 1: _mc.to_hex(cmap(float(v))) for i, v in enumerate(scores)}
+            # build CSS gradient for color bar (sample 9 points)
+            css_stops = ",".join(
+                _mc.to_hex(cmap(k / 8)) for k in range(9)
+            )
+            meta = {
+                "css":  f"linear-gradient(to top,{css_stops})",
+                "min":  "0.0",
+                "mid":  "0.5",
+                "max":  "1.0",
+                "unit": f"{feature_label} score",
+            }
+            self._js(
+                f"setResidueColorMap({_json.dumps(resi_colors)},"
+                f"{_json.dumps(feature_label)},"
+                f"{_json.dumps(meta)});"
+            )
+        else:
+            color       = getattr(self, "_struct_ai_color", "#f3722c")
+            scores_dict = {i + 1: float(v) for i, v in enumerate(scores)}
+            self._js(
+                f"setFeatureData({_json.dumps(feature_label)},"
+                f"{_json.dumps(scores_dict)},"
+                f"{_json.dumps(color)},"
+                f"{threshold});"
+            )
         self._refresh_reslabels_if_active()
+
+    def _set_ai_feature_color(self, hex_color: str) -> None:
+        """Update the highlight color for AI feature binary coloring."""
+        self._struct_ai_color = hex_color
+        if getattr(self, "struct_color_mode_combo", None):
+            if self.struct_color_mode_combo.currentText() == "AI Features":
+                scheme = self.struct_scheme_combo.currentText()
+                if scheme:
+                    self._push_feature_scores(scheme)
+
+    def _pick_ai_feature_color(self) -> None:
+        """Open a colour dialog and apply the chosen colour."""
+        from PySide6.QtWidgets import QColorDialog
+        from PySide6.QtGui import QColor
+        initial = QColor(getattr(self, "_struct_ai_color", "#f3722c"))
+        color = QColorDialog.getColor(initial, self, "Pick AI Feature Highlight Color")
+        if color.isValid():
+            self._set_ai_feature_color(color.name())
+
+    def _on_ai_style_toggled(self, btn) -> None:
+        """Switch between Gradient and Binary coloring modes."""
+        mode = "gradient" if btn is self._ai_grad_btn else "binary"
+        self._struct_ai_color_mode = mode
+        in_grad = (mode == "gradient")
+        self.struct_ai_gradient_lbl.setVisible(in_grad)
+        self.struct_ai_gradient_combo.setVisible(in_grad)
+        self.struct_ai_color_lbl.setVisible(not in_grad)
+        self.struct_ai_color_combo.setVisible(not in_grad)
+        if self.struct_color_mode_combo.currentText() == "AI Features":
+            scheme = self.struct_scheme_combo.currentText()
+            if scheme:
+                self._push_feature_scores(scheme)
+
+    def _on_ai_gradient_combo_changed(self, text: str) -> None:
+        if self.struct_color_mode_combo.currentText() == "AI Features":
+            scheme = self.struct_scheme_combo.currentText()
+            if scheme:
+                self._push_feature_scores(scheme)
+
+    def _on_ai_color_combo_changed(self, text: str) -> None:
+        if text == "Custom":
+            self._pick_ai_feature_color()
+            return
+        for name, hexval in self._AI_COLOR_ITEMS:
+            if name == text and hexval:
+                self._struct_ai_color = hexval
+                if self.struct_color_mode_combo.currentText() == "AI Features":
+                    scheme = self.struct_scheme_combo.currentText()
+                    if scheme:
+                        self._push_feature_scores(scheme)
+                break
 
     def _push_zyggregator_scores(self, scheme: str) -> None:
         """Color structure by ZYGGREGATOR β-aggregation propensity."""
@@ -4012,7 +4082,6 @@ window.addEventListener("load",init);
             f"setFeatureData('ZYGGREGATOR \u03b2-Aggregation',"
             f"{_json.dumps(scores_dict)},'#e07a5f');"
         )
-        self._js("setFeatureGradient('hot');")
 
     def _push_sasa_scores(self, scheme: str) -> None:
         """Color structure by per-residue relative solvent-accessible surface area.
@@ -4162,17 +4231,23 @@ window.addEventListener("load",init);
     def _on_struct_color_mode_changed(self, mode: str) -> None:
         self._update_scheme_combo(mode)
         is_ai = (mode == "AI Features")
+        if hasattr(self, "struct_ai_style_lbl"):
+            self.struct_ai_style_lbl.setVisible(is_ai)
+            self._struct_ai_toggle_row.setVisible(is_ai)
         if hasattr(self, "struct_ai_gradient_lbl"):
-            self.struct_ai_gradient_lbl.setVisible(is_ai)
-            self.struct_ai_gradient_combo.setVisible(is_ai)
+            in_grad = is_ai and self._struct_ai_color_mode == "gradient"
+            self.struct_ai_gradient_lbl.setVisible(in_grad)
+            self.struct_ai_gradient_combo.setVisible(in_grad)
+        if hasattr(self, "struct_ai_color_lbl"):
+            in_bin = is_ai and self._struct_ai_color_mode == "binary"
+            self.struct_ai_color_lbl.setVisible(in_bin)
+            self.struct_ai_color_combo.setVisible(in_bin)
         key = self._STRUCT_MODE_KEY.get(mode, "plddt")
         scheme = self.struct_scheme_combo.currentText()
         if mode == "AI Features":
             if not scheme:
                 return
-            grad = getattr(self, "struct_ai_gradient_combo", None)
-            self._push_feature_scores(
-                scheme, gradient=grad.currentText() if grad else "Hot (White→Red)")
+            self._push_feature_scores(scheme)
         elif mode == "Aggregation (ZYGGREGATOR)":
             self._push_zyggregator_scores(scheme)
         elif mode == "Solvent Accessibility":
@@ -4188,9 +4263,7 @@ window.addEventListener("load",init);
             return
         mode = self.struct_color_mode_combo.currentText()
         if mode == "AI Features":
-            grad = getattr(self, "struct_ai_gradient_combo", None)
-            self._push_feature_scores(
-                scheme, gradient=grad.currentText() if grad else "Hot (White→Red)")
+            self._push_feature_scores(scheme)
         elif mode == "Aggregation (ZYGGREGATOR)":
             self._push_zyggregator_scores(scheme)
         elif mode == "Solvent Accessibility":
@@ -4201,11 +4274,6 @@ window.addEventListener("load",init);
         else:
             self._js(f"setScheme('{scheme}');")
 
-    def _on_struct_ai_gradient_changed(self, text: str) -> None:
-        grad_key = self._AI_GRADIENT_MAP.get(text, "hot")
-        self._js(f"setFeatureGradient({repr(grad_key)});")
-
-    @staticmethod
     def _parse_ss_composition(pdb_str: str) -> dict[str, int]:
         """Count residues assigned to helix / sheet / coil from HELIX+SHEET records."""
         helix_res: set[tuple[str, int]] = set()
@@ -5614,6 +5682,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             QMessageBox.warning(self, "No Records", "No sequences found.")
             return
         entries = [(rec.id, clean_sequence(str(rec.seq))) for rec in records]
+        self._save_and_reset()
         self._load_batch(entries)
         # Set default name to first record id (unless user overrode it)
         if not self.sequence_name:
@@ -5638,6 +5707,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             pdb_str = None
         pdb_base = os.path.splitext(os.path.basename(file_name))[0]
         entries  = [(f"{pdb_base}_{cid}", seq) for cid, seq in chains.items()]
+        self._save_and_reset()
         self._load_batch(entries)  # resets batch_struct / alphafold_data
         # Compute and store per-chain structure data so Ramachandran plot,
         # distance map, pLDDT profile and 3D viewer work for uploaded PDBs.
@@ -5696,6 +5766,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             cif_str = None
         cif_base = os.path.splitext(os.path.basename(file_name))[0]
         entries  = [(f"{cif_base}_{cid}", seq) for cid, seq in chains.items()]
+        self._save_and_reset()
         self._load_batch(entries)
         if cif_str:
             chain_structs = extract_chain_structures_mmcif(cif_str)
@@ -5814,6 +5885,20 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         # Validate and filter
         valid = [(rid, seq) for rid, seq in entries if seq and is_valid_protein(seq)]
         return valid
+
+    def _on_analyze_btn_clicked(self):
+        """Analyse button: reset only when a previously analysed sequence is being replaced."""
+        raw = self.seq_text.toPlainText().strip()
+        if not raw:
+            QMessageBox.warning(self, "Input", "Enter or paste a sequence.")
+            return
+        if self.analysis_data:
+            entries = self._parse_pasted_text(raw)
+            new_seq = entries[0][1] if entries else ""
+            if new_seq != self.analysis_data.get("seq", ""):
+                self._save_and_reset()
+                self.seq_text.setPlainText(raw)
+        self.on_analyze()
 
     def on_analyze(self):
         raw = self.seq_text.toPlainText()
@@ -7465,6 +7550,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             "alphafold_data":   self.alphafold_data,
             "pfam_domains":     list(self.pfam_domains),
             "uniprot_features": dict(self._uniprot_features),
+            "elm_data":         list(self.elm_data),
+            "disprot_data":     dict(self.disprot_data),
+            "phasepdb_data":    dict(self.phasepdb_data),
+            "mobidb_data":      dict(self.mobidb_data),
+            "variants_data":    list(self.variants_data),
+            "intact_data":      dict(self.intact_data),
         }
 
     def _add_to_history(self, name: str, seq: str, data: dict):
@@ -7486,6 +7577,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         snap["uniprot_features"] = dict(self._uniprot_features)
         snap["accession"]        = self.current_accession
         snap["source_id"]        = self._source_id
+        snap["elm_data"]         = list(self.elm_data)
+        snap["disprot_data"]     = dict(self.disprot_data)
+        snap["phasepdb_data"]    = dict(self.phasepdb_data)
+        snap["mobidb_data"]      = dict(self.mobidb_data)
+        snap["variants_data"]    = list(self.variants_data)
+        snap["intact_data"]      = dict(self.intact_data)
 
     def _rebuild_history_combo(self):
         self.history_combo.blockSignals(True)
@@ -7513,6 +7610,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.alphafold_data     = snap.get("alphafold_data")
         self.pfam_domains       = list(snap.get("pfam_domains", []))
         self._uniprot_features  = dict(snap.get("uniprot_features", {}))
+        self.elm_data           = list(snap.get("elm_data", []))
+        self.disprot_data       = dict(snap.get("disprot_data", {}))
+        self.phasepdb_data      = dict(snap.get("phasepdb_data", {}))
+        self.mobidb_data        = dict(snap.get("mobidb_data", {}))
+        self.variants_data      = list(snap.get("variants_data", []))
+        self.intact_data        = dict(snap.get("intact_data", {}))
 
         data = snap.get("analysis_data")
         if data:
@@ -7559,6 +7662,24 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if has_feats:
             self.fetch_uniprot_tracks_btn.setEnabled(True)
             self._mark_chip_fetched(self.fetch_uniprot_tracks_btn)
+        if self.elm_data:
+            self.fetch_elm_btn.setEnabled(True)
+            self._mark_chip_fetched(self.fetch_elm_btn)
+        if self.disprot_data.get("regions"):
+            self.fetch_disprot_btn.setEnabled(True)
+            self._mark_chip_fetched(self.fetch_disprot_btn)
+        if self.phasepdb_data:
+            self.fetch_phasepdb_btn.setEnabled(True)
+            self._mark_chip_fetched(self.fetch_phasepdb_btn)
+        if self.mobidb_data.get("found"):
+            self.fetch_mobidb_btn.setEnabled(True)
+            self._mark_chip_fetched(self.fetch_mobidb_btn)
+        if self.variants_data:
+            self.fetch_variants_btn.setEnabled(True)
+            self._mark_chip_fetched(self.fetch_variants_btn)
+        if self.intact_data:
+            self.fetch_intact_btn.setEnabled(True)
+            self._mark_chip_fetched(self.fetch_intact_btn)
         self.statusBar.showMessage(
             f"Restored: {snap['name']}  ({len(data.get('seq',''))} aa)"
             if data else f"Restored: {snap['name']}", 3000)
@@ -7595,7 +7716,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             return
         # Reset previous protein state before loading a new one
         if self.analysis_data or self.seq_text.toPlainText().strip():
-            self._do_reset()
+            self._save_and_reset()
         # Detect PDB ID: exactly 4 alphanumeric chars, first char is a digit
         is_pdb = (len(acc) == 4 and acc[0].isdigit() and acc.isalnum())
         self.statusBar.showMessage(f"Fetching {acc}…")
@@ -8045,6 +8166,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if not seq or not is_valid_protein(seq):
             QMessageBox.warning(self, "Load Hit", "Subject sequence is not a valid protein.")
             return
+        self._save_and_reset()
         self.seq_text.setPlainText(seq)
         self.sequence_name = hit["accession"]
         self.main_tabs.setCurrentIndex(0)
@@ -8134,6 +8256,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 f"Residues {start}–{end} ({len(subseq)} aa) copied to clipboard.", 2500)
 
     # ── Clear All ──────────────────────────────────────────────────────────
+    def _save_and_reset(self):
+        """Save current session to history, then perform a full UI reset."""
+        if self.analysis_data:
+            self._update_current_snapshot()
+        self._do_reset()
+
     def _do_reset(self):
         """Perform a full UI reset without asking for confirmation."""
         self._protein_info_bar.hide()
