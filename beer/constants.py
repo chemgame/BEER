@@ -314,6 +314,8 @@ CHOU_FASMAN_HELIX: dict[str, float] = {
     'L': 1.21, 'K': 1.16, 'M': 1.45, 'F': 1.13, 'P': 0.57,
     'S': 0.77, 'T': 0.83, 'W': 1.08, 'Y': 0.69, 'V': 1.06,
 }
+"""Chou-Fasman alpha-helix propensity (f_H), dimensionless (1.0 = neutral). Chou & Fasman 1978."""
+
 CHOU_FASMAN_SHEET: dict[str, float] = {
     'A': 0.83, 'R': 0.93, 'N': 0.89, 'D': 0.54, 'C': 1.19,
     'Q': 1.10, 'E': 0.37, 'G': 0.75, 'H': 0.87, 'I': 1.60,
@@ -565,14 +567,6 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
 # Secondary structure propensity (Chou & Fasman 1978 helix fH, normalised to [0,1]).
 # Van der Waals contact volume in Å³ (Richards 1974, normalised by Trp=163).
 # ---------------------------------------------------------------------------
-
-CHOU_FASMAN_HELIX: dict[str, float] = {
-    'A': 1.42, 'R': 0.98, 'N': 0.67, 'D': 1.01, 'C': 0.70,
-    'Q': 1.11, 'E': 1.51, 'G': 0.57, 'H': 1.00, 'I': 1.08,
-    'L': 1.21, 'K': 1.16, 'M': 1.45, 'F': 1.13, 'P': 0.57,
-    'S': 0.77, 'T': 0.83, 'W': 1.08, 'Y': 0.69, 'V': 1.06,
-}
-"""Chou-Fasman alpha-helix propensity (f_H), dimensionless (1.0 = neutral)."""
 
 VDW_VOLUME: dict[str, float] = {
     'G': 0.294, 'A': 0.411, 'S': 0.448, 'P': 0.552, 'V': 0.644,

@@ -357,7 +357,7 @@ def bilstm_predict_mc(
             xi = np.concatenate([np.stack(fwd), np.stack(bwd)], axis=1)
 
             # Apply dropout between layers (not after the last layer)
-            if layer < n_layers - 1 and p > 0:
+            if layer < n_layers - 1 and 0 < p < 1:
                 mask = np.random.binomial(1, 1.0 - p, xi.shape).astype(np.float32)
                 xi = xi * mask / (1.0 - p)  # inverted dropout (scale-correct)
 

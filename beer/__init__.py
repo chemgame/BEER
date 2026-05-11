@@ -7,7 +7,7 @@ try:
         _warnings.simplefilter("ignore")
         import esm  # noqa: F401
     ESM2_AVAILABLE = True
-except Exception:  # ImportError, AttributeError, RuntimeError (NumPy ABI mismatch), etc.
+except (ImportError, AttributeError, RuntimeError, OSError):
     ESM2_AVAILABLE = False
 
 __all__ = ["__version__", "ESM2_AVAILABLE"]

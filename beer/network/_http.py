@@ -551,10 +551,10 @@ def fetch_uniprot_fasta(query: str) -> str:
     """
     # Try direct accession fetch first
     accession = query.strip().upper()
-    url = f"https://www.uniprot.org/uniprot/{accession}.fasta"
+    url = f"https://rest.uniprot.org/uniprotkb/{accession}.fasta"
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": _USER_AGENT},
+        headers={"Accept": "text/plain", "User-Agent": _USER_AGENT},
     )
     with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as r:
         return r.read().decode("utf-8")

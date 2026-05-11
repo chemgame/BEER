@@ -1,6 +1,8 @@
 # Non-Python files to bundle in the source distribution (BEER v2.0)
 include README.md
 include LICENSE
-include *.pdb
+include BioLiP.txt
 include beer/models/*.npz
+include beer/models/TMHMM2.0.model
 include beer/gui/3Dmol-min.js
+include beer/beer.png

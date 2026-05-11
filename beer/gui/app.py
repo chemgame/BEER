@@ -10,19 +10,15 @@ from pathlib import Path
 
 def _setup_logging() -> None:
     """Configure file + console logging for the BEER session."""
-    log_dir = Path.home() / ".beer"
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / "beer.log"
-
     fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    logging.basicConfig(
-        level=logging.INFO,
-        format=fmt,
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(sys.stderr),
-        ],
-    )
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
+    try:
+        log_dir = Path.home() / ".beer"
+        log_dir.mkdir(exist_ok=True)
+        handlers.insert(0, logging.FileHandler(log_dir / "beer.log", encoding="utf-8"))
+    except OSError:
+        pass  # log to stderr only if home dir is not writable
+    logging.basicConfig(level=logging.INFO, format=fmt, handlers=handlers)
     for noisy in ("matplotlib", "PIL", "urllib3", "torch", "esm"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
@@ -132,7 +128,7 @@ def _cli_analyze(args) -> None:
     elif args.accession:
         import urllib.request
         acc = args.accession.strip()
-        url = f"https://www.uniprot.org/uniprot/{acc}.fasta"
+        url = f"https://rest.uniprot.org/uniprotkb/{acc}.fasta"
         try:
             with urllib.request.urlopen(url, timeout=15) as r:
                 from io import StringIO

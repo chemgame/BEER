@@ -662,8 +662,8 @@
           <li><strong>Disorder</strong> — AUROC 0.991, trained on DisProt curated regions</li>
           <li><strong>Signal peptide</strong> — AUROC 0.9999; includes GPI anchor detection</li>
           <li><strong>Transmembrane</strong> — BiLSTM-CRF with Viterbi topology decoding (outside→TM→inside); AUROC 0.992</li>
-          <li><strong>Functional sites</strong> — active site, binding site, DNA/RNA binding (BioLiP) <em>— model weights in training</em></li>
-          <li><strong>PTMs ×6</strong> — phospho, ubiquitin, acetyl, methyl, glyco, lipid (dbPTM) <em>— model weights in training</em></li>
+          <li><strong>Functional sites</strong> — active site, DNA/RNA binding (BioLiP); binding site <em>— in training</em></li>
+          <li><strong>PTMs</strong> — phospho, ubiquitin, glyco (shipped); acetyl, methyl, lipid <em>— in training</em></li>
           <li><strong>MC-Dropout uncertainty</strong> — ±1σ bands via 20 stochastic forward passes</li>
         </ul>
       </div>
@@ -934,7 +934,7 @@
 
       <div>
         <p class="section-sub" style="max-width:100%">
-          Classical analysis works out of the box. Add the optional PyTorch + ESM2 block to unlock all 24 AI prediction heads.
+          Classical analysis works out of the box. Add the optional PyTorch + ESM2 block to unlock the 12 shipped AI prediction heads (12 more in training).
         </p>
 
         <div class="req-chips">

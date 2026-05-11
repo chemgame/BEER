@@ -1286,13 +1286,10 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.analyze_btn.clicked.connect(self._on_analyze_btn_clicked)
         row2.addWidget(self.analyze_btn)
 
-        row2.addSpacing(8)
-        row2.addWidget(QLabel("History:"))
         self.history_combo = QComboBox()
         self.history_combo.setMinimumWidth(200)
         self.history_combo.addItem("\u2014 recent sequences \u2014")
         self.history_combo.currentIndexChanged.connect(self._on_history_selected)
-        row2.addWidget(self.history_combo)
 
         row2.addStretch()
 
@@ -8320,11 +8317,44 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self._active_ai_worker.terminate()
             self._active_ai_worker = None
 
+        self._clear_struct_graph_marker()
+        self._graph_generators.clear()
+        self._generated_graphs.clear()
         for _tab, vb in self.graph_tabs.values():
             self._clear_layout(vb)
 
         if self.structure_viewer is not None:
-            self._js("loadPDB(null);")
+            self._reset_struct_view()
+            if hasattr(self, "struct_hbond_cb"):
+                self.struct_hbond_cb.setChecked(False)
+            if hasattr(self, "struct_contacts_cb"):
+                self.struct_contacts_cb.setChecked(False)
+            if hasattr(self, "struct_colorbar_cb"):
+                self.struct_colorbar_cb.setChecked(True)
+            if hasattr(self, "_ai_grad_btn"):
+                self._struct_ai_color_mode = "gradient"
+                self._struct_ai_color = "#f3722c"
+                self._ai_grad_btn.setChecked(True)
+                self._ai_bin_btn.setChecked(False)
+            if hasattr(self, "struct_ai_gradient_combo"):
+                self.struct_ai_gradient_combo.blockSignals(True)
+                self.struct_ai_gradient_combo.setCurrentText("Plasma (Purple→Yellow)")
+                self.struct_ai_gradient_combo.blockSignals(False)
+            if hasattr(self, "struct_ai_color_combo"):
+                self.struct_ai_color_combo.blockSignals(True)
+                self.struct_ai_color_combo.setCurrentIndex(0)
+                self.struct_ai_color_combo.blockSignals(False)
+            if hasattr(self, "_hbond_color_btn"):
+                self._hbond_color = "#44ccff"
+                self._hbond_color_btn.setStyleSheet(
+                    "background:#44ccff;border:1px solid #ccc;border-radius:3px;")
+                self._hbond_radius_sb.setValue(0.07)
+            if hasattr(self, "_contact_color_btn"):
+                self._contact_color = "#888888"
+                self._contact_color_btn.setStyleSheet(
+                    "background:#888888;border:1px solid #ccc;border-radius:3px;")
+                self._contact_opacity_sb.setValue(0.30)
+            self._js("clearHighlight(); loadPDB(null);")
 
         self._msa_sequences = []
         self._msa_names     = []
@@ -8544,10 +8574,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.default_window_size = state.get("window_size", 9)
         self.use_reducing     = state.get("use_reducing", False)
         self.custom_pka       = state.get("custom_pka", None)
-        self.transparent_bg   = state.get("transparent_bg", False)
+        self.transparent_bg   = state.get("transparent_bg", True)
         self.app_font_size    = state.get("app_font_size", 12)
-        self.label_font_size  = state.get("label_font_size", 11)
-        self.tick_font_size   = state.get("tick_font_size", 9)
+        self.label_font_size  = state.get("label_font_size", 14)
+        self.tick_font_size   = state.get("tick_font_size", 12)
         # Update settings UI widgets
         self.ph_input.setText(str(self.default_pH))
         self.window_size_input.setText(str(self.default_window_size))

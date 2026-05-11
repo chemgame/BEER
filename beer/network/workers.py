@@ -649,7 +649,8 @@ class DeepTMHMMWorker(QThread):
                     "Run: python -m biolib login"
                 )
 
-            gff3_content = open(gff3_path).read()
+            with open(gff3_path) as _gff3_fh:
+                gff3_content = _gff3_fh.read()
 
         helices = []
         for line in gff3_content.splitlines():

@@ -2,7 +2,7 @@
 
 **Website:** [https://chemgame.github.io/BEER](https://chemgame.github.io/BEER)
 
-**BEER** is a desktop application for integrated biophysical analysis of protein sequences. It accepts a sequence (pasted, imported as FASTA/PDB, or fetched from UniProt/RCSB), runs 14 classical analysis sections and 10 ESM2 BiLSTM neural AI prediction heads on demand, and gives you interactive publication-quality graphs, a 3D structure viewer, and exportable per-section reports — all from a single GUI.
+**BEER** is a desktop application for integrated biophysical analysis of protein sequences. It accepts a sequence (pasted, imported as FASTA/PDB, or fetched from UniProt/RCSB), runs 14 classical analysis sections and 12 ESM2 BiLSTM neural AI prediction heads on demand, and gives you interactive publication-quality graphs, a 3D structure viewer, and exportable per-section reports — all from a single GUI.
 
 I built BEER because I wanted a single tool that handles everything from basic physicochemical properties to disorder prediction, aggregation hotspots, RNA-binding propensity, and phase separation metrics, without jumping between half a dozen web servers.
 
@@ -16,7 +16,7 @@ I built BEER because I wanted a single tool that handles everything from basic p
 Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewrite:
 
 - **Proper Python package** (`beer/`) — modular, installable via `pip`
-- **2 pre-trained ESM2 BiLSTM neural prediction heads** currently shipped: **Disorder** (BiLSTM, AUROC 0.991) and **Transmembrane** (BiLSTM-CRF with Viterbi topology decoding, AUROC 0.992). The remaining 22 heads are fully implemented and placeholders are shown in the sidebar; model weights are being retrained on curated databases (BioLiP, PDBTM, M-CSA, DisProt, dbPTM) and will be released progressively.
+- **12 pre-trained ESM2 BiLSTM neural prediction heads** currently shipped: Disorder, Signal Peptide, Transmembrane, Intramembrane, Coiled-Coil, DNA-Binding, RNA Binding, Active Site, Phosphorylation, Low-Complexity, Glycosylation, and Ubiquitination. The remaining 12 heads are fully implemented and placeholders are shown in the sidebar; model weights are being retrained on curated databases and will be released progressively.
 - **On-demand AI section loading** — AI Predictions sections are computed lazily (click-to-compute, VMD/PyMOL style); each head shares the cached ESM2 embedding so subsequent heads are fast
 - **Unified BiLSTM overlay design** — each head shows a single figure; UniProt annotations (when fetched) are overlaid on the same axes as semi-transparent spans for direct visual comparison
 - **3D structure viewer** with multiple representations, colour modes, colour bar, spin, snapshot export; 3Dmol.js is bundled (fully offline, no CDN); H-bond and contact overlays with user-selectable colour, cylinder radius, and opacity
@@ -25,7 +25,7 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 - **New analysis modules**: RNA binding (catRAPID), SCD/κ/Ω, LARKS, tandem repeats, TM topology (TMHMM 2.0 local), coiled coil (COILS), ELM linear motifs, phosphorylation PWMs (NetPhos-style), catGRANULE phase-separation, SignalP D-score
 - **New utility tabs**: BLAST, Multichain, Compare, Truncation Series, MSA Conservation, Complex Mass
 - **Protein summary bar**: fetches name, gene, organism, and function from UniProt or RCSB automatically after a fetch
-- **Session-only history**: the last 10 analysed sequences are available in a dropdown during the session and cleared when you close the app
+- **Session save/load**: full session (sequence, analysis, graphs, structure) can be saved to a `.json` file and reloaded at any time
 - **Official logo** and About dialog — logo displayed in the taskbar/Dock and accessible via the Help tab
 - **3D viewer residue click** — click any residue in the structure viewer to highlight it in gold (PyMOL-style) and open a popup with all per-residue prediction scores (disorder, signal peptide, TM, BiLSTM heads, pLDDT)
 - **Alanine scan sub-tab** — inside the Analysis tab, systematically mutate every position in a chosen range to Ala and see ΔGRAVY, ΔMW, ΔCharge, and ΔDisorder fraction in a table + bar chart; export as CSV
@@ -261,14 +261,14 @@ Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu) (bundled
 | Control | Options |
 |---------|---------|
 | **Representation** | Cartoon (default), Stick, Sphere, Line, Cross, Trace, Surface |
-| **Color mode** | pLDDT/B-factor, Residue type, Chain, Charge, Hydrophobicity, Mass, Secondary Structure, Spectrum (N→C) |
-| **Color scheme** | Mode-dependent: Red-White-Blue, Rainbow, Shapely, Cyan-White-Orange, JMol, PyMOL, Spectrum, etc. |
+| **Color mode** | pLDDT/B-factor, Residue type, Chain, Charge, Hydrophobicity, Mass, Secondary Structure, Residue Number, Solvent Accessibility, AI Features, Aggregation |
+| **Color scheme** | Mode-dependent: Red-White-Blue, Rainbow, Shapely, Cyan-White-Orange, JMol, PyMOL, Plasma, etc. |
 | **Color bar** | Toggleable gradient/categorical legend overlay (bottom-right) |
 | **H-bonds** | Toggle backbone N–O hydrogen bonds (< 3.5 Å); choose cylinder colour and radius |
 | **Contacts (8 Å)** | Toggle Cα–Cα contact lines; choose line colour and opacity |
 | **Background** | White (default), Black, Grey presets or custom color picker |
 | **Spin** | Continuous auto-rotation on X / Y / Z axis |
-| **Reset View** | Restores default representation, colour mode, white background, and camera position |
+| **Reset View** | Restores default representation (Cartoon), colour mode (pLDDT), clears selections, and resets camera |
 | **Snapshot PNG** | Saves current view as PNG |
 | **Chains** | Toggle visibility of individual chains |
 
@@ -302,14 +302,14 @@ Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu) (bundled
 | Analysis | Override pKa | — (nine comma-separated values) |
 | Analysis | Reducing conditions | Off |
 | Sequence Display | Sequence Name | — (uses FASTA/PDB name automatically) |
-| Graphs | Label Font Size | 11 |
-| Graphs | Tick Font Size | 9 |
-| Graphs | Marker Size | — |
+| Graphs | Label Font Size | 14 |
+| Graphs | Tick Font Size | 12 |
+| Graphs | Marker Size | 10 |
 | Graphs | Graph Accent Colour | Royal Blue |
 | Graphs | Show Graph Titles | On |
 | Graphs | Show Grid | On |
-| Graphs | Show residue labels on bead models (≤60 aa) | Off |
-| Graphs | Transparent background on PNG/SVG export | Off |
+| Graphs | Show residue labels on bead models (≤60 aa) | On |
+| Graphs | Transparent background on PNG/SVG export | On |
 | Interface | Dark Theme | Off |
 | Interface | Enable Tooltips | On |
 
@@ -338,7 +338,7 @@ Click **Apply Settings** to save to `~/.beer/config.json`. **Reset to Defaults**
 
 ## ESM2 Neural Predictions
 
-BEER uses Meta's ESM2 650M protein language model with pre-trained BiLSTM head weights bundled in `beer/models/`. Currently **2 heads** ship with model weights (disorder, transmembrane); the others are placeholders awaiting retraining. The ESM2 backbone (~2.6 GB) downloads once on the first AI Predictions call and caches in `~/.cache/torch/hub/`.
+BEER uses Meta's ESM2 650M protein language model with pre-trained BiLSTM head weights bundled in `beer/models/`. Currently **12 heads** ship with model weights; the remaining 12 are placeholders awaiting retraining. The ESM2 backbone (~2.6 GB) downloads once on the first AI Predictions call and caches in `~/.cache/torch/hub/`.
 
 **On-demand computation**: clicking any section under **AI Predictions** in the sidebar triggers computation of that head only. The ESM2 embedding is cached after the first head, so all subsequent heads reuse it and are fast. Running **AI Analysis** computes all available heads at once. Heads without a trained model file are silently skipped.
 
@@ -350,14 +350,24 @@ BEER uses Meta's ESM2 650M protein language model with pre-trained BiLSTM head w
 | **BiLSTM-CRF** | Transmembrane | CRF decoder enforces valid TM topology (outside→helix→inside transitions) |
 | **BiLSTM-Window** | Aggregation | Window-average pooling over 9-residue context before sigmoid output |
 
-### Currently shipped heads (2)
+### Currently shipped heads (12)
 
 | Head | Architecture | Training source | AUROC |
 |------|-------------|----------------|-------|
-| Disorder | BiLSTM | DisProt experimental → UniProt ft_region:disordered fallback | 0.991 |
+| Disorder | BiLSTM | DisProt experimental → UniProt ft_region:disordered | 0.991 |
+| Signal Peptide | BiLSTM | UniProt ft_signal (Swiss-Prot) | 0.9999 |
 | Transmembrane | BiLSTM-CRF (Viterbi) | UniProt ft_transmem (Swiss-Prot) | 0.992 |
+| Intramembrane | BiLSTM | UniProt ft_intramem | — |
+| Coiled-Coil | BiLSTM | UniProt ft_coiled | — |
+| DNA-Binding | BiLSTM | BioLiP protein-DNA contacts | — |
+| RNA Binding | BiLSTM | BioLiP protein-RNA contacts | — |
+| Active Site | BiLSTM | M-CSA catalytic residues | — |
+| Phosphorylation | BiLSTM | dbPTM experimental sites | — |
+| Low-Complexity | BiLSTM | UniProt ft_region:compositionally biased | — |
+| Glycosylation | BiLSTM | GlyConnect site-resolved data | — |
+| Ubiquitination | BiLSTM | dbPTM experimental sites | — |
 
-The remaining 22 heads are implemented but model weights are being retrained on curated databases with MMseqs2-clustered splits and focal loss. They will be released progressively; their sidebar entries are visible but silently skipped if no model file is present.
+The remaining 12 heads are implemented but model weights are being retrained on curated databases with MMseqs2-clustered splits and focal loss. They will be released progressively; their sidebar entries are visible but silently skipped if no model file is present.
 
 If ESM2 is not installed, BEER falls back automatically: disorder uses **metapredict** (Emenecker et al. 2021, *Cell Syst.*) if available, or a classical sliding-window propensity scale otherwise. All other analysis runs fully offline without ESM2. The BiLSTM head profiles are silently skipped if the head file is not present.
 
