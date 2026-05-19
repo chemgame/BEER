@@ -780,13 +780,13 @@ class ProteinAnalyzerGUI(QMainWindow):
         matplotlib.use("Agg")
         from matplotlib.figure import Figure
         fig = Figure(figsize=(8, 3.5), dpi=100)
-        fig.set_facecolor("#fffbf0")
+        fig.set_facecolor("#fff8e1")
         ax = fig.add_subplot(111)
-        ax.set_facecolor("#fffbf0")
+        ax.set_facecolor("#fff8e1")
         ax.axis("off")
         ax.text(0.5, 0.62, "[Training]  Model Training in Progress",
                 ha="center", va="center", fontsize=15, fontweight="bold",
-                color="#b45309", transform=ax.transAxes)
+                color="#92400e", transform=ax.transAxes)
         ax.text(0.5, 0.42,
                 f"The  {feat_name}  AI prediction head is currently being trained on\n"
                 f"UniProt Swiss-Prot annotations. This graph will appear\n"
@@ -1384,7 +1384,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         chain_row = QHBoxLayout(self._chain_row_widget)
         chain_row.setContentsMargins(0, 0, 0, 0)
         chain_lbl = QLabel("Chain:")
-        chain_lbl.setStyleSheet("font-weight:600;")
+        chain_lbl.setObjectName("chain_lbl")
         self.chain_combo = QComboBox()
         self.chain_combo.setFixedWidth(160)
         self.chain_combo.setEnabled(False)
@@ -1664,10 +1664,10 @@ class ProteinAnalyzerGUI(QMainWindow):
             if hint:
                 from PySide6.QtWidgets import QToolButton as _QTB
                 help_btn = _QTB()
+                help_btn.setObjectName("help_btn")
                 help_btn.setText("?")
                 help_btn.setMaximumWidth(24)
                 help_btn.setMaximumHeight(24)
-                help_btn.setStyleSheet("QToolButton { font-weight:bold; border-radius:10px; }")
                 help_btn.setToolTip(hint)
                 help_btn.clicked.connect(
                     lambda _, h=hint, s=sec: QMessageBox.information(self, s, h))
@@ -1893,10 +1893,10 @@ class ProteinAnalyzerGUI(QMainWindow):
             for r in results
         )
         html = (
-            "<style>body{{font-family:sans-serif;font-size:12px}}"
+            "<style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-size:12px}}"
             "table{{border-collapse:collapse;width:100%}}"
             "th,td{{border:1px solid #e2e8f0;padding:4px 8px;text-align:center}}"
-            "th{{background:#f8fafc;font-weight:600}}</style>"
+            "th{{background:#4361ee;color:#ffffff;font-weight:600}}</style>"
             "<h3>Alanine Scan Results</h3>"
             "<p>Wild-type: GRAVY={gravy:.4f} | MW={mw:.1f} Da | Charge={nc:.3f} | DisF={dis:.4f}</p>"
             "<table><tr><th>Pos</th><th>WT</th><th>ΔGRAVY</th><th>ΔMW (Da)</th>"
@@ -2655,7 +2655,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             chains_gl.setSpacing(4)
             chains_gl.setContentsMargins(6, 4, 6, 6)
             chains_info = QLabel("Toggle individual chain visibility.")
-            chains_info.setStyleSheet("color:#7880a8; font-size:8pt; padding-bottom:2px;")
+            chains_info.setObjectName("struct_hint")
             chains_info.setWordWrap(True)
             chains_gl.addWidget(chains_info)
             chain_btn_row = QHBoxLayout()
@@ -2686,7 +2686,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             sel_gl.setSpacing(5)
             sel_gl.setContentsMargins(6, 4, 6, 6)
             sel_hint = QLabel("e.g.  45  ·  10-50  ·  LEU  ·  A:10-50")
-            sel_hint.setStyleSheet("color:#7880a8; font-size:8pt;")
+            sel_hint.setObjectName("struct_hint")
             sel_gl.addWidget(sel_hint)
             sel_row = QHBoxLayout()
             self.struct_sel_edit = QLineEdit()
@@ -2713,7 +2713,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             sel_clear_btn.clicked.connect(self._on_struct_selection_clear)
             sel_gl.addWidget(sel_clear_btn)
             self._sel_count_lbl = QLabel("")
-            self._sel_count_lbl.setStyleSheet("color:#a8b4f0; font-size:8pt; padding-top:1px;")
+            self._sel_count_lbl.setObjectName("struct_count")
             sel_gl.addWidget(self._sel_count_lbl)
             interact_l.addWidget(_collapsible(sel_grp))
 
@@ -2737,7 +2737,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 self._on_struct_measure_mode_changed)
             meas_gl.addRow("Type:", self.struct_meas_mode_combo)
             self._meas_hint_lbl = QLabel("Click 2 atoms on the structure")
-            self._meas_hint_lbl.setStyleSheet("color:#7880a8; font-size:8pt;")
+            self._meas_hint_lbl.setObjectName("struct_hint")
             meas_gl.addRow(self._meas_hint_lbl)
             self.struct_dist_btn = QPushButton("Pick Atoms: Off")
             self.struct_dist_btn.setCheckable(True)
@@ -2756,7 +2756,7 @@ class ProteinAnalyzerGUI(QMainWindow):
 
             # ── Position marker status (clear button lives in the Graphs tab top bar)
             self._marker_pos_lbl = QLabel("No marker set")
-            self._marker_pos_lbl.setStyleSheet("color:#7880a8; font-size:8pt; padding:2px 0;")
+            self._marker_pos_lbl.setObjectName("struct_hint")
             interact_l.addWidget(self._marker_pos_lbl)
             interact_l.addStretch()
 
@@ -8065,7 +8065,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         header_row.setSpacing(4)
         header_row.setContentsMargins(0, 0, 0, 0)
         lbl = QLabel(f"PDB structures ({len(refs_capped)}):")
-        lbl.setStyleSheet("font-size:9pt; color:#4a5568; font-weight:600;")
+        lbl.setObjectName("pdb_xref_lbl")
         header_row.addWidget(lbl)
         header_row.addStretch()
         self._pdb_xref_layout.addLayout(header_row)

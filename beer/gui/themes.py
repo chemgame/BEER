@@ -28,7 +28,7 @@ LIGHT_THEME_CSS = """
      background-color: #4361ee;
      color: #ffffff;
      border: none;
-     border-radius: 5px;
+     border-radius: 4px;
      padding: 6px 14px;
      font-weight: 600;
      letter-spacing: 0.3px;
@@ -41,8 +41,8 @@ LIGHT_THEME_CSS = """
      background: #e8eaf0;
      color: #4a5568;
      padding: 8px 16px;
-     border-top-left-radius: 5px;
-     border-top-right-radius: 5px;
+     border-top-left-radius: 4px;
+     border-top-right-radius: 4px;
      margin-right: 2px;
      font-weight: 500;
  }
@@ -71,7 +71,7 @@ LIGHT_THEME_CSS = """
  QComboBox::drop-down { border: none; }
  QLabel { color: #2d3748; font-weight: 500; }
  QCheckBox { color: #2d3748; spacing: 6px; }
- QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #d0d4e0; border-radius: 3px; }
+ QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #d0d4e0; border-radius: 4px; }
  QCheckBox::indicator:checked { background-color: #4361ee; border-color: #4361ee; }
  QScrollBar:vertical { background: #f0f0f5; width: 10px; border-radius: 5px; }
  QScrollBar::handle:vertical { background: #c0c4d0; border-radius: 5px; min-height: 30px; }
@@ -122,11 +122,11 @@ LIGHT_THEME_CSS = """
      outline: 0;
  }
  QTreeWidget#graph_tree::item { padding: 6px 8px; color: #4a5568; }
- QTreeWidget#graph_tree::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 3px; }
+ QTreeWidget#graph_tree::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 4px; }
  QTreeWidget#graph_tree::branch { background-color: #f0f2fa; }
  QTreeWidget#report_nav::item { padding: 6px 8px; color: #4a5568; background-color: #f0f2fa; }
 
- QTreeWidget#report_nav::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 3px; }
+ QTreeWidget#report_nav::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 4px; }
  QTreeWidget#report_nav::item:hover:!selected { background-color: #dce3f8; }
  QTreeWidget#report_nav::branch { background-color: #f0f2fa; }
  /* --- Fetch / chip buttons --- */
@@ -134,7 +134,7 @@ LIGHT_THEME_CSS = """
      background: transparent;
      color: #4361ee;
      border: 1px solid #b0bae8;
-     border-radius: 10px;
+     border-radius: 99px;
      padding: 4px 12px;
      font-size: 12px;
      min-height: 28px;
@@ -175,7 +175,7 @@ LIGHT_THEME_CSS = """
      margin-top: 8px;
  }
  /* --- Welcome banner --- */
- QFrame#welcome_banner { background: #eef1fc; border: 1px solid #c8d0ec; border-radius: 6px; padding: 4px; }
+ QFrame#welcome_banner { background: #eef1fc; border: 1px solid #c8d0ec; border-radius: 4px; padding: 4px; }
  QLabel#welcome_lbl { color: #2d3748; }
  QLabel#welcome_lbl a { color: #4361ee; }
  /* --- Accent labels (sequence panel headings) --- */
@@ -196,7 +196,7 @@ LIGHT_THEME_CSS = """
  QTextBrowser#info_bar {
      background: #f0f4ff;
      border: 1px solid #c8d0ec;
-     border-radius: 6px;
+     border-radius: 4px;
      padding: 4px 8px;
      font-size: 10pt;
      color: #2d3748;
@@ -227,7 +227,7 @@ LIGHT_THEME_CSS = """
      background: transparent;
      color: #c0392b;
      border: 1px solid #c0392b;
-     border-radius: 5px;
+     border-radius: 4px;
      padding: 6px 14px;
      font-weight: 600;
  }
@@ -236,6 +236,12 @@ LIGHT_THEME_CSS = """
  QFrame#v_sep { color: #d0d4e0; }
  /* --- Muted placeholder / info labels --- */
  QLabel#placeholder_lbl { color: #718096; font-style: italic; }
+ /* --- Help button --- */
+ QToolButton#help_btn { font-weight: bold; border-radius: 99px; }
+ /* --- PDB xref section label --- */
+ QLabel#pdb_xref_lbl { color: #4a5568; font-size: 9pt; font-weight: 600; }
+ /* --- Chain selector label --- */
+ QLabel#chain_lbl { font-weight: 600; }
 """
 
 DARK_THEME_CSS = """
@@ -262,7 +268,7 @@ DARK_THEME_CSS = """
      background-color: #7b9cff;
      color: #1a1a2e;
      border: none;
-     border-radius: 5px;
+     border-radius: 4px;
      padding: 6px 14px;
      font-weight: 600;
      letter-spacing: 0.3px;
@@ -275,8 +281,8 @@ DARK_THEME_CSS = """
      background: #0f3460;
      color: #94a3b8;
      padding: 8px 16px;
-     border-top-left-radius: 5px;
-     border-top-right-radius: 5px;
+     border-top-left-radius: 4px;
+     border-top-right-radius: 4px;
      margin-right: 2px;
      font-weight: 500;
  }
@@ -306,7 +312,7 @@ DARK_THEME_CSS = """
  QComboBox::drop-down { border: none; }
  QLabel { color: #94a3b8; font-weight: 500; }
  QCheckBox { color: #94a3b8; spacing: 6px; }
- QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #2d3561; border-radius: 3px; }
+ QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #2d3561; border-radius: 4px; }
  QCheckBox::indicator:checked { background-color: #7b9cff; border-color: #7b9cff; }
  QScrollBar:vertical { background: #16213e; width: 10px; border-radius: 5px; }
  QScrollBar::handle:vertical { background: #2d3561; border-radius: 5px; min-height: 30px; }
@@ -353,10 +359,10 @@ DARK_THEME_CSS = """
      outline: 0;
  }
  QTreeWidget#graph_tree::item { padding: 6px 8px; color: #94a3b8; }
- QTreeWidget#graph_tree::item:selected { background-color: #7b9cff; color: #1a1a2e; border-radius: 3px; }
+ QTreeWidget#graph_tree::item:selected { background-color: #7b9cff; color: #1a1a2e; border-radius: 4px; }
  QTreeWidget#graph_tree::branch { background-color: #16213e; }
  QTreeWidget#report_nav::item { padding: 6px 8px; color: #94a3b8; background-color: #16213e; }
- QTreeWidget#report_nav::item:selected { background-color: #7b9cff; color: #1a1a2e; border-radius: 3px; }
+ QTreeWidget#report_nav::item:selected { background-color: #7b9cff; color: #1a1a2e; border-radius: 4px; }
  QTreeWidget#report_nav::item:hover:!selected { background-color: #1a3a5c; }
  QTreeWidget#report_nav::branch { background-color: #16213e; }
  /* --- Fetch / chip buttons --- */
@@ -364,7 +370,7 @@ DARK_THEME_CSS = """
      background: transparent;
      color: #7b9cff;
      border: 1px solid #2d4a6e;
-     border-radius: 10px;
+     border-radius: 99px;
      padding: 4px 12px;
      font-size: 12px;
      min-height: 28px;
@@ -405,7 +411,7 @@ DARK_THEME_CSS = """
      margin-top: 8px;
  }
  /* --- Welcome banner --- */
- QFrame#welcome_banner { background: #1a2240; border: 1px solid #2d3a6a; border-radius: 6px; padding: 4px; }
+ QFrame#welcome_banner { background: #1a2240; border: 1px solid #2d3a6a; border-radius: 4px; padding: 4px; }
  QLabel#welcome_lbl { color: #c8d0ec; }
  QLabel#welcome_lbl a { color: #7b9cff; }
  /* --- Accent labels --- */
@@ -426,7 +432,7 @@ DARK_THEME_CSS = """
  QTextBrowser#info_bar {
      background: #16213e;
      border: 1px solid #2d3561;
-     border-radius: 6px;
+     border-radius: 4px;
      padding: 4px 8px;
      font-size: 10pt;
      color: #94a3b8;
@@ -457,7 +463,7 @@ DARK_THEME_CSS = """
      background: transparent;
      color: #f87171;
      border: 1px solid #f87171;
-     border-radius: 5px;
+     border-radius: 4px;
      padding: 6px 14px;
      font-weight: 600;
  }
@@ -466,6 +472,12 @@ DARK_THEME_CSS = """
  QFrame#v_sep { color: #2d3561; }
  /* --- Muted placeholder / info labels --- */
  QLabel#placeholder_lbl { color: #6a7a9a; font-style: italic; }
+ /* --- Help button --- */
+ QToolButton#help_btn { font-weight: bold; border-radius: 99px; }
+ /* --- PDB xref section label --- */
+ QLabel#pdb_xref_lbl { color: #94a3b8; font-size: 9pt; font-weight: 600; }
+ /* --- Chain selector label --- */
+ QLabel#chain_lbl { font-weight: 600; }
 """
 
 # ── Structure viewer control panel CSS ───────────────────────────────────────
@@ -479,7 +491,7 @@ STRUCT_PANEL_CSS_LIGHT = """
     QWidget#structCtrl { background: transparent; }
     QGroupBox {
         font-weight: 700; font-size: 9pt; color: #3b4fc8;
-        border: 1px solid #e2e6f5; border-radius: 6px;
+        border: 1px solid #e2e6f5; border-radius: 4px;
         margin-top: 8px; padding: 12px 8px 8px 8px; background: white;
     }
     QGroupBox::title {
@@ -487,7 +499,7 @@ STRUCT_PANEL_CSS_LIGHT = """
         left: 8px; padding: 0 4px; color: #3b4fc8; background: white;
     }
     QPushButton {
-        border: 1px solid #c8d0ec; border-radius: 5px;
+        border: 1px solid #c8d0ec; border-radius: 4px;
         padding: 4px 8px; background: white; color: #2d3748;
         font-size: 9pt; min-height: 26px;
     }
@@ -495,20 +507,22 @@ STRUCT_PANEL_CSS_LIGHT = """
     QPushButton:pressed { background: #dce2fb; }
     QPushButton:checked { background: #4361ee; color: white; border-color: #3451c5; font-weight: 600; }
     QComboBox {
-        border: 1px solid #c8d0ec; border-radius: 5px;
+        border: 1px solid #c8d0ec; border-radius: 4px;
         padding: 3px 6px; background: white; color: #2d3748;
         font-size: 9pt; min-height: 24px;
     }
     QComboBox:hover { border-color: #4361ee; }
     QLabel    { font-size: 9pt; color: #5a6787; background: transparent; }
+    QLabel#struct_hint  { color: #8892b0; font-size: 8pt; }
+    QLabel#struct_count { color: #6b78cc; font-size: 8pt; padding-top: 1px; }
     QCheckBox { font-size: 9pt; color: #2d3748; spacing: 6px; background: transparent; }
     QCheckBox::indicator {
         width: 14px; height: 14px;
-        border: 1px solid #c8d0ec; border-radius: 3px; background: white;
+        border: 1px solid #c8d0ec; border-radius: 4px; background: white;
     }
     QCheckBox::indicator:checked { background: #4361ee; border-color: #3451c5; }
     QTabWidget::pane {
-        border: 1px solid #d1d9f0; border-radius: 0 5px 5px 5px;
+        border: 1px solid #d1d9f0; border-radius: 0 4px 4px 4px;
         background: #f4f6fd;
     }
 """
@@ -519,7 +533,7 @@ STRUCT_TABBAR_CSS_LIGHT = """
         font-size: 9pt; font-weight: 600;
         background: #e8eaf4; color: #2d3748;
         border: 1px solid #d1d9f0; border-bottom: none;
-        border-radius: 5px 5px 0 0; margin-right: 2px;
+        border-radius: 4px 4px 0 0; margin-right: 2px;
     }
     QTabBar::tab:selected {
         background: #f4f6fd; color: #3b4fc8;
@@ -533,7 +547,7 @@ STRUCT_PANEL_CSS_DARK = """
     QWidget#structCtrl { background: transparent; }
     QGroupBox {
         font-weight: 700; font-size: 9pt; color: #7b9cff;
-        border: 1px solid #2d3561; border-radius: 6px;
+        border: 1px solid #2d3561; border-radius: 4px;
         margin-top: 8px; padding: 12px 8px 8px 8px; background: #16213e;
     }
     QGroupBox::title {
@@ -541,7 +555,7 @@ STRUCT_PANEL_CSS_DARK = """
         left: 8px; padding: 0 4px; color: #7b9cff; background: #16213e;
     }
     QPushButton {
-        border: 1px solid #2d3561; border-radius: 5px;
+        border: 1px solid #2d3561; border-radius: 4px;
         padding: 4px 8px; background: #16213e; color: #e2e8f0;
         font-size: 9pt; min-height: 26px;
     }
@@ -549,20 +563,22 @@ STRUCT_PANEL_CSS_DARK = """
     QPushButton:pressed { background: #0f3460; }
     QPushButton:checked { background: #7b9cff; color: #1a1a2e; border-color: #6b8eff; font-weight: 600; }
     QComboBox {
-        border: 1px solid #2d3561; border-radius: 5px;
+        border: 1px solid #2d3561; border-radius: 4px;
         padding: 3px 6px; background: #16213e; color: #e2e8f0;
         font-size: 9pt; min-height: 24px;
     }
     QComboBox:hover { border-color: #7b9cff; }
     QLabel    { font-size: 9pt; color: #94a3b8; background: transparent; }
+    QLabel#struct_hint  { color: #6b78a8; font-size: 8pt; }
+    QLabel#struct_count { color: #7b9cff; font-size: 8pt; padding-top: 1px; }
     QCheckBox { font-size: 9pt; color: #e2e8f0; spacing: 6px; background: transparent; }
     QCheckBox::indicator {
         width: 14px; height: 14px;
-        border: 1px solid #2d3561; border-radius: 3px; background: #16213e;
+        border: 1px solid #2d3561; border-radius: 4px; background: #16213e;
     }
     QCheckBox::indicator:checked { background: #7b9cff; border-color: #6b8eff; }
     QTabWidget::pane {
-        border: 1px solid #1a3a5c; border-radius: 0 5px 5px 5px;
+        border: 1px solid #1a3a5c; border-radius: 0 4px 4px 4px;
         background: #0f3460;
     }
 """
@@ -573,7 +589,7 @@ STRUCT_TABBAR_CSS_DARK = """
         font-size: 9pt; font-weight: 600;
         background: #16213e; color: #c8d8e8;
         border: 1px solid #1a3a5c; border-bottom: none;
-        border-radius: 5px 5px 0 0; margin-right: 2px;
+        border-radius: 4px 4px 0 0; margin-right: 2px;
     }
     QTabBar::tab:selected {
         background: #0f3460; color: #7b9cff;
