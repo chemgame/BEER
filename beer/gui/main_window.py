@@ -1375,7 +1375,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         _mono_font.setPointSize(10)
         _mono_font.setStyleHint(QFont.StyleHint.Monospace)
         self.seq_text.setFont(_mono_font)
-        self.seq_text.setFixedHeight(100)
+        self.seq_text.setFixedHeight(72)
         self.seq_text.setAcceptDrops(True)
         outer.addWidget(self.seq_text)
 
@@ -1482,7 +1482,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         ext_vbox.addWidget(self._pdb_xref_inner)
 
         self._ext_data_panel.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         outer.addWidget(self._ext_data_panel)
 
         # Convenience list for bulk enable/disable
@@ -1525,7 +1525,6 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         self.seq_viewer = QTextBrowser()
         self.seq_viewer.setFont(_mono_font)
-        self.seq_viewer.setMaximumHeight(160)
         outer.addWidget(self.seq_viewer, 1)
 
         # ── Bottom bar: Clear All ────────────────────────────────────────────
