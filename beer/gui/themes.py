@@ -37,16 +37,18 @@ LIGHT_THEME_CSS = """
  QPushButton:pressed { background-color: #2940b8; }
  QPushButton:disabled { background-color: #b0b8cc; color: #f0f0f0; }
  QTabWidget::pane { border: 1px solid #d0d4e0; border-radius: 4px; background: #ffffff; }
+ QTabBar { qproperty-drawBase: 0; }
  QTabBar::tab {
      background: #e8eaf0;
      color: #4a5568;
-     padding: 8px 16px;
-     border-top-left-radius: 4px;
-     border-top-right-radius: 4px;
-     margin-right: 2px;
+     padding: 6px 16px;
+     border: 1px solid #c8d0ec;
+     border-radius: 4px;
+     margin-right: 4px;
+     margin-bottom: 4px;
      font-weight: 500;
  }
- QTabBar::tab:selected { background: #4361ee; color: #ffffff; }
+ QTabBar::tab:selected { background: #4361ee; color: #ffffff; border-color: #3451c5; }
  QTabBar::tab:hover:!selected { background: #d0d4e8; }
  QTableWidget {
      background-color: #ffffff;
@@ -112,7 +114,8 @@ LIGHT_THEME_CSS = """
      font-weight: 700;
  }
  QListWidget#nav_bar::item:hover:!selected { background-color: #d4d9ec; }
- QFrame#nav_sep { color: #c8cede; max-width: 1px; }
+ QFrame#nav_sep   { color: #c8cede; max-width: 1px; }
+ QFrame#nav_sep_h { color: #c0c8de; max-height: 1px; background: #c0c8de; border: none; }
  /* --- Graph tree & report nav --- */
  QTreeWidget#graph_tree, QTreeWidget#report_nav {
      background-color: #f0f2fa;
@@ -134,7 +137,7 @@ LIGHT_THEME_CSS = """
      background: transparent;
      color: #4361ee;
      border: 1px solid #b0bae8;
-     border-radius: 99px;
+     border-radius: 10px;
      padding: 4px 12px;
      font-size: 12px;
      min-height: 28px;
@@ -142,7 +145,7 @@ LIGHT_THEME_CSS = """
  }
  QPushButton#chip_btn:hover:!disabled { background: #e8eeff; border-color: #4361ee; }
  QPushButton#chip_btn:pressed:!disabled { background: #d0d8f8; }
- QPushButton#chip_btn:disabled { color: #b8bdd4; border-color: #dcdee8; background: transparent; }
+ QPushButton#chip_btn:disabled { color: #b8bdd4; border-color: #dcdee8; background: transparent; border-radius: 10px; }
  QPushButton#chip_btn[chip_state="fetched"] {
      background: #e6f9f0;
      color: #1a7a4a;
@@ -237,7 +240,7 @@ LIGHT_THEME_CSS = """
  /* --- Muted placeholder / info labels --- */
  QLabel#placeholder_lbl { color: #718096; font-style: italic; }
  /* --- Help button --- */
- QToolButton#help_btn { font-weight: bold; border-radius: 99px; }
+ QToolButton#help_btn { font-weight: bold; border-radius: 10px; }
  /* --- PDB xref section label --- */
  QLabel#pdb_xref_lbl { color: #4a5568; font-size: 9pt; font-weight: 600; }
  /* --- Chain selector label --- */
@@ -277,16 +280,18 @@ DARK_THEME_CSS = """
  QPushButton:pressed { background-color: #5575ee; }
  QPushButton:disabled { background-color: #2d3561; color: #6b7280; }
  QTabWidget::pane { border: 1px solid #2d3561; border-radius: 4px; background: #16213e; }
+ QTabBar { qproperty-drawBase: 0; }
  QTabBar::tab {
      background: #0f3460;
      color: #94a3b8;
-     padding: 8px 16px;
-     border-top-left-radius: 4px;
-     border-top-right-radius: 4px;
-     margin-right: 2px;
+     padding: 6px 16px;
+     border: 1px solid #1a3a5c;
+     border-radius: 4px;
+     margin-right: 4px;
+     margin-bottom: 4px;
      font-weight: 500;
  }
- QTabBar::tab:selected { background: #7b9cff; color: #1a1a2e; }
+ QTabBar::tab:selected { background: #7b9cff; color: #1a1a2e; border-color: #6b8eff; }
  QTabBar::tab:hover:!selected { background: #1a3a5c; }
  QTableWidget {
      background-color: #16213e;
@@ -349,7 +354,8 @@ DARK_THEME_CSS = """
      font-weight: 700;
  }
  QListWidget#nav_bar::item:hover:!selected { background-color: #1a3a5c; color: #e2e8f0; }
- QFrame#nav_sep { color: #1a3a5c; max-width: 1px; }
+ QFrame#nav_sep   { color: #1a3a5c; max-width: 1px; }
+ QFrame#nav_sep_h { color: #1a3a5c; max-height: 1px; background: #1a3a5c; border: none; }
  /* --- Graph tree & report nav --- */
  QTreeWidget#graph_tree, QTreeWidget#report_nav {
      background-color: #16213e;
@@ -370,7 +376,7 @@ DARK_THEME_CSS = """
      background: transparent;
      color: #7b9cff;
      border: 1px solid #2d4a6e;
-     border-radius: 99px;
+     border-radius: 10px;
      padding: 4px 12px;
      font-size: 12px;
      min-height: 28px;
@@ -378,7 +384,7 @@ DARK_THEME_CSS = """
  }
  QPushButton#chip_btn:hover:!disabled { background: #1a3a5c; border-color: #7b9cff; }
  QPushButton#chip_btn:pressed:!disabled { background: #0f3460; }
- QPushButton#chip_btn:disabled { color: #2d3a5a; border-color: #1a2540; background: transparent; }
+ QPushButton#chip_btn:disabled { color: #2d3a5a; border-color: #1a2540; background: transparent; border-radius: 10px; }
  QPushButton#chip_btn[chip_state="fetched"] {
      background: #0d3325;
      color: #43aa8b;
@@ -473,7 +479,7 @@ DARK_THEME_CSS = """
  /* --- Muted placeholder / info labels --- */
  QLabel#placeholder_lbl { color: #6a7a9a; font-style: italic; }
  /* --- Help button --- */
- QToolButton#help_btn { font-weight: bold; border-radius: 99px; }
+ QToolButton#help_btn { font-weight: bold; border-radius: 10px; }
  /* --- PDB xref section label --- */
  QLabel#pdb_xref_lbl { color: #94a3b8; font-size: 9pt; font-weight: 600; }
  /* --- Chain selector label --- */
@@ -522,23 +528,22 @@ STRUCT_PANEL_CSS_LIGHT = """
     }
     QCheckBox::indicator:checked { background: #4361ee; border-color: #3451c5; }
     QTabWidget::pane {
-        border: 1px solid #d1d9f0; border-radius: 0 4px 4px 4px;
+        border: 1px solid #d1d9f0; border-radius: 4px;
         background: #f4f6fd;
     }
 """
 
 STRUCT_TABBAR_CSS_LIGHT = """
+    QTabBar { qproperty-drawBase: 0; }
     QTabBar::tab {
-        padding: 5px 8px; min-width: 52px;
+        padding: 4px 10px; min-width: 52px;
         font-size: 9pt; font-weight: 600;
-        background: #e8eaf4; color: #2d3748;
-        border: 1px solid #d1d9f0; border-bottom: none;
-        border-radius: 4px 4px 0 0; margin-right: 2px;
+        background: #e8eaf4; color: #4a5568;
+        border: 1px solid #c8d0ec;
+        border-radius: 4px;
+        margin-right: 3px; margin-bottom: 4px;
     }
-    QTabBar::tab:selected {
-        background: #f4f6fd; color: #3b4fc8;
-        border-bottom: 1px solid #f4f6fd;
-    }
+    QTabBar::tab:selected { background: #4361ee; color: #ffffff; border-color: #3451c5; }
     QTabBar::tab:hover:!selected { background: #dde0f0; color: #3b4fc8; }
 """
 
@@ -578,23 +583,22 @@ STRUCT_PANEL_CSS_DARK = """
     }
     QCheckBox::indicator:checked { background: #7b9cff; border-color: #6b8eff; }
     QTabWidget::pane {
-        border: 1px solid #1a3a5c; border-radius: 0 4px 4px 4px;
+        border: 1px solid #1a3a5c; border-radius: 4px;
         background: #0f3460;
     }
 """
 
 STRUCT_TABBAR_CSS_DARK = """
+    QTabBar { qproperty-drawBase: 0; }
     QTabBar::tab {
-        padding: 5px 8px; min-width: 52px;
+        padding: 4px 10px; min-width: 52px;
         font-size: 9pt; font-weight: 600;
-        background: #16213e; color: #c8d8e8;
-        border: 1px solid #1a3a5c; border-bottom: none;
-        border-radius: 4px 4px 0 0; margin-right: 2px;
+        background: #16213e; color: #94a3b8;
+        border: 1px solid #1a3a5c;
+        border-radius: 4px;
+        margin-right: 3px; margin-bottom: 4px;
     }
-    QTabBar::tab:selected {
-        background: #0f3460; color: #7b9cff;
-        border-bottom: 1px solid #0f3460;
-    }
+    QTabBar::tab:selected { background: #7b9cff; color: #1a1a2e; border-color: #6b8eff; }
     QTabBar::tab:hover:!selected { background: #1a3a5c; color: #7b9cff; }
 """
 

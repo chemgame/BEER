@@ -58,6 +58,7 @@ Version 1.0 was a single monolithic script with a basic GUI. v2.0 is a full rewr
 - Structure export in PDB, mmCIF, GRO, XYZ, and FASTA formats
 - Removed unreliable metrics (Instability Index, LLPS composite score, Chou-Fasman)
 - Removed bead models and composition pie chart (redundant with bar plot and 3D viewer)
+- **UI polish**: left nav bar has visual separators between tab groups; inner tab bars styled as segmented controls; welcome banner now shows clickable example-protein chip buttons (FUS, Rhodopsin, Ubiquitin, Haemoglobin) for one-click demo; "not available" graph and report states show a consistent themed placeholder
 
 ---
 

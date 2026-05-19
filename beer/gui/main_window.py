@@ -774,33 +774,41 @@ class ProteinAnalyzerGUI(QMainWindow):
 
 
     @staticmethod
-    def _make_training_placeholder_fig(tab_name: str, feat_name: str):
-        """Return a matplotlib Figure shown for BiLSTM heads still being trained."""
+    def _make_unavail_fig(title: str, body: str = "", is_dark: bool = False):
+        """Return a themed matplotlib Figure for any 'not available' graph state."""
         import matplotlib
         matplotlib.use("Agg")
         from matplotlib.figure import Figure
+        bg     = "#16213e" if is_dark else "#f8f9fd"
+        accent = "#7b9cff" if is_dark else "#4361ee"
+        muted  = "#94a3b8" if is_dark else "#718096"
         fig = Figure(figsize=(8, 3.5), dpi=100)
-        fig.set_facecolor("#fff8e1")
+        fig.set_facecolor(bg)
         ax = fig.add_subplot(111)
-        ax.set_facecolor("#fff8e1")
+        ax.set_facecolor(bg)
         ax.axis("off")
-        ax.text(0.5, 0.62, "[Training]  Model Training in Progress",
-                ha="center", va="center", fontsize=15, fontweight="bold",
-                color="#92400e", transform=ax.transAxes)
-        ax.text(0.5, 0.42,
-                f"The  {feat_name}  AI prediction head is currently being trained on\n"
-                f"UniProt Swiss-Prot annotations. This graph will appear\n"
-                f"automatically once the model file is ready.",
-                ha="center", va="center", fontsize=10, color="#78350f",
-                linespacing=1.6, transform=ax.transAxes)
-        ax.text(0.5, 0.15,
-                "Architecture: ESM2 650M → 2-layer BiLSTM classifier (hidden=256) → sigmoid",
-                ha="center", va="center", fontsize=8, color="#a16207",
-                fontstyle="italic", transform=ax.transAxes)
+        y_title = 0.58 if body else 0.5
+        ax.text(0.5, y_title, title,
+                ha="center", va="center", fontsize=14, fontweight="bold",
+                color=accent, transform=ax.transAxes)
+        if body:
+            ax.text(0.5, 0.36, body,
+                    ha="center", va="center", fontsize=10, color=muted,
+                    linespacing=1.6, transform=ax.transAxes)
         for sp in ax.spines.values():
             sp.set_visible(False)
         fig.tight_layout(pad=1.5)
         return fig
+
+    def _make_training_placeholder_fig(self, tab_name: str, feat_name: str):
+        """Return a 'model not yet trained' placeholder Figure (delegates to _make_unavail_fig)."""
+        return self._make_unavail_fig(
+            "Model Not Yet Trained",
+            f"The  {feat_name}  prediction head has not been trained yet.\n"
+            f"This graph will appear automatically once the model file is ready.\n"
+            f"Architecture: ESM2 650M → 2-layer BiLSTM classifier → sigmoid",
+            is_dark=getattr(self, "_is_dark", False),
+        )
 
     def _show_named_graph(self, graph_name: str) -> None:
         """Select graph_name in the Graphs tab tree and render it."""
@@ -1341,26 +1349,41 @@ class ProteinAnalyzerGUI(QMainWindow):
         # ── Welcome / empty-state callout (hidden once analysis has run) ─────
         self._welcome_banner = QFrame()
         self._welcome_banner.setObjectName("welcome_banner")
-        _wb_layout = QHBoxLayout(self._welcome_banner)
-        _wb_layout.setContentsMargins(12, 8, 12, 8)
-        _wb_layout.setSpacing(16)
-        _wb_lbl = QLabel(
-            "<b>Get started:</b> Enter a UniProt or PDB accession above and click <b>Fetch</b>, "
-            "or paste a sequence below and click <b>Analyze</b>.<br>"
-            "<span class='wb_hint' style='font-size:10px;'>"
-            "Try: "
-            "<a href='beer://fetch/P35637'>P35637</a> (FUS)  ·  "
-            "<a href='beer://fetch/P08100'>P08100</a> (rhodopsin)  ·  "
-            "<a href='beer://fetch/1UBQ'>1UBQ</a> (ubiquitin)  ·  "
-            "<a href='beer://fetch/4HHB'>4HHB</a> (haemoglobin)"
-            "</span>"
+        _wb_layout = QVBoxLayout(self._welcome_banner)
+        _wb_layout.setContentsMargins(14, 10, 14, 10)
+        _wb_layout.setSpacing(5)
+
+        _wb_headline = QLabel("<b>Get started</b>")
+        _wb_headline.setObjectName("welcome_lbl")
+        _wb_layout.addWidget(_wb_headline)
+
+        _wb_hint = QLabel(
+            "Enter a UniProt or PDB accession above and click Fetch, "
+            "or paste a sequence below and click Analyze."
         )
-        _wb_lbl.setObjectName("welcome_lbl")
-        _wb_lbl.setOpenExternalLinks(False)
-        _wb_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
-        _wb_lbl.linkActivated.connect(self._on_welcome_link)
-        _wb_lbl.setWordWrap(True)
-        _wb_layout.addWidget(_wb_lbl, 1)
+        _wb_hint.setObjectName("status_lbl")
+        _wb_hint.setWordWrap(True)
+        _wb_layout.addWidget(_wb_hint)
+
+        _wb_chips = QHBoxLayout()
+        _wb_chips.setSpacing(6)
+        _wb_chips.setContentsMargins(0, 3, 0, 0)
+        for _acc, _label in [
+            ("P35637", "P35637 · FUS"),
+            ("P08100", "P08100 · Rhodopsin"),
+            ("1UBQ",   "1UBQ · Ubiquitin"),
+            ("4HHB",   "4HHB · Haemoglobin"),
+        ]:
+            _wb_btn = QPushButton(_label)
+            _wb_btn.setObjectName("chip_btn")
+            _wb_btn.clicked.connect(
+                lambda _checked=False, _a=_acc:
+                self._on_welcome_link(f"beer://fetch/{_a}")
+            )
+            _wb_chips.addWidget(_wb_btn)
+        _wb_chips.addStretch()
+        _wb_layout.addLayout(_wb_chips)
+
         outer.addWidget(self._welcome_banner)
 
         # ── Sequence input ───────────────────────────────────────────────────
@@ -6442,6 +6465,11 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                         uniprot_regions=_uniprot_feats.get(f) or None,
                         label_font=lf, tick_font=tf, **kw))
                 )
+            elif _tab_name not in gens:
+                gens[_tab_name] = (
+                    lambda t=_tab_name, f=_feat:
+                    self._make_training_placeholder_fig(t, f)
+                )
         gens["TM Topology"] = lambda: _wrap(lambda: create_tm_topology_figure(
             seq, ad.get("tm_helices", []), label_font=lf, tick_font=tf))
         gens["Uversky Phase Plot"] = lambda: _wrap(lambda: create_uversky_phase_plot(
@@ -6474,20 +6502,11 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             gens["AlphaMissense"] = lambda: _wrap(lambda: create_alphafold_missense_figure(
                 _am_data, seq=seq, label_font=lf, tick_font=tf, cmap=self.heatmap_cmap))
         else:
-            def _am_placeholder_fig():
-                from matplotlib.figure import Figure as _Fig
-                _f = _Fig(figsize=(9, 4), dpi=120)
-                _ax = _f.add_subplot(111)
-                _ax.text(0.5, 0.55, "AlphaMissense data not loaded.",
-                         ha="center", va="center", transform=_ax.transAxes,
-                         fontsize=13, color="#374151")
-                _ax.text(0.5, 0.42, "Fetch a UniProt entry first, then click\n"
-                         "the \u201cAlphaMissense\u201d button in the toolbar.",
-                         ha="center", va="center", transform=_ax.transAxes,
-                         fontsize=10, color="#718096")
-                _ax.set_axis_off()
-                return _f
-            gens["AlphaMissense"] = lambda: _wrap(_am_placeholder_fig)
+            gens["AlphaMissense"] = lambda: self._make_unavail_fig(
+                "AlphaMissense Data Not Loaded",
+                "Fetch a UniProt entry first, then click the \u201cAlphaMissense\u201d chip.",
+                is_dark=getattr(self, "_is_dark", False),
+            )
         if _HAS_AMPHIPATHIC:
             gens["Hydrophobic Moment"] = lambda: _wrap(lambda: create_hydrophobic_moment_figure(
                 seq, ad.get("moment_alpha", []), ad.get("moment_beta", []),
@@ -6591,13 +6610,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         from beer.graphs.variant_map import create_variant_effect_figure
         llr = compute_single_mutant_llr(seq, self._embedder)
         if llr is None:
-            from matplotlib.figure import Figure as _Fig
-            fig = _Fig(figsize=(6, 3))
-            ax = fig.add_subplot(111)
-            ax.text(0.5, 0.5, "ESM2 not available for variant scoring",
-                    ha="center", va="center", transform=ax.transAxes, color="#718096")
-            ax.axis("off")
-            return fig
+            return self._make_unavail_fig(
+                "ESM2 Not Available",
+                "The ESM2 650M embedder is required for variant effect scoring.\n"
+                "Ensure the model is installed and try re-running analysis.",
+                is_dark=getattr(self, "_is_dark", False),
+            )
         return create_variant_effect_figure(seq, llr, label_font=lf, tick_font=tf, cmap=cmap)
 
     def show_batch_details(self, row, _):
@@ -9904,15 +9922,17 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 continue
             values = data.get(data_key) or []
             if not values:
-                # Untrained BiLSTM head — append a muted badge only
-                badge = (
-                    "<div class='callout-badge'>"
-                    "AI head not yet trained — run training to enable this profile."
+                notice = (
+                    "<div class='callout-warn'>"
+                    "<b>Model not yet trained.</b>"
+                    "<p style='margin:4px 0 0'>This AI prediction head has not been trained yet. "
+                    "The graph and profile will appear here automatically once the model file "
+                    "is available.</p>"
                     "</div>"
                 )
                 current = browser.toHtml()
-                if "AI head not yet trained" not in current:
-                    browser.setHtml(current + badge)
+                if "Model not yet trained" not in current:
+                    browser.setHtml(current + notice)
                 continue
 
             uri = self._make_sparkline_png(values, color, threshold)

@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QListWidget, QListWidgetItem,
     QFrame, QStackedWidget,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
 
 
 class NavTabWidget(QWidget):
@@ -19,14 +19,17 @@ class NavTabWidget(QWidget):
         "Graphs":              "\U0001f4c8",   # 📈  line chart / plots
         "Structure":           "\U0001f52c",   # 🔬  microscope / 3-D
         "BLAST":               "\U0001f50d",   # 🔍  search
-        "Compare":             "\u2696\ufe0f", # ⚖️  compare / scales
+        "Compare":             "⚖️", # ⚖️  compare / scales
         "Multichain Analysis": "\U0001f9e9",   # 🧩  multichain / assembly
-        "Truncation":          "\u2702\ufe0f", # ✂️  truncation / cut
+        "Truncation":          "✂️", # ✂️  truncation / cut
         "MSA":                 "\U0001f500",   # 🔀  multiple alignment
-        "Complex":             "\u269b\ufe0f", # ⚛️  complex / molecular
-        "Settings":            "\u2699\ufe0f", # ⚙️  settings
+        "Complex":             "⚛️", # ⚛️  complex / molecular
+        "Settings":            "⚙️", # ⚙️  settings
         "Help":                "\U0001f4d6",   # 📖  help / docs
     }
+
+    # Insert a separator before these tab names
+    _GROUP_BREAKS = {"BLAST", "Settings"}
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -49,22 +52,67 @@ class NavTabWidget(QWidget):
         self.stack = QStackedWidget()
         outer.addWidget(self.stack, 1)
 
-        self.nav_list.currentRowChanged.connect(self.stack.setCurrentIndex)
+        # Maps list-row index → stack page index (-1 for separator rows).
+        self._row_to_stack: list[int] = []
+
+        self.nav_list.currentRowChanged.connect(self._on_row_changed)
+
+    # ── internal ──────────────────────────────────────────────────────────────
+
+    def _on_row_changed(self, row: int) -> None:
+        if row < 0 or row >= len(self._row_to_stack):
+            return
+        stack_idx = self._row_to_stack[row]
+        if stack_idx >= 0:
+            self.stack.setCurrentIndex(stack_idx)
+        else:
+            # Separator was somehow focused — skip to next selectable row.
+            next_row = row + 1
+            while next_row < len(self._row_to_stack) and self._row_to_stack[next_row] < 0:
+                next_row += 1
+            if next_row < self.nav_list.count():
+                self.nav_list.setCurrentRow(next_row)
+
+    def _add_separator(self) -> None:
+        item = QListWidgetItem()
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        item.setSizeHint(QSize(180, 14))
+        self.nav_list.addItem(item)
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Plain)
+        line.setObjectName("nav_sep_h")
+        self.nav_list.setItemWidget(item, line)
+        self._row_to_stack.append(-1)
+
+    # ── public API ────────────────────────────────────────────────────────────
 
     def addTab(self, widget: QWidget, name: str) -> int:
-        icon = self._NAV_ICONS.get(name, "\u25b8")
+        if name in self._GROUP_BREAKS:
+            self._add_separator()
+
+        icon = self._NAV_ICONS.get(name, "▸")
         item = QListWidgetItem(f"  {icon}  {name}")
         self.nav_list.addItem(item)
         idx = self.stack.addWidget(widget)
-        if self.nav_list.count() == 1:
-            self.nav_list.setCurrentRow(0)
+        self._row_to_stack.append(idx)
+
+        # Select the very first real tab.
+        if sum(1 for s in self._row_to_stack if s >= 0) == 1:
+            self.nav_list.setCurrentRow(len(self._row_to_stack) - 1)
         return idx
 
-    def setCurrentIndex(self, idx: int):
-        self.nav_list.setCurrentRow(idx)
+    def setCurrentIndex(self, idx: int) -> None:
+        for row, stack_idx in enumerate(self._row_to_stack):
+            if stack_idx == idx:
+                self.nav_list.setCurrentRow(row)
+                return
 
     def currentIndex(self) -> int:
-        return self.nav_list.currentRow()
+        row = self.nav_list.currentRow()
+        if 0 <= row < len(self._row_to_stack):
+            return self._row_to_stack[row]
+        return -1
 
     def currentWidget(self) -> QWidget:
         return self.stack.currentWidget()
