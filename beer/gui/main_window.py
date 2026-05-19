@@ -2711,8 +2711,12 @@ class ProteinAnalyzerGUI(QMainWindow):
             self._chain_cbs_layout.setSpacing(2)
             chains_gl.addWidget(self._chain_cbs_widget)
             self._chain_checkboxes: dict = {}
-            self._chains_grp = self._chain_cbs_widget
-            view_l.addWidget(_collapsible(chains_grp, expanded=False))
+            # Keep a reference to both the accordion wrapper and the inner GroupBox
+            # so _populate_chain_controls can show/hide the whole section and auto-expand it.
+            self._chains_accordion = _collapsible(chains_grp, expanded=False)
+            self._chains_grp_box   = chains_grp
+            self._chains_accordion.setVisible(False)   # hidden until a multi-chain protein loads
+            view_l.addWidget(self._chains_accordion)
 
             # ── Interact section divider ──────────────────────────────────────
             _interact_sep = QFrame()
@@ -4719,11 +4723,13 @@ window.addEventListener("load",init);
 
     @staticmethod
     def _parse_pdb_chains(pdb_str: str) -> list[str]:
-        """Return sorted list of unique chain IDs (handles PDB and mmCIF)."""
+        """Return sorted list of unique chain IDs from ATOM records (handles PDB and mmCIF).
+        HETATM-only chains (ligands/water with a separate chain letter) are excluded —
+        they would appear as mystery chain entries that confuse users."""
         seen: dict = {}
-        # PDB format: chain ID at column 22 (0-indexed 21)
+        # PDB format: chain ID at column 22 (0-indexed 21); ATOM records only.
         for line in pdb_str.splitlines():
-            if line.startswith(("ATOM  ", "HETATM")):
+            if line.startswith("ATOM  "):
                 chain = line[21:22].strip()
                 if chain and chain not in seen:
                     seen[chain] = None
@@ -4759,7 +4765,7 @@ window.addEventListener("load",init);
 
     def _populate_chain_controls(self, pdb_str: str) -> None:
         """Build per-chain visibility checkboxes from a PDB string."""
-        if not hasattr(self, "_chains_grp"):
+        if not hasattr(self, "_chain_cbs_layout"):
             return
         chains = self._parse_pdb_chains(pdb_str)
         # Clear existing checkboxes
@@ -4768,8 +4774,10 @@ window.addEventListener("load",init);
             item = self._chain_cbs_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        # Show or hide the entire accordion section based on chain count
+        if hasattr(self, "_chains_accordion"):
+            self._chains_accordion.setVisible(len(chains) > 1)
         if len(chains) <= 1:
-            self._chains_grp.setVisible(False)
             return
         for chain_id in chains:
             cb = QCheckBox(f"Chain {chain_id}")
@@ -4778,7 +4786,15 @@ window.addEventListener("load",init);
                 self._js(f"setChainVisible('{c}', {'true' if checked else 'false'});"))
             self._chain_cbs_layout.addWidget(cb)
             self._chain_checkboxes[chain_id] = cb
-        self._chains_grp.setVisible(True)
+        # Auto-expand the accordion so chain checkboxes are immediately visible
+        if hasattr(self, "_chains_grp_box") and not self._chains_grp_box.isVisible():
+            self._chains_grp_box.setVisible(True)
+            if hasattr(self, "_chains_accordion"):
+                _al = self._chains_accordion.layout()
+                if _al and _al.count() > 0:
+                    _hdr = _al.itemAt(0).widget()
+                    if isinstance(_hdr, QPushButton) and "▶" in _hdr.text():
+                        _hdr.setText(_hdr.text().replace("▶", "▼"))
 
     def _show_all_chains(self) -> None:
         for cb in self._chain_checkboxes.values():
