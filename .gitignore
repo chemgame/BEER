@@ -49,6 +49,9 @@ BioLiP.txt
 # Manuscript — personal, not part of the software distribution
 manuscript/
 
+# Website source — not part of the software distribution
+docs/
+
 # Developer training scripts and caches — not needed by users
 scripts/
 
