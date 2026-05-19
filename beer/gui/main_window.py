@@ -5258,11 +5258,13 @@ window.addEventListener("load",init);
   <li><b>Fetch</b> — enter a <b>UniProt ID</b> (e.g. <tt>P04637</tt>) or a 4-character <b>PDB ID</b> (e.g. <tt>1ABC</tt>) and click <b>Fetch</b>.
     UniProt IDs automatically set the accession for <b>Fetch AlphaFold</b>, <b>Fetch Pfam</b>, and other databases, and trigger analysis immediately.
     PDB IDs download all chains and the coordinate file from RCSB; structural graphs (Ramachandran, distance map, etc.) are shown immediately.</li>
-  <li><b>Find UniProt ID</b> — paste any sequence and BEER will attempt to identify the matching UniProt Swiss-Prot entry by parsing FASTA headers or matching by exact sequence length. If found, the accession is set automatically and all external databases are populated.</li>
+  <li><b>Find UniProt ID</b> — paste any sequence and BEER will search UniProt Swiss-Prot by sequence hash (exact match) and fall back to a BLAST search if needed. If a match is found, the accession is set automatically and all external databases are populated.</li>
 </ul>
+<h2>Welcome chips</h2>
+<p>When no sequence is loaded, the welcome banner shows four example proteins (FUS, Rhodopsin, Ubiquitin, Haemoglobin). Click any chip to fetch and analyse that protein immediately — useful for exploring BEER for the first time.</p>
 <h2>UniProt Tracks</h2>
-<p>After fetching a UniProt accession, click <b>UniProt Tracks</b> (Structure toolbar) to download all UniProt feature annotations for this protein.
-Once loaded, BEER automatically adds dual-track graph panels that overlay the BEER AI Predictions (top) with the curated UniProt reference (bottom) for features including disorder, signal peptide, transmembrane helices, and more.</p>
+<p>After fetching a UniProt accession, click <b>UniProt Tracks</b> (Structure toolbar) to download all feature annotations for the protein from UniProt.
+Once loaded, BEER adds per-residue track overlays to the Graphs tab for features such as disorder regions, signal peptides, transmembrane helices, and active/binding sites.</p>
 <h2>Feature Coloring on 3D Structure</h2>
 <p>In the Structure tab, select <b>Feature Score</b> from the color mode dropdown to color the protein by any per-residue AI prediction score.
 Choose the feature (Disorder, Signal Peptide, etc.) from the adjacent selector; residues are colored white→feature color according to their predicted probability.</p>
@@ -6225,7 +6227,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                     f"from Meta's model hub on the first run.<br><br>"
                     f"<b>Estimated time:</b> 2–15 minutes depending on your connection.<br>"
                     f"<b>Location:</b> <code>~/.cache/torch/hub/checkpoints/</code><br><br>"
-                    f"BEER will appear frozen during download — this is normal. "
+                    f"The download runs in the background — BEER remains responsive. "
                     f"The model is cached permanently; subsequent runs are instant.",
                     QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
                 )
@@ -7227,6 +7229,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self.analysis_data:
             self._generated_graphs.clear()
             self._render_visible_graph()
+
+        _config.set_value("theme_dark", is_dark)
 
         label = "Dark" if is_dark else "Light"
         self.statusBar.showMessage(f"{label} theme activated", 2000)
@@ -10217,6 +10221,34 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 if isinstance(_w, QLabel) and _w.objectName() == "placeholder_lbl":
                     _w.setText(f"Computing AI predictions…\n{graph_title}")
                     break
+
+        # Warn if ESM2 model needs to be downloaded first
+        from beer.embeddings import ESM2_AVAILABLE
+        if ESM2_AVAILABLE and self._embedder is not None:
+            import pathlib
+            _mn = getattr(self._embedder, "model_name", "esm2_t33_650M_UR50D")
+            _cache_pt = (pathlib.Path.home() / ".cache/torch/hub/checkpoints"
+                         / f"{_mn}.pt")
+            if not _cache_pt.exists() and not getattr(self, "_esm2_download_warned", False):
+                self._esm2_download_warned = True
+                _sizes = {
+                    "esm2_t6_8M_UR50D": "~30 MB", "esm2_t12_35M_UR50D": "~140 MB",
+                    "esm2_t30_150M_UR50D": "~580 MB", "esm2_t33_650M_UR50D": "~2.6 GB",
+                }
+                _sz = _sizes.get(_mn, "~2.6 GB")
+                reply = QMessageBox.information(
+                    self, "First-time ESM2 Setup",
+                    f"<b>One-time model download required</b><br><br>"
+                    f"The ESM2 650M language model ({_sz}) will be downloaded "
+                    f"from Meta's model hub on the first run.<br><br>"
+                    f"<b>Estimated time:</b> 2–15 minutes depending on your connection.<br>"
+                    f"<b>Location:</b> <code>~/.cache/torch/hub/checkpoints/</code><br><br>"
+                    f"The download runs in the background — BEER remains responsive. "
+                    f"The model is cached permanently; subsequent runs are instant.",
+                    QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+                )
+                if reply == QMessageBox.StandardButton.Cancel:
+                    return
 
         seq = self.analysis_data.get("seq", "")
         self.statusBar.showMessage(

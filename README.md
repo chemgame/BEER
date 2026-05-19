@@ -332,7 +332,7 @@ Interactive 3D viewer powered by [3Dmol.js](https://3dmol.csb.pitt.edu) (bundled
 | Interface | Dark Theme | Off |
 | Interface | Enable Tooltips | On |
 
-Click **Apply Settings** to save to `~/.beer/config.json`. **Reset to Defaults** restores factory values.
+The **Dark Theme** toggle takes effect immediately and is saved automatically. All other settings require **Apply Settings** to save to `~/.beer/config.json`. **Reset to Defaults** restores factory values.
 
 ---
 
