@@ -77,7 +77,11 @@ try:
 except ImportError:
     _WEBENGINE_AVAILABLE = False
 
-from beer.gui.themes import LIGHT_THEME_CSS, DARK_THEME_CSS
+from beer.gui.themes import (
+    LIGHT_THEME_CSS, DARK_THEME_CSS,
+    STRUCT_PANEL_CSS_LIGHT, STRUCT_TABBAR_CSS_LIGHT,
+    STRUCT_PANEL_CSS_DARK, STRUCT_TABBAR_CSS_DARK,
+)
 from beer import config as _config
 from beer.gui.nav_widget import NavTabWidget
 from beer.gui.dialogs import MutationDialog, _FigureComposerDialog, FormatChooserDialog
@@ -1584,7 +1588,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         item = self.main_tabs.nav_list.item(idx)
         if item is None:
             return
-        accent = "#4cc9f0" if getattr(self, "_is_dark", False) else "#4361ee"
+        accent = "#7b9cff" if getattr(self, "_is_dark", False) else "#4361ee"
         _on = [True]
         _count = [0]
 
@@ -1634,7 +1638,7 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         self.report_section_list = QTreeWidget()
         self.report_section_list.setObjectName("report_nav")
-        self.report_section_list.setFixedWidth(170)
+        self.report_section_list.setFixedWidth(180)
         self.report_section_list.setHeaderHidden(True)
         self.report_section_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.report_section_list.setIndentation(12)
@@ -2129,7 +2133,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.graph_tree = QTreeWidget()
         self.graph_tree.setObjectName("graph_tree")
         self.graph_tree.setHeaderHidden(True)
-        self.graph_tree.setFixedWidth(186)
+        self.graph_tree.setFixedWidth(180)
         self.graph_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.graph_tree.setIndentation(14)
 
@@ -2318,108 +2322,6 @@ class ProteinAnalyzerGUI(QMainWindow):
         ("Red",     "#e63946"),
         ("Custom",  None),
     ]
-    _STRUCT_PANEL_CSS_LIGHT = """
-        QScrollArea { border: none; background: transparent; }
-        QWidget#structCtrl { background: transparent; }
-        QGroupBox {
-            font-weight: 700; font-size: 9pt; color: #3b4fc8;
-            border: 1px solid #e2e6f5; border-radius: 6px;
-            margin-top: 8px; padding: 10px 6px 6px 6px; background: white;
-        }
-        QGroupBox::title {
-            subcontrol-origin: margin; subcontrol-position: top left;
-            left: 8px; padding: 0 4px; color: #3b4fc8; background: white;
-        }
-        QPushButton {
-            border: 1px solid #c8d0ec; border-radius: 5px;
-            padding: 4px 8px; background: white; color: #2d3748;
-            font-size: 9pt; min-height: 26px;
-        }
-        QPushButton:hover { background: #eef1fc; border-color: #4361ee; color: #4361ee; }
-        QPushButton:pressed { background: #dce2fb; }
-        QPushButton:checked { background: #4361ee; color: white; border-color: #3451c5; font-weight: 600; }
-        QComboBox {
-            border: 1px solid #c8d0ec; border-radius: 5px;
-            padding: 3px 6px; background: white; color: #2d3748;
-            font-size: 9pt; min-height: 24px;
-        }
-        QComboBox:hover { border-color: #4361ee; }
-        QLabel { font-size: 9pt; color: #5a6787; background: transparent; }
-        QCheckBox { font-size: 9pt; color: #2d3748; spacing: 6px; background: transparent; }
-        QCheckBox::indicator {
-            width: 14px; height: 14px;
-            border: 1px solid #c8d0ec; border-radius: 3px; background: white;
-        }
-        QCheckBox::indicator:checked { background: #4361ee; border-color: #3451c5; }
-        QTabWidget::pane {
-            border: 1px solid #d1d9f0; border-radius: 0 5px 5px 5px;
-            background: #f4f6fd;
-        }
-    """
-    # Applied directly to tabBar() to work around macOS native style overriding color
-    _STRUCT_TABBAR_CSS_LIGHT = """
-        QTabBar::tab {
-            padding: 5px 8px; min-width: 52px;
-            font-size: 8.5pt; font-weight: 600;
-            background: #e8eaf4; color: #2d3748;
-            border: 1px solid #d1d9f0; border-bottom: none;
-            border-radius: 5px 5px 0 0; margin-right: 2px;
-        }
-        QTabBar::tab:selected { background: #f4f6fd; color: #3b4fc8;
-            border-bottom: 1px solid #f4f6fd; }
-        QTabBar::tab:hover:!selected { background: #dde0f0; color: #3b4fc8; }
-    """
-    _STRUCT_PANEL_CSS_DARK = """
-        QScrollArea { border: none; background: transparent; }
-        QWidget#structCtrl { background: transparent; }
-        QGroupBox {
-            font-weight: 700; font-size: 9pt; color: #4cc9f0;
-            border: 1px solid #2d3561; border-radius: 6px;
-            margin-top: 8px; padding: 10px 6px 6px 6px; background: #16213e;
-        }
-        QGroupBox::title {
-            subcontrol-origin: margin; subcontrol-position: top left;
-            left: 8px; padding: 0 4px; color: #4cc9f0; background: #16213e;
-        }
-        QPushButton {
-            border: 1px solid #2d3561; border-radius: 5px;
-            padding: 4px 8px; background: #16213e; color: #e2e8f0;
-            font-size: 9pt; min-height: 26px;
-        }
-        QPushButton:hover { background: #1a3a5c; border-color: #4cc9f0; color: #4cc9f0; }
-        QPushButton:pressed { background: #0f3460; }
-        QPushButton:checked { background: #4cc9f0; color: #1a1a2e; border-color: #3ab7dd; font-weight: 600; }
-        QComboBox {
-            border: 1px solid #2d3561; border-radius: 5px;
-            padding: 3px 6px; background: #16213e; color: #e2e8f0;
-            font-size: 9pt; min-height: 24px;
-        }
-        QComboBox:hover { border-color: #4cc9f0; }
-        QLabel { font-size: 9pt; color: #94a3b8; background: transparent; }
-        QCheckBox { font-size: 9pt; color: #e2e8f0; spacing: 6px; background: transparent; }
-        QCheckBox::indicator {
-            width: 14px; height: 14px;
-            border: 1px solid #2d3561; border-radius: 3px; background: #16213e;
-        }
-        QCheckBox::indicator:checked { background: #4cc9f0; border-color: #3ab7dd; }
-        QTabWidget::pane {
-            border: 1px solid #1a3a5c; border-radius: 0 5px 5px 5px;
-            background: #0f3460;
-        }
-    """
-    _STRUCT_TABBAR_CSS_DARK = """
-        QTabBar::tab {
-            padding: 5px 8px; min-width: 52px;
-            font-size: 8.5pt; font-weight: 600;
-            background: #16213e; color: #c8d8e8;
-            border: 1px solid #1a3a5c; border-bottom: none;
-            border-radius: 5px 5px 0 0; margin-right: 2px;
-        }
-        QTabBar::tab:selected { background: #0f3460; color: #4cc9f0;
-            border-bottom: 1px solid #0f3460; }
-        QTabBar::tab:hover:!selected { background: #1a3a5c; color: #4cc9f0; }
-    """
-
     def init_structure_tab(self):
         """Tab for interactive 3D structure viewer (PDB upload, RCSB PDB fetch, or AlphaFold fetch)."""
         container = QWidget()
@@ -2448,15 +2350,15 @@ class ProteinAnalyzerGUI(QMainWindow):
 
             # ── left panel: 4-tab control widget ─────────────────────────────
             self.struct_ctrl_scroll = QTabWidget()
-            self.struct_ctrl_scroll.setFixedWidth(242)
+            self.struct_ctrl_scroll.setFixedWidth(220)
             # Fusion style makes QTabBar respect stylesheets identically on
             # macOS (native style overrides colours) and Linux (Breeze/GTK vary).
             _fusion = QStyleFactory.create("Fusion")
             if _fusion:
                 self.struct_ctrl_scroll.setStyle(_fusion)
                 self.struct_ctrl_scroll.tabBar().setStyle(_fusion)
-            self.struct_ctrl_scroll.setStyleSheet(self._STRUCT_PANEL_CSS_LIGHT)
-            self.struct_ctrl_scroll.tabBar().setStyleSheet(self._STRUCT_TABBAR_CSS_LIGHT)
+            self.struct_ctrl_scroll.setStyleSheet(STRUCT_PANEL_CSS_LIGHT)
+            self.struct_ctrl_scroll.tabBar().setStyleSheet(STRUCT_TABBAR_CSS_LIGHT)
             ctrl_tabs = self.struct_ctrl_scroll
 
             def _tab_page(label: str) -> QVBoxLayout:
@@ -4347,7 +4249,7 @@ window.addEventListener("load",init);
         )
         # Append sparkline of RSA values
         import urllib.parse as _up
-        spar_uri = self._make_sparkline_png(rsa_vals, "#4cc9f0", threshold=None)
+        spar_uri = self._make_sparkline_png(rsa_vals, "#7b9cff", threshold=None)
         href = "beer://graph/" + _up.quote("SASA Profile")
         html += (
             f"<div style='margin:10px 0 6px;'>"
@@ -6402,7 +6304,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         bg_color   = "#1a1a2e" if is_dark else "#ffffff"
         text_color = "#e2e8f0" if is_dark else "#1a1a2e"
         pos_color  = "#94a3b8" if is_dark else "#718096"
-        hdr_color  = "#4cc9f0" if is_dark else "#4361ee"
+        hdr_color  = "#7b9cff" if is_dark else "#4361ee"
 
         lines      = text.split("\n")
         html_lines = []
@@ -7218,21 +7120,21 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if is_dark:
             self.setStyleSheet(DARK_THEME_CSS)
             plt.style.use("dark_background")
-            accent = "#4cc9f0"
-            struct_css = self._STRUCT_PANEL_CSS_DARK
-            struct_title_color = "#4cc9f0"
+            accent = "#7b9cff"
+            struct_css = STRUCT_PANEL_CSS_DARK
+            struct_title_color = "#7b9cff"
         else:
             self.setStyleSheet(LIGHT_THEME_CSS)
             plt.style.use("default")
             accent = "#4361ee"
-            struct_css = self._STRUCT_PANEL_CSS_LIGHT
+            struct_css = STRUCT_PANEL_CSS_LIGHT
             struct_title_color = "#3b4fc8"
 
         # Update structure control panel stylesheet
         if hasattr(self, "struct_ctrl_scroll"):
             self.struct_ctrl_scroll.setStyleSheet(struct_css)
-            tabbar_css = (self._STRUCT_TABBAR_CSS_DARK
-                          if is_dark else self._STRUCT_TABBAR_CSS_LIGHT)
+            tabbar_css = (STRUCT_TABBAR_CSS_DARK
+                          if is_dark else STRUCT_TABBAR_CSS_LIGHT)
             self.struct_ctrl_scroll.tabBar().setStyleSheet(tabbar_css)
         if hasattr(self, "_struct_title_lbl"):
             self._struct_title_lbl.setStyleSheet(
@@ -9928,7 +9830,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         "Functional Motifs":      ("motif_bilstm_profile",    "Functional Motif Profile",        "#c4b5fd", 0.5),
         "Propeptide":             ("prop_bilstm_profile",     "Propeptide Profile",              "#fdba74", 0.5),
         "Repeat Regions":         ("rep_bilstm_profile",      "Repeat Region Profile",           "#67e8f9", 0.5),
-        "Amphipathic Helices":    ("moment_alpha",            "Hydrophobic Moment",              "#4cc9f0", None),
+        "Amphipathic Helices":    ("moment_alpha",            "Hydrophobic Moment",              "#7b9cff", None),
     }
 
     @staticmethod

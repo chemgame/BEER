@@ -76,7 +76,7 @@ LIGHT_THEME_CSS = """
  QScrollBar:vertical { background: #f0f0f5; width: 10px; border-radius: 5px; }
  QScrollBar::handle:vertical { background: #c0c4d0; border-radius: 5px; min-height: 30px; }
  QStatusBar { background-color: #4361ee; color: #ffffff; font-size: 12px; }
- QToolBar { background-color: #eef0f8; border: 1px solid #d0d4e0; border-radius: 4px; spacing: 2px; padding: 2px; }
+ QToolBar { background-color: #eef0f8; border: 1px solid #d0d4e0; border-radius: 4px; spacing: 4px; padding: 4px; }
  QToolBar QToolButton { background-color: #ffffff; border: 1px solid #d0d4e0; border-radius: 4px; padding: 3px; color: #2d3748; }
  QToolBar QToolButton:hover { background-color: #e0e4f4; border-color: #4361ee; }
  QToolBar QToolButton:pressed { background-color: #c8d0ec; }
@@ -101,7 +101,7 @@ LIGHT_THEME_CSS = """
      outline: 0;
  }
  QListWidget#nav_bar::item {
-     padding: 11px 10px;
+     padding: 12px 12px;
      color: #4a5568;
      border-left: 3px solid transparent;
  }
@@ -121,10 +121,11 @@ LIGHT_THEME_CSS = """
      font-size: 12px;
      outline: 0;
  }
- QTreeWidget#graph_tree::item { padding: 5px 6px; color: #4a5568; }
+ QTreeWidget#graph_tree::item { padding: 6px 8px; color: #4a5568; }
  QTreeWidget#graph_tree::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 3px; }
  QTreeWidget#graph_tree::branch { background-color: #f0f2fa; }
  QTreeWidget#report_nav::item { padding: 6px 8px; color: #4a5568; background-color: #f0f2fa; }
+
  QTreeWidget#report_nav::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 3px; }
  QTreeWidget#report_nav::item:hover:!selected { background-color: #dce3f8; }
  QTreeWidget#report_nav::branch { background-color: #f0f2fa; }
@@ -134,9 +135,9 @@ LIGHT_THEME_CSS = """
      color: #4361ee;
      border: 1px solid #b0bae8;
      border-radius: 10px;
-     padding: 2px 9px;
-     font-size: 11px;
-     min-height: 24px;
+     padding: 4px 12px;
+     font-size: 12px;
+     min-height: 28px;
      font-weight: 600;
  }
  QPushButton#chip_btn:hover:!disabled { background: #e8eeff; border-color: #4361ee; }
@@ -331,7 +332,7 @@ DARK_THEME_CSS = """
      outline: 0;
  }
  QListWidget#nav_bar::item {
-     padding: 11px 10px;
+     padding: 12px 12px;
      color: #94a3b8;
      border-left: 3px solid transparent;
  }
@@ -351,7 +352,7 @@ DARK_THEME_CSS = """
      font-size: 12px;
      outline: 0;
  }
- QTreeWidget#graph_tree::item { padding: 5px 6px; color: #94a3b8; }
+ QTreeWidget#graph_tree::item { padding: 6px 8px; color: #94a3b8; }
  QTreeWidget#graph_tree::item:selected { background-color: #7b9cff; color: #1a1a2e; border-radius: 3px; }
  QTreeWidget#graph_tree::branch { background-color: #16213e; }
  QTreeWidget#report_nav::item { padding: 6px 8px; color: #94a3b8; background-color: #16213e; }
@@ -364,9 +365,9 @@ DARK_THEME_CSS = """
      color: #7b9cff;
      border: 1px solid #2d4a6e;
      border-radius: 10px;
-     padding: 2px 9px;
-     font-size: 11px;
-     min-height: 24px;
+     padding: 4px 12px;
+     font-size: 12px;
+     min-height: 28px;
      font-weight: 600;
  }
  QPushButton#chip_btn:hover:!disabled { background: #1a3a5c; border-color: #7b9cff; }
@@ -467,9 +468,127 @@ DARK_THEME_CSS = """
  QLabel#placeholder_lbl { color: #6a7a9a; font-style: italic; }
 """
 
+# ── Structure viewer control panel CSS ───────────────────────────────────────
+# Applied to struct_ctrl_scroll (QTabWidget) so selectors scope to its children.
+# Kept separate from the main QSS because macOS native style overrides QTabBar
+# colours when set via the application stylesheet; a widget-level setStyleSheet
+# on the tab bar itself is the only reliable cross-platform workaround.
+
+STRUCT_PANEL_CSS_LIGHT = """
+    QScrollArea { border: none; background: transparent; }
+    QWidget#structCtrl { background: transparent; }
+    QGroupBox {
+        font-weight: 700; font-size: 9pt; color: #3b4fc8;
+        border: 1px solid #e2e6f5; border-radius: 6px;
+        margin-top: 8px; padding: 12px 8px 8px 8px; background: white;
+    }
+    QGroupBox::title {
+        subcontrol-origin: margin; subcontrol-position: top left;
+        left: 8px; padding: 0 4px; color: #3b4fc8; background: white;
+    }
+    QPushButton {
+        border: 1px solid #c8d0ec; border-radius: 5px;
+        padding: 4px 8px; background: white; color: #2d3748;
+        font-size: 9pt; min-height: 26px;
+    }
+    QPushButton:hover  { background: #eef1fc; border-color: #4361ee; color: #4361ee; }
+    QPushButton:pressed { background: #dce2fb; }
+    QPushButton:checked { background: #4361ee; color: white; border-color: #3451c5; font-weight: 600; }
+    QComboBox {
+        border: 1px solid #c8d0ec; border-radius: 5px;
+        padding: 3px 6px; background: white; color: #2d3748;
+        font-size: 9pt; min-height: 24px;
+    }
+    QComboBox:hover { border-color: #4361ee; }
+    QLabel    { font-size: 9pt; color: #5a6787; background: transparent; }
+    QCheckBox { font-size: 9pt; color: #2d3748; spacing: 6px; background: transparent; }
+    QCheckBox::indicator {
+        width: 14px; height: 14px;
+        border: 1px solid #c8d0ec; border-radius: 3px; background: white;
+    }
+    QCheckBox::indicator:checked { background: #4361ee; border-color: #3451c5; }
+    QTabWidget::pane {
+        border: 1px solid #d1d9f0; border-radius: 0 5px 5px 5px;
+        background: #f4f6fd;
+    }
+"""
+
+STRUCT_TABBAR_CSS_LIGHT = """
+    QTabBar::tab {
+        padding: 5px 8px; min-width: 52px;
+        font-size: 9pt; font-weight: 600;
+        background: #e8eaf4; color: #2d3748;
+        border: 1px solid #d1d9f0; border-bottom: none;
+        border-radius: 5px 5px 0 0; margin-right: 2px;
+    }
+    QTabBar::tab:selected {
+        background: #f4f6fd; color: #3b4fc8;
+        border-bottom: 1px solid #f4f6fd;
+    }
+    QTabBar::tab:hover:!selected { background: #dde0f0; color: #3b4fc8; }
+"""
+
+STRUCT_PANEL_CSS_DARK = """
+    QScrollArea { border: none; background: transparent; }
+    QWidget#structCtrl { background: transparent; }
+    QGroupBox {
+        font-weight: 700; font-size: 9pt; color: #7b9cff;
+        border: 1px solid #2d3561; border-radius: 6px;
+        margin-top: 8px; padding: 12px 8px 8px 8px; background: #16213e;
+    }
+    QGroupBox::title {
+        subcontrol-origin: margin; subcontrol-position: top left;
+        left: 8px; padding: 0 4px; color: #7b9cff; background: #16213e;
+    }
+    QPushButton {
+        border: 1px solid #2d3561; border-radius: 5px;
+        padding: 4px 8px; background: #16213e; color: #e2e8f0;
+        font-size: 9pt; min-height: 26px;
+    }
+    QPushButton:hover  { background: #1a3a5c; border-color: #7b9cff; color: #7b9cff; }
+    QPushButton:pressed { background: #0f3460; }
+    QPushButton:checked { background: #7b9cff; color: #1a1a2e; border-color: #6b8eff; font-weight: 600; }
+    QComboBox {
+        border: 1px solid #2d3561; border-radius: 5px;
+        padding: 3px 6px; background: #16213e; color: #e2e8f0;
+        font-size: 9pt; min-height: 24px;
+    }
+    QComboBox:hover { border-color: #7b9cff; }
+    QLabel    { font-size: 9pt; color: #94a3b8; background: transparent; }
+    QCheckBox { font-size: 9pt; color: #e2e8f0; spacing: 6px; background: transparent; }
+    QCheckBox::indicator {
+        width: 14px; height: 14px;
+        border: 1px solid #2d3561; border-radius: 3px; background: #16213e;
+    }
+    QCheckBox::indicator:checked { background: #7b9cff; border-color: #6b8eff; }
+    QTabWidget::pane {
+        border: 1px solid #1a3a5c; border-radius: 0 5px 5px 5px;
+        background: #0f3460;
+    }
+"""
+
+STRUCT_TABBAR_CSS_DARK = """
+    QTabBar::tab {
+        padding: 5px 8px; min-width: 52px;
+        font-size: 9pt; font-weight: 600;
+        background: #16213e; color: #c8d8e8;
+        border: 1px solid #1a3a5c; border-bottom: none;
+        border-radius: 5px 5px 0 0; margin-right: 2px;
+    }
+    QTabBar::tab:selected {
+        background: #0f3460; color: #7b9cff;
+        border-bottom: 1px solid #0f3460;
+    }
+    QTabBar::tab:hover:!selected { background: #1a3a5c; color: #7b9cff; }
+"""
+
 __all__ = [
     "LIGHT_THEME_CSS",
     "DARK_THEME_CSS",
+    "STRUCT_PANEL_CSS_LIGHT",
+    "STRUCT_TABBAR_CSS_LIGHT",
+    "STRUCT_PANEL_CSS_DARK",
+    "STRUCT_TABBAR_CSS_DARK",
     "NAMED_COLORS",
     "NAMED_COLORMAPS",
 ]

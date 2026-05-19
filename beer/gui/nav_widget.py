@@ -36,7 +36,7 @@ class NavTabWidget(QWidget):
 
         self.nav_list = QListWidget()
         self.nav_list.setObjectName("nav_bar")
-        self.nav_list.setFixedWidth(152)
+        self.nav_list.setFixedWidth(180)
         self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         outer.addWidget(self.nav_list)
 
