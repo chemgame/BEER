@@ -849,10 +849,12 @@ class ProteinAnalyzerGUI(QMainWindow):
             with _w.catch_warnings():
                 _w.filterwarnings("ignore", message=".*tight_layout.*", category=UserWarning)
                 try:
-                    fig.set_tight_layout({"pad": 2.0, "h_pad": 1.5, "w_pad": 1.5})
+                    fig.set_tight_layout({"pad": 1.0, "h_pad": 0.8, "w_pad": 0.8})
                 except Exception:
                     pass
         canvas = FigureCanvas(fig)
+        from PySide6.QtWidgets import QSizePolicy as _SP
+        canvas.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Expanding)
         canvas.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         canvas.customContextMenuRequested.connect(
             lambda pos, c=canvas: self._graph_context_menu(c, pos))
@@ -886,7 +888,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             # background.  Re-tint every icon to dark after toolbar creation.
             self._tint_toolbar_icons_dark(toolbar)
         vb.addWidget(toolbar)
-        vb.addWidget(canvas)
+        vb.addWidget(canvas, 1)
         # Vertical crosshair on single-axes profile graphs (residue-position x-axis)
         _PROFILE_GRAPHS = BILSTM_PROFILE_TABS | {
             "Hydrophobicity Profile", "Local Charge Profile",
@@ -1548,7 +1550,10 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         self.seq_viewer = QTextBrowser()
         self.seq_viewer.setFont(_mono_font)
-        outer.addWidget(self.seq_viewer, 1)
+        self.seq_viewer.setMinimumHeight(48)
+        self.seq_viewer.setMaximumHeight(160)
+        outer.addWidget(self.seq_viewer)
+        outer.addStretch(1)
 
         # ── Bottom bar: Clear All ────────────────────────────────────────────
         bottom_row = QHBoxLayout()
