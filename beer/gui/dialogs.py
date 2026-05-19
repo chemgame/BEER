@@ -28,9 +28,8 @@ class MutationDialog(QDialog):
         layout.addRow("Position (1-based):", self.pos_spin)
 
         self.current_lbl = QLabel(seq[0] if seq else "?")
-        self.current_lbl.setStyleSheet(
-            "font-weight:700; color:#4361ee; font-family:monospace; font-size:14pt;"
-        )
+        self.current_lbl.setObjectName("accent_lbl")
+        self.current_lbl.setStyleSheet("font-family:monospace; font-size:14pt;")
         layout.addRow("Current residue:", self.current_lbl)
 
         self.aa_combo = QComboBox()

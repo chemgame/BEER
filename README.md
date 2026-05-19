@@ -9,6 +9,24 @@ I built BEER because I wanted a single tool that handles everything from basic p
 > **If you use BEER in your research, please cite:**
 > Mukherjee, S. *arXiv*:2504.20561. DOI: [https://doi.org/10.48550/arXiv.2504.20561](https://arxiv.org/abs/2504.20561)
 
+<details>
+<summary>BibTeX</summary>
+
+```bibtex
+@misc{mukherjee2025beer,
+  author    = {Mukherjee, Saumyak},
+  title     = {{BEER}: Biophysical Evaluation Engine for Residues},
+  year      = {2025},
+  eprint    = {2504.20561},
+  archivePrefix = {arXiv},
+  primaryClass  = {q-bio.QM},
+  doi       = {10.48550/arXiv.2504.20561},
+  url       = {https://arxiv.org/abs/2504.20561},
+}
+```
+
+</details>
+
 ---
 
 ## What's new in v2.0
@@ -62,6 +80,19 @@ pip install "torch>=2.0" --index-url https://download.pytorch.org/whl/cpu
 pip install fair-esm scipy
 ```
 
+For GPU acceleration (CUDA 12.1):
+
+```bash
+pip install "torch>=2.0" --index-url https://download.pytorch.org/whl/cu121
+pip install fair-esm scipy
+```
+
+**Development install** (editable, changes to source take effect immediately):
+
+```bash
+git clone https://github.com/chemgame/BEER.git && cd BEER
+pip install -e ".[dev]"
+```
 
 **Linux only** — install Qt platform libraries and set the library path:
 

@@ -72,6 +72,44 @@ pre.sequence {
     color: #1a1a2e;
     white-space: pre;
 }
+.callout-info {
+    background: #f0f4ff;
+    border-left: 4px solid #4361ee;
+    padding: 12px 16px;
+    border-radius: 4px;
+    margin: 12px 0;
+}
+.callout-warn {
+    background: #fff8e1;
+    border-left: 4px solid #f59e0b;
+    padding: 12px 16px;
+    border-radius: 4px;
+    margin: 12px 0;
+}
+.callout-success {
+    background: #f0fdf4;
+    border-left: 3px solid #22c55e;
+    padding: 6px 10px;
+    border-radius: 3px;
+    margin: 4px 0 12px 0;
+}
+.callout-error {
+    background: #fff0f0;
+    border-left: 4px solid #ef4444;
+    padding: 12px 16px;
+    border-radius: 4px;
+    margin: 12px 0;
+}
+.callout-badge {
+    display: inline-block;
+    background: #fafafa;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 10px;
+    color: #94a3b8;
+    margin: 8px 0 4px;
+}
 """
 
 REPORT_CSS_DARK: str = """
@@ -123,6 +161,44 @@ pre.sequence {
     line-height: 1.8;
     color: #e2e8f0;
     white-space: pre;
+}
+.callout-info {
+    background: #0f1f3d;
+    border-left: 4px solid #4cc9f0;
+    padding: 12px 16px;
+    border-radius: 4px;
+    margin: 12px 0;
+}
+.callout-warn {
+    background: #2a1f0a;
+    border-left: 4px solid #f59e0b;
+    padding: 12px 16px;
+    border-radius: 4px;
+    margin: 12px 0;
+}
+.callout-success {
+    background: #0a2010;
+    border-left: 3px solid #22c55e;
+    padding: 6px 10px;
+    border-radius: 3px;
+    margin: 4px 0 12px 0;
+}
+.callout-error {
+    background: #2a0d0d;
+    border-left: 4px solid #ef4444;
+    padding: 12px 16px;
+    border-radius: 4px;
+    margin: 12px 0;
+}
+.callout-badge {
+    display: inline-block;
+    background: #1e2a40;
+    border: 1px solid #2d3a5a;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 10px;
+    color: #94a3b8;
+    margin: 8px 0 4px;
 }
 """
 

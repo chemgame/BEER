@@ -532,8 +532,7 @@ class AnalysisTools:
               <tr><td>Order-promoting fraction (C,F,H,I,L,M,V,W,Y)</td><td>{order_f:.3f}</td></tr>
               <tr><td>Omega (&Omega;)</td><td>{omega:.3f}</td></tr>
             </table>
-            <div style='background:#f0f4ff;border-left:4px solid #4361ee;padding:12px 16px;
-                        border-radius:4px;margin:12px 0'>
+            <div class='callout-info'>
               <b>Per-residue disorder scores not yet computed.</b>
               <p style='margin:6px 0 0'>Click <b>AI Predictions &rarr; Disorder</b> in the
               sidebar to run the ESM2 BiLSTM disorder head.</p>
@@ -611,8 +610,7 @@ class AnalysisTools:
         tm_helices: list = []
         tm_html = _style + """
         <h2>Transmembrane Helices</h2>
-        <div style='background:#fff8e1;border-left:4px solid #f59e0b;
-                    padding:12px 16px;border-radius:4px;margin:12px 0'>
+        <div class='callout-warn'>
           <b style='color:#b45309'>Classical prediction removed in BEER v2.0</b>
           <p style='margin:6px 0 0'>Kyte-Doolittle sliding-window TM prediction has been
           retired. Use <b>AI Predictions &rarr; Transmembrane</b> for ESM2 BiLSTM
@@ -768,8 +766,7 @@ class AnalysisTools:
             if scores is None:
                 return _style + (
                     f"<h2>{section_title} {_b}</h2>"
-                    f"<div style='background:#fff8e1;border-left:4px solid #f59e0b;"
-                    f"padding:12px 16px;border-radius:4px;margin:12px 0'>"
+                    f"<div class='callout-warn'>"
                     f"<b style='color:#b45309'>⏳ Model training in progress</b><br>"
                     f"<p style='margin:6px 0 0'>The <b>{feature_label}</b> BiLSTM head "
                     f"is currently being trained on UniProt Swiss-Prot annotations. "

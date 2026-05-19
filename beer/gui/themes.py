@@ -155,8 +155,15 @@ LIGHT_THEME_CSS = """
      border: 1px solid #f59e0b; font-weight: 700;
  }
  QPushButton#chip_btn[chip_state="loading"]:hover { background: #fef3c7; border-color: #d97706; }
+ QPushButton#chip_btn[chip_state="error"] {
+     background: #fff0f0; color: #c0392b;
+     border: 1px solid #e74c3c; font-weight: 700;
+ }
+ QPushButton#chip_btn[chip_state="error"]:hover { background: #fde8e8; border-color: #c0392b; }
  /* --- Section group labels (fetch bar headers) --- */
- QLabel#group_lbl { color: #8892b0; font-size: 9px; font-weight: 600; }
+ QLabel#group_lbl { color: #8892b0; font-size: 10px; font-weight: 600; }
+ /* --- Disabled nav items (gated tabs) --- */
+ QListWidget#nav_bar::item:disabled { color: #a0a8bc; font-style: italic; }
  /* --- Settings section headers --- */
  QLabel#section_header {
      font-size: 11pt;
@@ -166,9 +173,12 @@ LIGHT_THEME_CSS = """
      padding-bottom: 4px;
      margin-top: 8px;
  }
+ /* --- Welcome banner --- */
+ QFrame#welcome_banner { background: #eef1fc; border: 1px solid #c8d0ec; border-radius: 6px; padding: 4px; }
+ QLabel#welcome_lbl { color: #2d3748; }
+ QLabel#welcome_lbl a { color: #4361ee; }
  /* --- Accent labels (sequence panel headings) --- */
  QLabel#accent_lbl { color: #4361ee; font-weight: 600; }
- QLabel#seq_info_lbl { color: #4361ee; font-size: 9pt; font-weight: 600; padding: 2px 4px; }
  /* --- Status / hint labels --- */
  QLabel#status_lbl { color: #718096; font-style: italic; }
  QLabel#status_lbl[status_state="idle"]    { color: #718096; font-style: italic; font-weight: normal; }
@@ -375,8 +385,15 @@ DARK_THEME_CSS = """
      border: 1px solid #d97706; font-weight: 700;
  }
  QPushButton#chip_btn[chip_state="loading"]:hover { background: #3a2a00; border-color: #fbbf24; }
+ QPushButton#chip_btn[chip_state="error"] {
+     background: #2a0d0d; color: #f87171;
+     border: 1px solid #ef4444; font-weight: 700;
+ }
+ QPushButton#chip_btn[chip_state="error"]:hover { background: #3a1010; border-color: #f87171; }
  /* --- Section group labels (fetch bar headers) --- */
- QLabel#group_lbl { color: #4a5a7a; font-size: 9px; font-weight: 600; }
+ QLabel#group_lbl { color: #4a5a7a; font-size: 10px; font-weight: 600; }
+ /* --- Disabled nav items (gated tabs) --- */
+ QListWidget#nav_bar::item:disabled { color: #3a4a6a; font-style: italic; }
  /* --- Settings section headers --- */
  QLabel#section_header {
      font-size: 11pt;
@@ -386,9 +403,12 @@ DARK_THEME_CSS = """
      padding-bottom: 4px;
      margin-top: 8px;
  }
+ /* --- Welcome banner --- */
+ QFrame#welcome_banner { background: #1a2240; border: 1px solid #2d3a6a; border-radius: 6px; padding: 4px; }
+ QLabel#welcome_lbl { color: #c8d0ec; }
+ QLabel#welcome_lbl a { color: #4cc9f0; }
  /* --- Accent labels --- */
  QLabel#accent_lbl { color: #4cc9f0; font-weight: 600; }
- QLabel#seq_info_lbl { color: #4cc9f0; font-size: 9pt; font-weight: 600; padding: 2px 4px; }
  /* --- Status / hint labels --- */
  QLabel#status_lbl { color: #5a6787; font-style: italic; }
  QLabel#status_lbl[status_state="idle"]    { color: #5a6787; font-style: italic; font-weight: normal; }

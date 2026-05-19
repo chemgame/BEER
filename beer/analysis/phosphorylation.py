@@ -230,8 +230,7 @@ def format_phospho_report(
     )
     if has_context:
         summary_html += (
-            "<p class='note' style='background:#f0fdf4;border-left:3px solid #22c55e;"
-            "padding:6px 10px'>"
+            "<p class='callout-success'>"
             "<b>Context filter active</b> — sites in disordered regions (BiLSTM &gt; 0.5) "
             "or low-confidence structure (pLDDT &lt; 70) are marked "
             "<span style='color:#16a34a;font-weight:bold'>✓ high confidence</span>. "

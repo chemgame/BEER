@@ -319,6 +319,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._embedder = embedder
         self.setWindowTitle("BEER - Biophysical Evaluation Engine for Residues")
         self.resize(1200, 900)
+        self.setMinimumSize(1024, 680)
         self._is_dark = False
         self.setStyleSheet(LIGHT_THEME_CSS)
 
@@ -342,9 +343,9 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.custom_pka           = _cfg.get("custom_pka", None)
         self.colormap             = _cfg.get("colormap", "coolwarm")
         self.heatmap_cmap         = _cfg.get("heatmap_cmap", "viridis")
-        self.transparent_bg       = _cfg.get("transparent_bg", False)
-        self.label_font_size      = _cfg.get("label_font_size", 11)
-        self.tick_font_size       = _cfg.get("tick_font_size", 9)
+        self.transparent_bg       = _cfg.get("transparent_bg", True)
+        self.label_font_size      = _cfg.get("label_font_size", 14)
+        self.tick_font_size       = _cfg.get("tick_font_size", 12)
         self.marker_size          = _cfg.get("marker_size", 10)
         self.show_bead_labels     = _cfg.get("show_bead_labels", True)
         self.graph_color          = NAMED_COLORS.get(_cfg.get("graph_color", "Royal Blue"), "#4361ee")
@@ -366,6 +367,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._analysis_worker    = None
         self._progress_dlg       = None
         self._pending_pdb        = None   # stored when loadPDB is called before page ready
+        self._struct_page_ready  = False  # True once the 3Dmol base page has loaded
         self._struct_pdb_str     = None   # raw PDB string of currently loaded structure
         self._struct_marker_resi = None   # residue last clicked in 3D viewer; re-applied on graph redraw
         self._struct_sasa_data   = {}     # {PDB resi: RSA 0..1} computed on PDB load
@@ -431,6 +433,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.init_settings_tab()
         self.init_help_tab()
         self._setup_shortcuts()
+        self._disable_result_tabs()
 
         # Restore persisted theme
         if _cfg.get("theme_dark", False):
@@ -913,6 +916,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 dlg.setWindowTitle(t)
                 dlg.setMinimumWidth(540)
                 dlg.setMinimumHeight(360)
+                dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
                 dlg.setStyleSheet(_DCSS if _dark else _LCSS)
                 vbl = _QVB(dlg)
                 browser = _QTB()
@@ -922,10 +926,10 @@ class ProteinAnalyzerGUI(QMainWindow):
                 browser.setPlainText(h)
                 vbl.addWidget(browser)
                 bb = _QBB(_QBB.StandardButton.Close)
-                bb.rejected.connect(dlg.reject)
-                bb.accepted.connect(dlg.accept)
+                bb.rejected.connect(dlg.close)
+                bb.accepted.connect(dlg.close)
                 vbl.addWidget(bb)
-                dlg.exec()
+                dlg.show()  # non-modal: user can interact with the app while reading
 
             info_btn.clicked.connect(_show_info)
             vb.addWidget(info_btn, alignment=Qt.AlignmentFlag.AlignRight)
@@ -1109,6 +1113,20 @@ class ProteinAnalyzerGUI(QMainWindow):
         btn.style().unpolish(btn)
         btn.style().polish(btn)
 
+    def _mark_chip_error(self, btn: "QPushButton") -> None:
+        """Set chip button to error state (red border) to signal a failed fetch."""
+        btn.setProperty("chip_state", "error")
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+
+    def _set_status_lbl(self, lbl: "QLabel", text: str, state: str) -> None:
+        """Update a status label with an appropriate icon prefix and CSS state."""
+        prefix = {"success": "✓ ", "error": "✕ ", "idle": ""}.get(state, "")
+        lbl.setText(prefix + text)
+        lbl.setProperty("status_state", state)
+        lbl.style().unpolish(lbl)
+        lbl.style().polish(lbl)
+
     def _title_from_canvas(self, canvas) -> str | None:
         """Reverse-look-up the graph title for a given FigureCanvas."""
         for title, (_, vb) in self.graph_tabs.items():
@@ -1239,7 +1257,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         row1.addSpacing(6)
         row1.addWidget(QLabel("Fetch:"))
         self.accession_input = QLineEdit()
-        self.accession_input.setPlaceholderText("e.g. P04637 (p53)  ·  1UBQ (ubiquitin)")
+        self.accession_input.setPlaceholderText("e.g. P35637 (FUS)  ·  1UBQ  ·  P08100 (rhodopsin)")
         row1.addWidget(self.accession_input, 1)
         fetch_btn = QPushButton("Fetch")
         fetch_btn.setMinimumHeight(30)
@@ -1277,10 +1295,11 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.mutate_btn.clicked.connect(self.open_mutation_dialog)
         row2.addWidget(self.mutate_btn)
 
-        self.analyze_btn = QPushButton("Analyze  [Ctrl+\u21b5]")
+        self.analyze_btn = QPushButton("Analyze")
         self.analyze_btn.setToolTip(
             "Run classical biophysical analysis (composition, charge, hydrophobicity, etc.).\n"
-            "AI prediction heads are computed on demand when you click them in Graphs or Reports.")
+            "AI prediction heads are computed on demand when you click them in Graphs or Reports.\n"
+            "Keyboard shortcut: Ctrl+Enter")
         self.analyze_btn.setMinimumHeight(30)
         self.analyze_btn.setObjectName("primary_btn")
         self.analyze_btn.clicked.connect(self._on_analyze_btn_clicked)
@@ -1315,6 +1334,31 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         outer.addLayout(row2)
 
+        # ── Welcome / empty-state callout (hidden once analysis has run) ─────
+        self._welcome_banner = QFrame()
+        self._welcome_banner.setObjectName("welcome_banner")
+        _wb_layout = QHBoxLayout(self._welcome_banner)
+        _wb_layout.setContentsMargins(12, 8, 12, 8)
+        _wb_layout.setSpacing(16)
+        _wb_lbl = QLabel(
+            "<b>Get started:</b> Enter a UniProt or PDB accession above and click <b>Fetch</b>, "
+            "or paste a sequence below and click <b>Analyze</b>.<br>"
+            "<span class='wb_hint' style='font-size:10px;'>"
+            "Try: "
+            "<a href='beer://fetch/P35637'>P35637</a> (FUS)  ·  "
+            "<a href='beer://fetch/P08100'>P08100</a> (rhodopsin)  ·  "
+            "<a href='beer://fetch/1UBQ'>1UBQ</a> (ubiquitin)  ·  "
+            "<a href='beer://fetch/4HHB'>4HHB</a> (haemoglobin)"
+            "</span>"
+        )
+        _wb_lbl.setObjectName("welcome_lbl")
+        _wb_lbl.setOpenExternalLinks(False)
+        _wb_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        _wb_lbl.linkActivated.connect(self._on_welcome_link)
+        _wb_lbl.setWordWrap(True)
+        _wb_layout.addWidget(_wb_lbl, 1)
+        outer.addWidget(self._welcome_banner)
+
         # ── Sequence input ───────────────────────────────────────────────────
         self._seq_label = QLabel("Protein Sequence:")
         self._seq_label.setObjectName("accent_lbl")
@@ -1322,7 +1366,11 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         self.seq_text = QTextEdit()
         self.seq_text.setPlaceholderText("Paste a protein sequence here, or use Import\u2026")
-        self.seq_text.setFont(QFont("Courier New", 10))
+        _mono_font = QFont()
+        _mono_font.setFamilies(["JetBrains Mono", "Cascadia Code", "Menlo", "Consolas", "Courier New"])
+        _mono_font.setPointSize(10)
+        _mono_font.setStyleHint(QFont.StyleHint.Monospace)
+        self.seq_text.setFont(_mono_font)
         self.seq_text.setFixedHeight(100)
         self.seq_text.setAcceptDrops(True)
         outer.addWidget(self.seq_text)
@@ -1477,7 +1525,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         outer.addLayout(sv_hdr)
 
         self.seq_viewer = QTextBrowser()
-        self.seq_viewer.setFont(QFont("Courier New", 10))
+        self.seq_viewer.setFont(_mono_font)
         outer.addWidget(self.seq_viewer, 1)
 
         # ── Bottom bar: Clear All ────────────────────────────────────────────
@@ -1494,6 +1542,74 @@ class ProteinAnalyzerGUI(QMainWindow):
         # Stub out _seq_info_label so existing code that references it doesn't crash
         self._seq_info_label = QLabel("")
         self._seq_info_label.hide()
+
+    def _on_welcome_link(self, url: str) -> None:
+        """Handle clicks on example accession links in the welcome banner."""
+        if url.startswith("beer://fetch/"):
+            acc = url[len("beer://fetch/"):]
+            self.accession_input.setText(acc)
+            self.fetch_accession()
+
+    # ── Nav tab gating ───────────────────────────────────────────────────────
+
+    # Indices of tabs that require a completed analysis to be useful.
+    # Order: Analysis(0) Summary(1) Report(2) Graphs(3) Structure(4) BLAST(5)
+    #        Multichain(6) Compare(7) Truncation(8) MSA(9) Complex(10)
+    #        Settings(11) Help(12)
+    _RESULT_TAB_INDICES = (2, 3)  # Report, Graphs
+
+    def _set_nav_tab_enabled(self, idx: int, enabled: bool) -> None:
+        item = self.main_tabs.nav_list.item(idx)
+        if item is None:
+            return
+        if enabled:
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        else:
+            item.setFlags(Qt.ItemFlag(0))
+            if self.main_tabs.nav_list.currentRow() == idx:
+                self.main_tabs.setCurrentIndex(0)
+
+    def _disable_result_tabs(self) -> None:
+        for idx in self._RESULT_TAB_INDICES:
+            self._set_nav_tab_enabled(idx, False)
+
+    def _enable_result_tabs(self) -> None:
+        for idx in self._RESULT_TAB_INDICES:
+            self._set_nav_tab_enabled(idx, True)
+
+    def _flash_nav_tab(self, idx: int, flashes: int = 3) -> None:
+        """Briefly flash a nav tab item to draw attention after it is enabled."""
+        from PySide6.QtCore import QTimer
+        from PySide6.QtGui import QColor, QBrush
+        item = self.main_tabs.nav_list.item(idx)
+        if item is None:
+            return
+        accent = "#4cc9f0" if getattr(self, "_is_dark", False) else "#4361ee"
+        _on = [True]
+        _count = [0]
+
+        def _tick():
+            if _on[0]:
+                item.setForeground(QBrush(QColor(accent)))
+            else:
+                item.setForeground(QBrush())
+            _on[0] = not _on[0]
+            _count[0] += 1
+            if _count[0] >= flashes * 2:
+                item.setForeground(QBrush())
+
+        _t = QTimer(self)
+        _t.setInterval(300)
+        _t.timeout.connect(_tick)
+        _t.setSingleShot(False)
+        _count_max = flashes * 2
+
+        def _stop_when_done():
+            if _count[0] >= _count_max:
+                _t.stop()
+                _t.deleteLater()
+        _t.timeout.connect(_stop_when_done)
+        _t.start()
 
     # ── Report Tab ───────────────────────────────────────────────────────────
 
@@ -1613,7 +1729,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 _stack_idx += 1
 
         # ── AI Predictions dynamic group (populated after AI Analysis) ──────
-        self._ai_pred_grp_item = QTreeWidgetItem(["AI Predictions"])
+        self._ai_pred_grp_item = QTreeWidgetItem(["AI Feature Predictions"])
         self._ai_pred_grp_item.setFont(0, bold_font)
         self._ai_pred_grp_item.setFlags(
             self._ai_pred_grp_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
@@ -2358,6 +2474,21 @@ class ProteinAnalyzerGUI(QMainWindow):
                 vbox._page = page   # keep alive
                 return vbox
 
+            def _collapsible(grp: QGroupBox, expanded: bool = True) -> QGroupBox:
+                """Make a QGroupBox collapsible by clicking its title checkbox."""
+                grp.setCheckable(True)
+                grp.setChecked(expanded)
+
+                def _on_toggle(checked: bool) -> None:
+                    for child in grp.findChildren(
+                            QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
+                        child.setVisible(checked)
+
+                grp.toggled.connect(_on_toggle)
+                if not expanded:
+                    _on_toggle(False)
+                return grp
+
             view_l     = _tab_page("View")
             interact_l = _tab_page("Interact")
 
@@ -2374,7 +2505,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 "Cross: crosshair atoms\nTrace: Cα backbone\nSurface: molecular surface")
             self.struct_rep_combo.currentTextChanged.connect(self._on_struct_rep_changed)
             rep_gl.addWidget(self.struct_rep_combo)
-            view_l.addWidget(rep_grp)
+            view_l.addWidget(_collapsible(rep_grp))
 
             # ── Color ─────────────────────────────────────────────────────────
             color_grp = QGroupBox("Color")
@@ -2391,6 +2522,14 @@ class ProteinAnalyzerGUI(QMainWindow):
             # ── AI Features: style toggle + gradient/color selectors ──────────
             self._struct_ai_color      = "#f3722c"
             self._struct_ai_color_mode = "gradient"   # 'gradient' | 'binary'
+
+            # AI-specific sub-controls — wrapped in a container for animated expand/collapse
+            self._ai_ctrl_container = QWidget()
+            self._ai_ctrl_container.setMaximumHeight(0)
+            self._ai_ctrl_container.setVisible(False)
+            _ai_form = QFormLayout(self._ai_ctrl_container)
+            _ai_form.setSpacing(5)
+            _ai_form.setContentsMargins(0, 0, 0, 0)
 
             # Toggle row
             self.struct_ai_style_lbl = QLabel("Style:")
@@ -2414,9 +2553,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             _toggle_hb.addWidget(self._ai_grad_btn)
             _toggle_hb.addWidget(self._ai_bin_btn)
             _toggle_hb.addStretch()
-            color_gl.addRow(self.struct_ai_style_lbl, _toggle_w)
-            self.struct_ai_style_lbl.setVisible(False)
-            _toggle_w.setVisible(False)
+            _ai_form.addRow(self.struct_ai_style_lbl, _toggle_w)
             self._struct_ai_toggle_row = _toggle_w
 
             # Colormap dropdown (gradient mode)
@@ -2426,9 +2563,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.struct_ai_gradient_combo.setCurrentText("Plasma (Purple→Yellow)")
             self.struct_ai_gradient_combo.currentTextChanged.connect(
                 self._on_ai_gradient_combo_changed)
-            color_gl.addRow(self.struct_ai_gradient_lbl, self.struct_ai_gradient_combo)
-            self.struct_ai_gradient_lbl.setVisible(False)
-            self.struct_ai_gradient_combo.setVisible(False)
+            _ai_form.addRow(self.struct_ai_gradient_lbl, self.struct_ai_gradient_combo)
 
             # Color dropdown (binary mode)
             self.struct_ai_color_lbl   = QLabel("Color:")
@@ -2437,10 +2572,14 @@ class ProteinAnalyzerGUI(QMainWindow):
                 self.struct_ai_color_combo.addItem(_cn)
             self.struct_ai_color_combo.currentTextChanged.connect(
                 self._on_ai_color_combo_changed)
-            color_gl.addRow(self.struct_ai_color_lbl, self.struct_ai_color_combo)
+            _ai_form.addRow(self.struct_ai_color_lbl, self.struct_ai_color_combo)
+
+            # Hide binary controls initially (gradient is default)
             self.struct_ai_color_lbl.setVisible(False)
             self.struct_ai_color_combo.setVisible(False)
-            view_l.addWidget(color_grp)
+
+            color_gl.addRow(self._ai_ctrl_container)
+            view_l.addWidget(_collapsible(color_grp))
 
             # ── Residue Labels ────────────────────────────────────────────────
             lbl_grp = QGroupBox("Residue Labels")
@@ -2461,7 +2600,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             lbl_gl.addRow("Top N:", self.struct_reslbl_spin)
             self.struct_reslbl_cb.toggled.connect(self._on_reslbl_toggled)
             self.struct_reslbl_spin.valueChanged.connect(self._on_reslbl_n_changed)
-            view_l.addWidget(lbl_grp)
+            view_l.addWidget(_collapsible(lbl_grp, expanded=False))
 
             # ── Legend ────────────────────────────────────────────────────────
             legend_grp = QGroupBox("Legend")
@@ -2471,7 +2610,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.struct_colorbar_cb.setChecked(True)
             self.struct_colorbar_cb.toggled.connect(self._on_struct_colorbar_toggled)
             legend_gl.addWidget(self.struct_colorbar_cb)
-            view_l.addWidget(legend_grp)
+            view_l.addWidget(_collapsible(legend_grp, expanded=False))
 
             # ── Overlays ─────────────────────────────────────────────────────
             ovr_grp = QGroupBox("Overlays")
@@ -2560,7 +2699,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             _ct_rl.addStretch()
             ovr_gl.addRow(_ct_row)
 
-            view_l.addWidget(ovr_grp)
+            view_l.addWidget(_collapsible(ovr_grp))
 
             # ── Background ───────────────────────────────────────────────────
             bg_grp = QGroupBox("Background")
@@ -2574,7 +2713,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             custom_bg = QPushButton("Custom color…")
             custom_bg.clicked.connect(self._pick_background_color)
             bg_gl.addWidget(custom_bg, 1, 0, 1, 3)
-            view_l.addWidget(bg_grp)
+            view_l.addWidget(_collapsible(bg_grp, expanded=False))
 
             # ── Motion ────────────────────────────────────────────────────────
             motion_grp = QGroupBox("Motion")
@@ -2596,7 +2735,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             self.struct_spin_btn.setToolTip("Toggle continuous auto-rotation")
             self.struct_spin_btn.toggled.connect(self._on_struct_spin_toggled)
             motion_gl.addWidget(self.struct_spin_btn)
-            view_l.addWidget(motion_grp)
+            view_l.addWidget(_collapsible(motion_grp, expanded=False))
 
             # ── Export / Reset ────────────────────────────────────────────────
             snap_grp = QGroupBox("Export")
@@ -2611,7 +2750,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             snapshot_btn.setToolTip("Render the current view to a PNG file")
             snapshot_btn.clicked.connect(self._take_structure_snapshot)
             snap_gl.addWidget(snapshot_btn)
-            view_l.addWidget(snap_grp)
+            view_l.addWidget(_collapsible(snap_grp, expanded=False))
 
             # ── Chains ────────────────────────────────────────────────────────
             chains_grp = QGroupBox("Chains")
@@ -2639,7 +2778,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             chains_gl.addWidget(self._chain_cbs_widget)
             self._chain_checkboxes: dict = {}
             self._chains_grp = self._chain_cbs_widget
-            view_l.addWidget(chains_grp)
+            view_l.addWidget(_collapsible(chains_grp, expanded=False))
             view_l.addStretch()
 
             # ══ INTERACT TAB ══════════════════════════════════════════════════
@@ -2679,7 +2818,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             self._sel_count_lbl = QLabel("")
             self._sel_count_lbl.setStyleSheet("color:#a8b4f0; font-size:8pt; padding-top:1px;")
             sel_gl.addWidget(self._sel_count_lbl)
-            interact_l.addWidget(sel_grp)
+            interact_l.addWidget(_collapsible(sel_grp))
 
             # ── Measure ───────────────────────────────────────────────────────
             meas_grp = QGroupBox("Measure")
@@ -2716,7 +2855,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             meas_clear_btn.setToolTip("Remove all measurement labels and lines")
             meas_clear_btn.clicked.connect(lambda: self._js("clearDistances();"))
             meas_gl.addRow(meas_clear_btn)
-            interact_l.addWidget(meas_grp)
+            interact_l.addWidget(_collapsible(meas_grp, expanded=False))
 
             # ── Position marker status (clear button lives in the Graphs tab top bar)
             self._marker_pos_lbl = QLabel("No marker set")
@@ -3999,6 +4138,25 @@ window.addEventListener("load",init);
         if color.isValid():
             self._set_ai_feature_color(color.name())
 
+    def _animate_ai_controls(self, show: bool) -> None:
+        """Smoothly expand or collapse the AI sub-control container."""
+        from PySide6.QtCore import QPropertyAnimation, QEasingCurve
+        ctr = self._ai_ctrl_container
+        if show:
+            ctr.setVisible(True)
+            target_h = ctr.sizeHint().height() or 80
+        else:
+            target_h = 0
+        anim = QPropertyAnimation(ctr, b"maximumHeight", self)
+        anim.setDuration(180)
+        anim.setStartValue(ctr.maximumHeight())
+        anim.setEndValue(target_h)
+        anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        if not show:
+            anim.finished.connect(lambda: ctr.setVisible(False))
+        anim.start()
+        self._ai_ctrl_anim = anim   # keep alive
+
     def _on_ai_style_toggled(self, btn) -> None:
         """Switch between Gradient and Binary coloring modes."""
         mode = "gradient" if btn is self._ai_grad_btn else "binary"
@@ -4228,17 +4386,14 @@ window.addEventListener("load",init);
     def _on_struct_color_mode_changed(self, mode: str) -> None:
         self._update_scheme_combo(mode)
         is_ai = (mode == "AI Features")
-        if hasattr(self, "struct_ai_style_lbl"):
-            self.struct_ai_style_lbl.setVisible(is_ai)
-            self._struct_ai_toggle_row.setVisible(is_ai)
-        if hasattr(self, "struct_ai_gradient_lbl"):
-            in_grad = is_ai and self._struct_ai_color_mode == "gradient"
+        if hasattr(self, "_ai_ctrl_container"):
+            self._animate_ai_controls(is_ai)
+        if is_ai and hasattr(self, "struct_ai_color_lbl"):
+            in_grad = self._struct_ai_color_mode == "gradient"
             self.struct_ai_gradient_lbl.setVisible(in_grad)
             self.struct_ai_gradient_combo.setVisible(in_grad)
-        if hasattr(self, "struct_ai_color_lbl"):
-            in_bin = is_ai and self._struct_ai_color_mode == "binary"
-            self.struct_ai_color_lbl.setVisible(in_bin)
-            self.struct_ai_color_combo.setVisible(in_bin)
+            self.struct_ai_color_lbl.setVisible(not in_grad)
+            self.struct_ai_color_combo.setVisible(not in_grad)
         key = self._STRUCT_MODE_KEY.get(mode, "plddt")
         scheme = self.struct_scheme_combo.currentText()
         if mode == "AI Features":
@@ -4541,6 +4696,11 @@ window.addEventListener("load",init);
     def _on_structure_page_loaded(self, ok: bool) -> None:
         """Called once when the base 3Dmol page finishes loading.
         If a PDB was queued before the page was ready, deliver it now."""
+        if ok:
+            self._struct_page_ready = True
+            # Apply current theme background immediately
+            bg = "#1a1a2e" if getattr(self, "_is_dark", False) else "#ffffff"
+            self.structure_viewer.page().runJavaScript(f"setBackground('{bg}');")
         if ok and self._pending_pdb is not None:
             pdb_json = self._pending_pdb
             self._pending_pdb = None
@@ -4861,6 +5021,11 @@ window.addEventListener("load",init);
         layout.setSpacing(6)
         self.main_tabs.addTab(container, "Compare")
 
+        _hint = QLabel("Paste two sequences below and click <b>Compare</b> to compare biophysical properties side by side.")
+        _hint.setObjectName("placeholder_lbl")
+        _hint.setWordWrap(True)
+        layout.addWidget(_hint)
+
         # Two sequence inputs side by side
         inputs = QSplitter(Qt.Orientation.Horizontal)
         for attr, lbl in [("compare_seq_a", "Sequence A"), ("compare_seq_b", "Sequence B")]:
@@ -4900,6 +5065,11 @@ window.addEventListener("load",init);
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(6)
         self.main_tabs.addTab(container, "Multichain Analysis")
+
+        _hint = QLabel("Import a multi-chain PDB file (via <b>Import PDB</b> on the Analysis tab) to populate this table with per-chain biophysical data.")
+        _hint.setObjectName("placeholder_lbl")
+        _hint.setWordWrap(True)
+        layout.addWidget(_hint)
 
         btn_row = QHBoxLayout()
         self.batch_export_csv_btn = QPushButton("Export CSV")
@@ -4957,12 +5127,19 @@ window.addEventListener("load",init);
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         _section("Analysis Parameters")
-        self.ph_input = QLineEdit(str(self.default_pH))
-        self._set_tooltip(self.ph_input, "Sets the pH value used for net-charge calculations.")
+        self.ph_input = QDoubleSpinBox()
+        self.ph_input.setRange(0.0, 14.0)
+        self.ph_input.setSingleStep(0.1)
+        self.ph_input.setDecimals(1)
+        self.ph_input.setValue(self.default_pH)
+        self._set_tooltip(self.ph_input, "Sets the pH value used for net-charge calculations (0–14).")
         form.addRow("Default pH:", self.ph_input)
 
-        self.window_size_input = QLineEdit(str(self.default_window_size))
-        self._set_tooltip(self.window_size_input, "Length of sliding window for hydrophobicity profiles.")
+        self.window_size_input = QSpinBox()
+        self.window_size_input.setRange(3, 51)
+        self.window_size_input.setSingleStep(2)
+        self.window_size_input.setValue(self.default_window_size)
+        self._set_tooltip(self.window_size_input, "Length of sliding window for hydrophobicity profiles (odd numbers recommended).")
         form.addRow("Sliding Window Size:", self.window_size_input)
 
         self.hydro_scale_combo = QComboBox()
@@ -4977,8 +5154,33 @@ window.addEventListener("load",init);
 
         self.pka_input = QLineEdit("")
         self.pka_input.setPlaceholderText("e.g. 9.69,2.34,3.90,4.07,8.18,10.46,6.04,10.54,12.48")
-        self._set_tooltip(self.pka_input, "Leave blank for defaults. Provide nine comma-separated numbers.")
+        self._set_tooltip(self.pka_input, "Leave blank for defaults. Provide exactly 9 comma-separated floats: N-term, C-term, D, E, C, Y, H, K, R.")
+        self._pka_error_lbl = QLabel("")
+        self._pka_error_lbl.setObjectName("status_lbl")
+        self._pka_error_lbl.setProperty("status_state", "error")
+        self._pka_error_lbl.hide()
+        def _validate_pka_field():
+            raw = self.pka_input.text().strip()
+            if not raw:
+                self._pka_error_lbl.hide()
+                return
+            parts = [p.strip() for p in raw.split(",") if p.strip()]
+            if len(parts) != 9:
+                self._pka_error_lbl.setText(f"Need exactly 9 values — got {len(parts)}.")
+                self._pka_error_lbl.show()
+                self.pka_input.setStyleSheet("border: 1px solid #e74c3c;")
+            else:
+                try:
+                    list(map(float, parts))
+                    self._pka_error_lbl.hide()
+                    self.pka_input.setStyleSheet("")
+                except ValueError:
+                    self._pka_error_lbl.setText("Non-numeric value in pKa list.")
+                    self._pka_error_lbl.show()
+                    self.pka_input.setStyleSheet("border: 1px solid #e74c3c;")
+        self.pka_input.editingFinished.connect(_validate_pka_field)
         form.addRow("Override pKa (N,C,D,E,C,Y,H,K,R):", self.pka_input)
+        form.addRow("", self._pka_error_lbl)
 
         self.reducing_checkbox = QCheckBox("Assume reducing conditions (Cys not in disulphide)")
         form.addRow("", self.reducing_checkbox)
@@ -5001,14 +5203,22 @@ window.addEventListener("load",init);
         form3.setVerticalSpacing(8)
         form3.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         _section("Graph Appearance")
-        self.label_font_input = QLineEdit(str(self.label_font_size))
+        self.label_font_input = QSpinBox()
+        self.label_font_input.setRange(6, 32)
+        self.label_font_input.setValue(self.label_font_size)
+        self._set_tooltip(self.label_font_input, "Font size for axis labels and titles (6–32 pt).")
         form3.addRow("Label Font Size:", self.label_font_input)
 
-        self.tick_font_input = QLineEdit(str(self.tick_font_size))
+        self.tick_font_input = QSpinBox()
+        self.tick_font_input.setRange(6, 28)
+        self.tick_font_input.setValue(self.tick_font_size)
+        self._set_tooltip(self.tick_font_input, "Font size for tick labels (6–28 pt).")
         form3.addRow("Tick Font Size:", self.tick_font_input)
 
-        self.marker_size_input = QLineEdit(str(self.marker_size))
-        self._set_tooltip(self.marker_size_input, "Size of data markers in line and scatter graphs.")
+        self.marker_size_input = QSpinBox()
+        self.marker_size_input.setRange(1, 30)
+        self.marker_size_input.setValue(self.marker_size)
+        self._set_tooltip(self.marker_size_input, "Size of data markers in line and scatter graphs (1–30).")
         form3.addRow("Marker Size:", self.marker_size_input)
 
         self.graph_color_combo = QComboBox()
@@ -5079,11 +5289,25 @@ window.addEventListener("load",init);
         help_h.setSpacing(0)
         outer_v.addLayout(help_h)
 
+        # Left panel: search bar + section list
+        _left_w = QWidget()
+        _left_w.setFixedWidth(172)
+        _left_v = QVBoxLayout(_left_w)
+        _left_v.setContentsMargins(4, 4, 4, 2)
+        _left_v.setSpacing(3)
+
+        from PySide6.QtWidgets import QLineEdit as _QLE
+        self._help_search = _QLE()
+        self._help_search.setPlaceholderText("Search…")
+        self._help_search.setClearButtonEnabled(True)
+        self._help_search.setFixedHeight(26)
+        _left_v.addWidget(self._help_search)
+
         help_nav = QListWidget()
         help_nav.setObjectName("report_nav")
-        help_nav.setFixedWidth(172)
         help_nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        help_h.addWidget(help_nav)
+        _left_v.addWidget(help_nav, 1)
+        help_h.addWidget(_left_w)
 
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.VLine)
         sep.setFrameShadow(QFrame.Shadow.Plain); sep.setObjectName("nav_sep")
@@ -5519,6 +5743,40 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         help_nav.currentRowChanged.connect(help_stack.setCurrentIndex)
         help_nav.setCurrentRow(0)
 
+        # Wire search bar: filter sections by name OR find text in page
+        _section_names = [name for name, _ in _HELP_SECTIONS]
+
+        def _on_help_search(text: str) -> None:
+            q = text.strip().lower()
+            if not q:
+                # Show all sections, clear any highlights
+                for i in range(help_nav.count()):
+                    help_nav.item(i).setHidden(False)
+                cur = help_stack.currentWidget()
+                if cur:
+                    browser_w = cur.findChild(QTextBrowser)
+                    if browser_w:
+                        browser_w.find("")  # clear highlight
+                return
+            # Filter nav by section name
+            matched_idx = -1
+            for i, name in enumerate(_section_names):
+                hidden = q not in name.lower()
+                help_nav.item(i).setHidden(hidden)
+                if not hidden and matched_idx < 0:
+                    matched_idx = i
+            # Select the first visible match and search within it
+            if matched_idx >= 0:
+                help_nav.setCurrentRow(matched_idx)
+            # Also search within the currently displayed page
+            cur = help_stack.currentWidget()
+            if cur:
+                browser_w = cur.findChild(QTextBrowser)
+                if browser_w:
+                    browser_w.find(text)
+
+        self._help_search.textChanged.connect(_on_help_search)
+
         # Citation + Methods toolbar
         cite_bar = QHBoxLayout()
 
@@ -5721,13 +5979,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self._load_structure_viewer(pdb_str)
             self.export_structure_btn.setEnabled(True)
             n_res = sum(len(seq) for _, seq in entries)
-            self.af_status_lbl.setText(
+            self._set_status_lbl(
+                self.af_status_lbl,
                 f"Loaded {os.path.basename(file_name)}  —  "
-                f"{len(chain_structs)} chain(s), {n_res} residues total"
+                f"{len(chain_structs)} chain(s), {n_res} residues total",
+                "success",
             )
-            self.af_status_lbl.setProperty("status_state", "success")
-            self.af_status_lbl.style().unpolish(self.af_status_lbl)
-            self.af_status_lbl.style().polish(self.af_status_lbl)
         self.sequence_name = entries[0][0] if entries else pdb_base
         # Auto-populate the sequence viewer and run graphs immediately.
         # _load_batch already analysed every chain; use the first chain's data.
@@ -5777,13 +6034,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             self._load_structure_viewer(cif_str)
             self.export_structure_btn.setEnabled(True)
             n_res = sum(len(seq) for _, seq in entries)
-            self.af_status_lbl.setText(
+            self._set_status_lbl(
+                self.af_status_lbl,
                 f"Loaded {os.path.basename(file_name)}  —  "
-                f"{len(chain_structs)} chain(s), {n_res} residues total"
+                f"{len(chain_structs)} chain(s), {n_res} residues total",
+                "success",
             )
-            self.af_status_lbl.setProperty("status_state", "success")
-            self.af_status_lbl.style().unpolish(self.af_status_lbl)
-            self.af_status_lbl.style().polish(self.af_status_lbl)
         self.sequence_name = entries[0][0] if entries else cif_base
         if self.batch_data:
             first_id, first_seq, first_data = self.batch_data[0]
@@ -5898,15 +6154,14 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.on_analyze()
 
     def on_analyze(self):
+        if self._analysis_worker is not None and self._analysis_worker.isRunning():
+            return
         raw = self.seq_text.toPlainText()
         if not raw.strip():
             QMessageBox.warning(self, "Input", "Enter or paste a sequence.")
             return
 
-        try:
-            pH = float(self.ph_input.text())
-        except ValueError:
-            pH = 7.0
+        pH = self.ph_input.value()
 
         entries = self._parse_pasted_text(raw)
         if not entries:
@@ -6008,16 +6263,15 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def on_bilstm_analyze(self):
         """Run ESM2 embedding + all AI prediction heads on the current sequence."""
+        if self._analysis_worker is not None and self._analysis_worker.isRunning():
+            return
         if not self.analysis_data:
             QMessageBox.warning(self, "AI Analysis",
                                 "Run classical Analyze first.")
             return
         seq = self.analysis_data["seq"]
 
-        try:
-            pH = float(self.ph_input.text())
-        except ValueError:
-            pH = self.default_pH
+        pH = self.ph_input.value()
 
         # One-time download warning (same as before, but only shown for BiLSTM)
         from beer.embeddings import ESM2_AVAILABLE
@@ -7033,27 +7287,28 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         if self.analysis_data:
             self._refresh_report_sections()
 
+        # Update 3D structure viewer background to match theme
+        if hasattr(self, "structure_viewer") and self._struct_page_ready:
+            bg = "#1a1a2e" if is_dark else "#ffffff"
+            self._js(f"setBackground('{bg}');")
+
+        # Re-render all graphs with the new matplotlib style
+        if self.analysis_data:
+            self._generated_graphs.clear()
+            self._render_visible_graph()
+
         label = "Dark" if is_dark else "Light"
         self.statusBar.showMessage(f"{label} theme activated", 2000)
 
     def apply_settings(self):
-        try:
-            self.default_window_size = int(self.window_size_input.text())
-        except (ValueError, TypeError):
-            pass
-        try:
-            self.default_pH = float(self.ph_input.text())
-        except (ValueError, TypeError):
-            pass
-        self.show_bead_labels = self.label_checkbox.isChecked()
-        self.transparent_bg   = self.transparent_bg_checkbox.isChecked()
+        self.default_window_size = self.window_size_input.value()
+        self.default_pH          = self.ph_input.value()
+        self.show_bead_labels    = self.label_checkbox.isChecked()
+        self.transparent_bg      = self.transparent_bg_checkbox.isChecked()
         # heatmap_cmap is set per-graph via the inline colormap dropdown
-        try:
-            self.label_font_size = int(self.label_font_input.text())
-            self.tick_font_size  = int(self.tick_font_input.text())
-            self.marker_size     = int(self.marker_size_input.text())
-        except (ValueError, TypeError):
-            pass
+        self.label_font_size     = self.label_font_input.value()
+        self.tick_font_size      = self.tick_font_input.value()
+        self.marker_size         = self.marker_size_input.value()
         self.graph_color = NAMED_COLORS.get(self.graph_color_combo.currentText(), "#4361ee")
         # Propagate accent colour to graph style module
         import beer.graphs._style as _gstyle
@@ -7131,16 +7386,18 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.statusBar.showMessage("Settings applied and saved.", 5000)
 
     def reset_defaults(self):
-        self.window_size_input.setText("9")
+        self.window_size_input.setValue(9)
         self.hydro_scale_combo.setCurrentText("Kyte-Doolittle")
-        self.ph_input.setText("7.0")
+        self.ph_input.setValue(7.0)
         self.pka_input.setText("")
+        self._pka_error_lbl.hide()
+        self.pka_input.setStyleSheet("")
         self.reducing_checkbox.setChecked(False)
         self.label_checkbox.setChecked(True)
         self.heatmap_cmap = "viridis"
-        self.label_font_input.setText("11")
-        self.tick_font_input.setText("9")
-        self.marker_size_input.setText("10")
+        self.label_font_input.setValue(14)
+        self.tick_font_input.setValue(12)
+        self.marker_size_input.setValue(10)
         self.graph_color_combo.setCurrentText("Royal Blue")
         self.default_graph_format = "PNG"
         self.heading_checkbox.setChecked(True)
@@ -7204,7 +7461,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_deeptmlhmm_error(self, msg: str):
         self.fetch_deeptmhmm_btn.setEnabled(True)
-        self._mark_chip_normal(self.fetch_deeptmhmm_btn)
+        self._mark_chip_error(self.fetch_deeptmhmm_btn)
         QMessageBox.warning(
             self, "DeepTMHMM Error",
             f"{msg}\n\nThe local TMHMM\u00a02.0 result is preserved."
@@ -7266,7 +7523,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_signalp6_error(self, msg: str):
         self.fetch_signalp6_btn.setEnabled(True)
-        self._mark_chip_normal(self.fetch_signalp6_btn)
+        self._mark_chip_error(self.fetch_signalp6_btn)
         QMessageBox.warning(
             self, "SignalP 6.0 Error",
             f"{msg}\n\nThe local von Heijne result is preserved."
@@ -7295,7 +7552,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_alphafold_missense_error(self, msg: str):
         self.fetch_alphafold_missense_btn.setEnabled(True)
-        self._mark_chip_normal(self.fetch_alphafold_missense_btn)
+        self._mark_chip_error(self.fetch_alphafold_missense_btn)
         QMessageBox.warning(self, "AlphaMissense Error", msg)
 
     # --- Chain selection ---
@@ -7385,13 +7642,13 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def _setup_shortcuts(self):
         QShortcut(QKeySequence("Ctrl+Return"), self, self.on_analyze)
         QShortcut(QKeySequence("Ctrl+G"),      self,
-                  lambda: self.main_tabs.setCurrentIndex(1))
+                  lambda: self.main_tabs.setCurrentIndex(3))   # Graphs
         QShortcut(QKeySequence("Ctrl+2"), self,
-                  lambda: self.main_tabs.setCurrentIndex(2))   # Structure
+                  lambda: self.main_tabs.setCurrentIndex(4))   # Structure
         QShortcut(QKeySequence("Ctrl+3"), self,
-                  lambda: self.main_tabs.setCurrentIndex(3))   # BLAST
+                  lambda: self.main_tabs.setCurrentIndex(5))   # BLAST
         QShortcut(QKeySequence("Ctrl+7"), self,
-                  lambda: self.main_tabs.setCurrentIndex(7))   # MSA
+                  lambda: self.main_tabs.setCurrentIndex(9))   # MSA
         QShortcut(QKeySequence("Ctrl+Z"), self, self._undo_mutation)
         QShortcut(QKeySequence("Ctrl+S"),      self, self.session_save)
         QShortcut(QKeySequence("Ctrl+O"),      self, self.session_load)
@@ -7497,6 +7754,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             f"Analysis complete  |  {len(seq)} aa  |  {self.sequence_name}", 4000
         )
         self._prepend_section_summaries()
+        # Unlock gated result tabs and hide the welcome banner
+        self._enable_result_tabs()
+        if hasattr(self, "_welcome_banner"):
+            self._welcome_banner.hide()
+        # Briefly highlight Report tab to draw attention
+        self._flash_nav_tab(2)
 
     def _on_worker_error(self, msg: str):
         if hasattr(self, "_progress_dlg") and self._progress_dlg:
@@ -7636,11 +7899,11 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             n_res = len(_plddt_arr)
             mean_plddt = sum(_plddt_arr) / n_res if n_res else 0
             src = self.alphafold_data.get("accession", self.sequence_name)
-            self.af_status_lbl.setText(
-                f"Structure: {src}  ({n_res} residues, mean pLDDT = {mean_plddt:.1f})")
-            self.af_status_lbl.setProperty("status_state", "success")
-            self.af_status_lbl.style().unpolish(self.af_status_lbl)
-            self.af_status_lbl.style().polish(self.af_status_lbl)
+            self._set_status_lbl(
+                self.af_status_lbl,
+                f"Structure: {src}  ({n_res} residues, mean pLDDT = {mean_plddt:.1f})",
+                "success",
+            )
 
         # Restore chip button states
         has_acc   = bool(self.current_accession)
@@ -7761,13 +8024,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 # Load the full PDB into the 3D viewer (all chains + chain controls).
                 self._load_structure_viewer(pdb_str)
                 self.export_structure_btn.setEnabled(True)
-                self.af_status_lbl.setText(
+                self._set_status_lbl(
+                    self.af_status_lbl,
                     f"Loaded PDB {acc.upper()}  —  "
-                    f"{len(chain_structs)} chain(s), {len(tagged)} sequence(s)"
+                    f"{len(chain_structs)} chain(s), {len(tagged)} sequence(s)",
+                    "success",
                 )
-                self.af_status_lbl.setProperty("status_state", "success")
-                self.af_status_lbl.style().unpolish(self.af_status_lbl)
-                self.af_status_lbl.style().polish(self.af_status_lbl)
             except Exception:
                 pass  # Structure fetch is best-effort; sequences are already loaded
         else:
@@ -8009,13 +8271,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         n_res = len(_af_plddt)
         mean_plddt = (sum(_af_plddt) / n_res) if n_res else 0
         _af_acc = data.get("accession", self.sequence_name or "Unknown")
-        self.af_status_lbl.setText(
+        self._set_status_lbl(
+            self.af_status_lbl,
             f"Loaded AlphaFold structure for {_af_acc}  "
-            f"({n_res} residues, mean pLDDT = {mean_plddt:.1f})"
+            f"({n_res} residues, mean pLDDT = {mean_plddt:.1f})",
+            "success",
         )
-        self.af_status_lbl.setProperty("status_state", "success")
-        self.af_status_lbl.style().unpolish(self.af_status_lbl)
-        self.af_status_lbl.style().polish(self.af_status_lbl)
         self._load_structure_viewer(data["pdb_str"])
         if self.analysis_data:
             self.update_graph_tabs()
@@ -8024,7 +8285,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_alphafold_error(self, msg: str):
         self.fetch_af_btn.setEnabled(True)
-        self._mark_chip_normal(self.fetch_af_btn)
+        self._mark_chip_error(self.fetch_af_btn)
         self.statusBar.showMessage("AlphaFold fetch failed", 3000)
         QMessageBox.warning(self, "AlphaFold Error", msg)
 
@@ -8067,7 +8328,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_pfam_error(self, msg: str):
         self.fetch_pfam_btn.setEnabled(True)
-        self._mark_chip_normal(self.fetch_pfam_btn)
+        self._mark_chip_error(self.fetch_pfam_btn)
         self.statusBar.showMessage("Pfam fetch failed", 3000)
         QMessageBox.warning(self, "Pfam Error", msg)
 
@@ -8123,10 +8384,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._blast_start_time = None
         self.blast_stop_btn.setVisible(False)
         self.blast_run_btn.setEnabled(True)
-        self.blast_status_lbl.setProperty("status_state", "success")
-        self.blast_status_lbl.style().unpolish(self.blast_status_lbl)
-        self.blast_status_lbl.style().polish(self.blast_status_lbl)
-        self.blast_status_lbl.setText(f"{len(hits)} hit(s) returned.")
+        self._set_status_lbl(self.blast_status_lbl, f"{len(hits)} hit(s) returned.", "success")
         self.blast_table.setRowCount(0)
         for hit in hits:
             row = self.blast_table.rowCount()
@@ -8152,10 +8410,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self._blast_start_time = None
         self.blast_stop_btn.setVisible(False)
         self.blast_run_btn.setEnabled(True)
-        self.blast_status_lbl.setProperty("status_state", "error")
-        self.blast_status_lbl.style().unpolish(self.blast_status_lbl)
-        self.blast_status_lbl.style().polish(self.blast_status_lbl)
-        self.blast_status_lbl.setText(f"Error: {msg}")
+        self._set_status_lbl(self.blast_status_lbl, f"Error: {msg}", "error")
         QMessageBox.warning(self, "BLAST Error", msg)
 
     def _load_blast_hit(self, hit: dict):
@@ -8396,6 +8651,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
         self.setWindowTitle("BEER")
         self._update_esm2_indicator("ready")
+        self._disable_result_tabs()
+        if hasattr(self, "_welcome_banner"):
+            self._welcome_banner.show()
 
     def _clear_all(self):
         """Reset the entire session: sequence, analysis, graphs, structure."""
@@ -8579,11 +8837,11 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.label_font_size  = state.get("label_font_size", 14)
         self.tick_font_size   = state.get("tick_font_size", 12)
         # Update settings UI widgets
-        self.ph_input.setText(str(self.default_pH))
-        self.window_size_input.setText(str(self.default_window_size))
+        self.ph_input.setValue(self.default_pH)
+        self.window_size_input.setValue(self.default_window_size)
         self.transparent_bg_checkbox.setChecked(self.transparent_bg)
-        self.label_font_input.setText(str(self.label_font_size))
-        self.tick_font_input.setText(str(self.tick_font_size))
+        self.label_font_input.setValue(self.label_font_size)
+        self.tick_font_input.setValue(self.tick_font_size)
         self.statusBar.showMessage(f"Session loaded: {fn}", 3000)
         if seq:
             self.on_analyze()
@@ -8597,6 +8855,11 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
         self.main_tabs.addTab(container, "Truncation")
+
+        _hint = QLabel("Run analysis on the Analysis tab first, then use the controls below to generate a truncation series.")
+        _hint.setObjectName("placeholder_lbl")
+        _hint.setWordWrap(True)
+        layout.addWidget(_hint)
 
         ctrl = QHBoxLayout()
         ctrl.addWidget(QLabel("Step (%):"))
@@ -8644,6 +8907,11 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         layout.setSpacing(6)
         self.main_tabs.addTab(container, "MSA")
 
+        _hint = QLabel("Paste ≥2 sequences in multi-FASTA format below and click <b>Run MSA Analysis</b> to compute conservation and covariance.")
+        _hint.setObjectName("placeholder_lbl")
+        _hint.setWordWrap(True)
+        layout.addWidget(_hint)
+
         ctrl = QHBoxLayout()
         self.msa_aligned_cb = QCheckBox("Input is pre-aligned (gaps as '-')")
         self.msa_aligned_cb.setChecked(False)
@@ -8686,7 +8954,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         layout    = QVBoxLayout(container)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
-        self.main_tabs.addTab(container, "Complex")
+        self.main_tabs.addTab(container, "Protein Complex")
+
+        _hint = QLabel("Paste chain sequences in multi-FASTA format (chain ID in header), enter the stoichiometry, and click <b>Calculate Complex</b>.")
+        _hint.setObjectName("placeholder_lbl")
+        _hint.setWordWrap(True)
+        layout.addWidget(_hint)
 
         ctrl = QHBoxLayout()
         ctrl.addWidget(QLabel("Stoichiometry (e.g. A2B1):"))
@@ -8965,7 +9238,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_elm_error(self, msg: str):
         self.fetch_elm_btn.setEnabled(True)
-        self._mark_chip_normal(self.fetch_elm_btn)
+        self._mark_chip_error(self.fetch_elm_btn)
         QMessageBox.warning(self, "ELM Error", msg)
 
     def fetch_disprot(self):
@@ -9023,7 +9296,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_disprot_error(self, msg: str):
         self.fetch_disprot_btn.setEnabled(True)
-        self._mark_chip_normal(self.fetch_disprot_btn)
+        self._mark_chip_error(self.fetch_disprot_btn)
         self.statusBar.showMessage("DisProt fetch failed.", 2000)
         QMessageBox.warning(self, "DisProt Error", msg)
 
@@ -9075,7 +9348,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_phasepdb_error(self, msg: str):
         self.fetch_phasepdb_btn.setEnabled(True)
-        self._mark_chip_normal(self.fetch_phasepdb_btn)
+        self._mark_chip_error(self.fetch_phasepdb_btn)
         QMessageBox.warning(self, "PhaSepDB Error", msg)
 
     # ── MobiDB ────────────────────────────────────────────────────────────────
@@ -9136,7 +9409,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_mobidb_error(self, msg: str):
         self.fetch_mobidb_btn.setEnabled(True)
-        self._mark_chip_normal(self.fetch_mobidb_btn)
+        self._mark_chip_error(self.fetch_mobidb_btn)
         self.statusBar.showMessage("MobiDB fetch failed.", 2000)
         QMessageBox.warning(self, "MobiDB Error", msg)
 
@@ -9195,7 +9468,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_uniprot_features_error(self, msg: str):
         self.fetch_uniprot_tracks_btn.setEnabled(True)
-        self._mark_chip_normal(self.fetch_uniprot_tracks_btn)
+        self._mark_chip_error(self.fetch_uniprot_tracks_btn)
         self.statusBar.showMessage("UniProt features fetch failed.", 2000)
 
     # ── Sequence → UniProt ID lookup ──────────────────────────────────────────
@@ -9232,6 +9505,17 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 "  • is a fragment of a longer canonical entry\n\n"
                 "You can enter the accession manually in the Fetch field."
             )
+            return
+        reply = QMessageBox.question(
+            self, "UniProt Match Found",
+            f"A matching UniProt Swiss-Prot entry was found:\n\n"
+            f"    {acc}\n\n"
+            f"Load this entry? (This will fetch the accession and populate all data.)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            self.statusBar.showMessage(f"UniProt match {acc} not loaded.", 3000)
             return
         # Delegate to fetch_accession — populates name, info bar, all chip buttons
         self.accession_input.setText(acc)
@@ -9300,7 +9584,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_variants_error(self, msg: str):
         self.fetch_variants_btn.setEnabled(True)
-        self._mark_chip_normal(self.fetch_variants_btn)
+        self._mark_chip_error(self.fetch_variants_btn)
         self.statusBar.showMessage("Variants fetch failed.", 2000)
         QMessageBox.warning(self, "Variants Error", msg)
 
@@ -9385,7 +9669,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _on_intact_error(self, msg: str):
         self.fetch_intact_btn.setEnabled(True)
-        self._mark_chip_normal(self.fetch_intact_btn)
+        self._mark_chip_error(self.fetch_intact_btn)
         self.statusBar.showMessage("IntAct fetch failed.", 2000)
         QMessageBox.warning(self, "IntAct Error", msg)
 
@@ -9606,8 +9890,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             browser = self.report_section_tabs.get(sec)
             if browser:
                 current_html = browser.toHtml()
-                banner = (f"<p style='background:#f0f4ff;border-left:3px solid #4361ee;"
-                          f"padding:4px 8px;margin:0 0 6px 0;font-size:9pt;color:#2d3748;'>"
+                banner = (f"<p class='callout-info' style='padding:4px 8px;"
+                          f"margin:0 0 6px 0;font-size:9pt;'>"
                           f"<b>Summary:</b> {summary}</p>")
                 if "Summary:" not in current_html:
                     browser.setHtml(banner + current_html)
@@ -9722,11 +10006,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             if not values:
                 # Untrained BiLSTM head — append a muted badge only
                 badge = (
-                    "<div style='margin:8px 0 4px;padding:5px 10px;"
-                    "background:#fafafa;border:1px solid #e2e8f0;border-radius:6px;"
-                    "display:inline-block;font-family:sans-serif;font-size:10px;"
-                    "color:#94a3b8'>AI head not yet trained — run training to "
-                    "enable this profile.</div>"
+                    "<div class='callout-badge'>"
+                    "AI head not yet trained — run training to enable this profile."
+                    "</div>"
                 )
                 current = browser.toHtml()
                 if "AI head not yet trained" not in current:
@@ -9914,8 +10196,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         )
         _placeholder_html = _style + (
             "<h2>AI Prediction — not yet computed</h2>"
-            "<div style='background:#f0f4ff;border-left:4px solid #4361ee;"
-            "padding:16px;border-radius:4px;margin:12px 0'>"
+            "<div class='callout-info'>"
             "<b>Click this section in the sidebar to compute the prediction.</b>"
             "<p style='margin:6px 0 0'>BEER will run the ESM2 650M embedding and "
             "the corresponding BiLSTM head for this feature only. "
@@ -9988,13 +10269,21 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             _style = make_style_tag(dark=getattr(self, "_is_dark", False))
             browser.setHtml(_style + (
                 f"<h2>{display_name} — computing…</h2>"
-                "<div style='background:#fff8e1;border-left:4px solid #f59e0b;"
-                "padding:16px;border-radius:4px;margin:12px 0'>"
+                "<div class='callout-warn'>"
                 f"<b>⏳ Running ESM2 BiLSTM for <em>{display_name}</em>…</b>"
                 "<p style='margin:6px 0 0'>This may take a moment on first use "
                 "(the embedding is cached for subsequent sections).</p>"
                 "</div>"
             ))
+
+        # Update the graph panel placeholder to show "computing" state
+        if graph_title in self.graph_tabs and graph_title not in self._generated_graphs:
+            _, _vb = self.graph_tabs[graph_title]
+            for _i in range(_vb.count()):
+                _w = _vb.itemAt(_i).widget()
+                if isinstance(_w, QLabel) and _w.objectName() == "placeholder_lbl":
+                    _w.setText(f"Computing AI predictions…\n{graph_title}")
+                    break
 
         seq = self.analysis_data.get("seq", "")
         self.statusBar.showMessage(
@@ -10101,8 +10390,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             _style = make_style_tag(dark=getattr(self, "_is_dark", False))
             browser.setHtml(_style + (
                 f"<h2>{display_name} — error</h2>"
-                "<div style='background:#fff0f0;border-left:4px solid #ef4444;"
-                "padding:16px;border-radius:4px;margin:12px 0'>"
+                "<div class='callout-error'>"
                 f"<b>Computation failed.</b><pre style='font-size:9pt;"
                 f"white-space:pre-wrap'>{msg}</pre>"
                 "<p>Check that ESM2 and the model file are installed correctly, "

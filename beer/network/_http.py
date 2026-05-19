@@ -24,8 +24,9 @@ def _safe_int(value, default: int = 0) -> int:
 def _get_json(url: str, timeout: int = _TIMEOUT_SECONDS) -> object:
     """Perform a GET request and return decoded JSON.
 
-    Raises urllib.error.HTTPError / urllib.error.URLError on failure.
-    Raises json.JSONDecodeError on bad JSON.
+    Raises urllib.error.HTTPError / urllib.error.URLError on network failure.
+    Re-raises json.JSONDecodeError as urllib.error.URLError so all callers
+    need only catch URLError/HTTPError.
     """
     req = urllib.request.Request(
         url,
@@ -36,7 +37,12 @@ def _get_json(url: str, timeout: int = _TIMEOUT_SECONDS) -> object:
     )
     with urllib.request.urlopen(req, timeout=timeout) as response:
         raw = response.read().decode("utf-8")
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise urllib.error.URLError(
+            f"Server returned non-JSON response from {url}: {exc}"
+        ) from exc
 
 
 def fetch_elm(uniprot_accession: str) -> list:
