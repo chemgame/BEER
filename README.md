@@ -62,9 +62,9 @@ git clone https://github.com/chemgame/BEER.git && cd BEER
 pip install -e ".[dev]"
 ```
 
-**Linux only** — install system Qt/xcb dependencies via your package manager:
+**Linux only** — Qt requires xcb platform libraries. Choose the method that fits your system:
 
-Ubuntu / Debian:
+**With root access — Ubuntu / Debian:**
 ```bash
 sudo apt-get install -y \
     libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
@@ -72,7 +72,7 @@ sudo apt-get install -y \
     libnss3 libxcomposite1 libxrandr2 libxdamage1 libdrm2 libgbm1
 ```
 
-Fedora / RHEL:
+**With root access — Fedora / RHEL:**
 ```bash
 sudo dnf install -y \
     xcb-util-cursor xcb-util-icccm xcb-util-image xcb-util-keysyms \
@@ -80,7 +80,18 @@ sudo dnf install -y \
     nss libXcomposite libXrandr libXdamage libdrm mesa-libgbm
 ```
 
-These are OS-level libraries required by Qt's xcb platform plugin. They cannot be installed via conda or pip.
+**Without root access** (HPC clusters, shared systems) — install into the conda environment instead:
+```bash
+conda install -n beer -c conda-forge \
+    xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil \
+    xcb-util-wm libxkbcommon xorg-libxrandr xorg-libxcomposite \
+    xorg-libxdamage nss libdrm -y
+
+mkdir -p $CONDA_PREFIX/etc/conda/activate.d
+echo 'export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH' \
+    > $CONDA_PREFIX/etc/conda/activate.d/beer_xcb.sh
+conda deactivate && conda activate beer
+```
 
 ---
 
