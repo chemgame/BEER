@@ -62,16 +62,25 @@ git clone https://github.com/chemgame/BEER.git && cd BEER
 pip install -e ".[dev]"
 ```
 
-**Linux only** — install Qt platform libraries and set the library path:
+**Linux only** — install system Qt/xcb dependencies via your package manager:
 
+Ubuntu / Debian:
 ```bash
-conda install -n beer -c conda-forge xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm libxkbcommon libnss libdrm libxcomposite libxdamage libxrandr libgbm -y
+sudo apt-get install -y \
+    libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+    libxcb-render-util0 libxcb-xkb1 libxkbcommon-x11-0 \
+    libnss3 libxcomposite1 libxrandr2 libxdamage1 libdrm2 libgbm1
 ```
 
+Fedora / RHEL:
 ```bash
-mkdir -p $CONDA_PREFIX/etc/conda/activate.d
-echo 'export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH' > $CONDA_PREFIX/etc/conda/activate.d/beer_xcb.sh
+sudo dnf install -y \
+    xcb-util-cursor xcb-util-icccm xcb-util-image xcb-util-keysyms \
+    xcb-util-renderutil libxkbcommon-x11 \
+    nss libXcomposite libXrandr libXdamage libdrm mesa-libgbm
 ```
+
+These are OS-level libraries required by Qt's xcb platform plugin. They cannot be installed via conda or pip.
 
 ---
 
