@@ -1994,13 +1994,19 @@ class ProteinAnalyzerGUI(QMainWindow):
         motifs   = data.get("motifs") or {}
         pfam     = getattr(self, "pfam_domains", []) or []
 
+        _dark    = getattr(self, "_is_dark", False)
+        _accent  = "#7b9cff" if _dark else "#4361ee"
+        _border  = "#2d3561" if _dark else "#e2e8f0"
+        _muted   = "#94a3b8" if _dark else "#64748b"
+        _fg      = "#e2e8f0" if _dark else "#1a1a2e"
+
         def _sec(title, items):
             if not items:
                 return ""
             lis = "".join(f"<li style='margin:3px 0'>{i}</li>" for i in items)
             return (
-                f"<h3 style='margin:14px 0 4px;color:#1a1a2e;font-size:13px;"
-                f"border-bottom:1px solid #e2e8f0;padding-bottom:3px'>{title}</h3>"
+                f"<h3 style='margin:14px 0 4px;color:{_accent};font-size:13px;"
+                f"border-bottom:1px solid {_border};padding-bottom:3px'>{title}</h3>"
                 f"<ul style='margin:0;padding-left:18px;font-size:12px'>{lis}</ul>"
             )
 
@@ -2129,8 +2135,8 @@ class ProteinAnalyzerGUI(QMainWindow):
         # ── Assemble ──────────────────────────────────────────────────────
         html = (
             "<div style='font-family:sans-serif;max-width:800px'>"
-            f"<h2 style='color:#1a1a2e;margin:0 0 4px'>{self._display_name()}</h2>"
-            f"<p style='color:#64748b;font-size:11px;margin:0 0 10px'>"
+            f"<h2 style='color:{_accent};margin:0 0 4px'>{self._display_name()}</h2>"
+            f"<p style='color:{_muted};font-size:11px;margin:0 0 10px'>"
             f"BEER v2.0 · AI Predictions analysis</p>"
         )
         if card_items:
@@ -7209,6 +7215,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         # Re-render report section browsers if analysis is loaded
         if self.analysis_data:
             self._refresh_report_sections()
+            self._summary_tab_browser.setHtml(
+                self._build_summary_tab_html(self.analysis_data))
 
         # Update 3D structure viewer background to match theme
         if hasattr(self, "structure_viewer") and self._struct_page_ready:
