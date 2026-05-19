@@ -77,9 +77,9 @@ LIGHT_THEME_CSS = """
      border-top-right-radius: 3px; border-bottom-right-radius: 3px;
  }
  QComboBox::down-arrow { width: 10px; height: 10px; }
- QComboBox:hover { border-color: #4361ee; }
- QComboBox:hover::drop-down { background: #e0e4f0; border-left-color: #4361ee; }
- QComboBox:focus { border-color: #4361ee; }
+ QComboBox:hover { border-color: #4361ee; background: #f0f4ff; }
+ QComboBox:hover::drop-down { background: #dce3f8; border-left-color: #4361ee; }
+ QComboBox:focus { border-color: #4361ee; background: #f8f9ff; }
  QLabel { color: #2d3748; font-weight: 500; }
  QCheckBox { color: #2d3748; spacing: 6px; }
  QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #d0d4e0; border-radius: 4px; }
@@ -231,6 +231,18 @@ LIGHT_THEME_CSS = """
      color: #8899b0;
  }
  QToolButton#info_btn:hover { color: #4361ee; background: transparent; }
+ /* --- Secondary (outline) buttons --- */
+ QPushButton#secondary_btn {
+     background: transparent;
+     color: #4361ee;
+     border: 1px solid #c8d0ec;
+     border-radius: 4px;
+     padding: 6px 14px;
+     font-weight: 500;
+ }
+ QPushButton#secondary_btn:hover { background: #eef1fc; border-color: #4361ee; }
+ QPushButton#secondary_btn:pressed { background: #dce3f8; }
+ QPushButton#secondary_btn:disabled { color: #b0b8cc; border-color: #dcdee8; }
  /* --- Delete / danger buttons --- */
  QPushButton#delete_btn { background-color: #e63946; color: #ffffff; }
  QPushButton#delete_btn:hover { background-color: #c1121f; }
@@ -330,9 +342,9 @@ DARK_THEME_CSS = """
      border-top-right-radius: 3px; border-bottom-right-radius: 3px;
  }
  QComboBox::down-arrow { width: 10px; height: 10px; }
- QComboBox:hover { border-color: #7b9cff; }
+ QComboBox:hover { border-color: #7b9cff; background: #1e2448; }
  QComboBox:hover::drop-down { background: #1e3060; border-left-color: #7b9cff; }
- QComboBox:focus { border-color: #7b9cff; }
+ QComboBox:focus { border-color: #7b9cff; background: #1a2240; }
  QLabel { color: #94a3b8; font-weight: 500; }
  QCheckBox { color: #94a3b8; spacing: 6px; }
  QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #2d3561; border-radius: 4px; }
@@ -479,6 +491,18 @@ DARK_THEME_CSS = """
      color: #4a5a7a;
  }
  QToolButton#info_btn:hover { color: #7b9cff; background: transparent; }
+ /* --- Secondary (outline) buttons --- */
+ QPushButton#secondary_btn {
+     background: transparent;
+     color: #7b9cff;
+     border: 1px solid #2d3561;
+     border-radius: 4px;
+     padding: 6px 14px;
+     font-weight: 500;
+ }
+ QPushButton#secondary_btn:hover { background: #1a2a50; border-color: #7b9cff; }
+ QPushButton#secondary_btn:pressed { background: #0f3460; }
+ QPushButton#secondary_btn:disabled { color: #2d3a5a; border-color: #1a2540; }
  /* --- Delete / danger buttons --- */
  QPushButton#delete_btn { background-color: #c1121f; color: #ffffff; }
  QPushButton#delete_btn:hover { background-color: #a50f1a; }
@@ -541,7 +565,7 @@ STRUCT_PANEL_CSS_LIGHT = """
         border-top-right-radius: 3px; border-bottom-right-radius: 3px;
     }
     QComboBox::down-arrow { width: 8px; height: 8px; }
-    QComboBox:hover { border-color: #4361ee; }
+    QComboBox:hover { border-color: #4361ee; background: #f0f4ff; }
     QComboBox:hover::drop-down { background: #dce3f8; border-left-color: #4361ee; }
     QLabel    { font-size: 9pt; color: #5a6787; background: transparent; }
     QLabel#struct_hint  { color: #8892b0; font-size: 8pt; }
@@ -558,11 +582,11 @@ STRUCT_PANEL_CSS_LIGHT = """
     }
     QPushButton#struct_section_btn {
         text-align: left; font-size: 9pt; font-weight: 700;
-        color: #3b4fc8; background: #eef1fc;
-        border: none; border-radius: 4px;
-        padding: 5px 6px; margin-top: 4px;
+        color: #3b4fc8; background: transparent;
+        border: none; border-left: 3px solid #4361ee;
+        border-radius: 0; padding: 5px 6px; margin-top: 6px;
     }
-    QPushButton#struct_section_btn:hover { background: #e0e4f8; }
+    QPushButton#struct_section_btn:hover { background: #eef1fc; }
     QPushButton#struct_reset_btn {
         background: transparent; color: #3b4fc8;
         border: 1px solid #c8d0ec; border-radius: 4px;
@@ -574,6 +598,10 @@ STRUCT_PANEL_CSS_LIGHT = """
     QGroupBox#struct_grp_content {
         border: none; margin-top: 0;
         padding: 4px 0 0 8px; background: transparent;
+    }
+    QLabel#struct_interact_lbl {
+        font-size: 8pt; font-weight: 700; color: #8892b0;
+        padding: 2px 6px 0 6px; background: transparent;
     }
 """
 
@@ -622,7 +650,7 @@ STRUCT_PANEL_CSS_DARK = """
         border-top-right-radius: 3px; border-bottom-right-radius: 3px;
     }
     QComboBox::down-arrow { width: 8px; height: 8px; }
-    QComboBox:hover { border-color: #7b9cff; }
+    QComboBox:hover { border-color: #7b9cff; background: #1e2448; }
     QComboBox:hover::drop-down { background: #1e3060; border-left-color: #7b9cff; }
     QLabel    { font-size: 9pt; color: #94a3b8; background: transparent; }
     QLabel#struct_hint  { color: #6b78a8; font-size: 8pt; }
@@ -639,9 +667,9 @@ STRUCT_PANEL_CSS_DARK = """
     }
     QPushButton#struct_section_btn {
         text-align: left; font-size: 9pt; font-weight: 700;
-        color: #7b9cff; background: #1a2240;
-        border: none; border-radius: 4px;
-        padding: 5px 6px; margin-top: 4px;
+        color: #7b9cff; background: transparent;
+        border: none; border-left: 3px solid #7b9cff;
+        border-radius: 0; padding: 5px 6px; margin-top: 6px;
     }
     QPushButton#struct_section_btn:hover { background: #1e2a50; }
     QPushButton#struct_reset_btn {
@@ -655,6 +683,10 @@ STRUCT_PANEL_CSS_DARK = """
     QGroupBox#struct_grp_content {
         border: none; margin-top: 0;
         padding: 4px 0 0 8px; background: transparent;
+    }
+    QLabel#struct_interact_lbl {
+        font-size: 8pt; font-weight: 700; color: #4a5a7a;
+        padding: 2px 6px 0 6px; background: transparent;
     }
 """
 

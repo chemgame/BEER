@@ -2365,7 +2365,8 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.af_status_lbl.setObjectName("status_lbl")
         self.af_status_lbl.setProperty("status_state", "idle")
         info_row.addWidget(self.af_status_lbl, 1)
-        self.export_structure_btn = QPushButton("Export Structure / Sequence")
+        self.export_structure_btn = QPushButton("Export…")
+        self.export_structure_btn.setObjectName("secondary_btn")
         self.export_structure_btn.setToolTip(
             "Export as PDB, mmCIF, GRO, XYZ (requires loaded structure) or FASTA (requires analysis)")
         self.export_structure_btn.clicked.connect(self.export_structure_dialog)
@@ -2377,33 +2378,21 @@ class ProteinAnalyzerGUI(QMainWindow):
             content_row = QHBoxLayout()
             content_row.setSpacing(8)
 
-            # ── left panel: 4-tab control widget ─────────────────────────────
-            self.struct_ctrl_scroll = QTabWidget()
-            self.struct_ctrl_scroll.setFixedWidth(220)
-            # Fusion style makes QTabBar respect stylesheets identically on
-            # macOS (native style overrides colours) and Linux (Breeze/GTK vary).
+            # ── left panel: single scrollable control panel ───────────────────
+            _ctrl_page = QWidget()
+            _ctrl_page.setObjectName("structCtrl")
+            _ctrl_vbox = QVBoxLayout(_ctrl_page)
+            _ctrl_vbox.setContentsMargins(6, 8, 6, 8)
+            _ctrl_vbox.setSpacing(6)
+            self.struct_ctrl_scroll = QScrollArea()
+            self.struct_ctrl_scroll.setFixedWidth(260)
+            self.struct_ctrl_scroll.setWidgetResizable(True)
+            self.struct_ctrl_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+            self.struct_ctrl_scroll.setWidget(_ctrl_page)
             _fusion = QStyleFactory.create("Fusion")
             if _fusion:
                 self.struct_ctrl_scroll.setStyle(_fusion)
-                self.struct_ctrl_scroll.tabBar().setStyle(_fusion)
             self.struct_ctrl_scroll.setStyleSheet(STRUCT_PANEL_CSS_LIGHT)
-            self.struct_ctrl_scroll.tabBar().setStyleSheet(STRUCT_TABBAR_CSS_LIGHT)
-            ctrl_tabs = self.struct_ctrl_scroll
-
-            def _tab_page(label: str) -> QVBoxLayout:
-                """Create a scrollable tab page; return its inner layout."""
-                page = QWidget()
-                page.setObjectName("structCtrl")
-                vbox = QVBoxLayout(page)
-                vbox.setContentsMargins(6, 8, 6, 8)
-                vbox.setSpacing(6)
-                scroll = QScrollArea()
-                scroll.setWidgetResizable(True)
-                scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-                scroll.setWidget(page)
-                ctrl_tabs.addTab(scroll, label)
-                vbox._page = page   # keep alive
-                return vbox
 
             def _collapsible(grp: QGroupBox, expanded: bool = True) -> QWidget:
                 """Wrap a GroupBox in an accordion section with a ▶/▼ toggle button."""
@@ -2431,10 +2420,9 @@ class ProteinAnalyzerGUI(QMainWindow):
                 wl.addWidget(grp)
                 return wrapper
 
-            view_l     = _tab_page("View")
-            interact_l = _tab_page("Interact")
+            view_l = _ctrl_vbox
 
-            # ══ VIEW TAB ══════════════════════════════════════════════════════
+            # ══ VIEW SECTIONS ════════════════════════════════════════════════
 
             # ── Persistent Reset View ─────────────────────────────────────────
             _rst_btn = QPushButton("↺  Reset View")
@@ -2582,8 +2570,8 @@ class ProteinAnalyzerGUI(QMainWindow):
             self._hbond_color_btn = QPushButton()
             self._hbond_color_btn.setFixedSize(22, 22)
             self._hbond_color_btn.setStyleSheet(
-                f"background:{self._hbond_color};border:1px solid #ccc;border-radius:3px;")
-            self._hbond_color_btn.setToolTip("H-bond colour")
+                f"background:{self._hbond_color};border:1px solid rgba(0,0,0,0.2);border-radius:6px;")
+            self._hbond_color_btn.setToolTip("Click to change H-bond colour")
             def _pick_hbond_color():
                 from PySide6.QtWidgets import QColorDialog as _CD
                 c = _CD.getColor(
@@ -2593,16 +2581,17 @@ class ProteinAnalyzerGUI(QMainWindow):
                     self._hbond_color = c.name()
                     self._hbond_color_btn.setStyleSheet(
                         f"background:{self._hbond_color};"
-                        f"border:1px solid #ccc;border-radius:3px;")
+                        f"border:1px solid rgba(0,0,0,0.2);border-radius:6px;")
                     self._js(f"setHBondStyle('{self._hbond_color}',{self._hbond_radius_sb.value():.2f});")
             self._hbond_color_btn.clicked.connect(_pick_hbond_color)
             _hb_rl.addWidget(self._hbond_color_btn)
-            _hb_rl.addWidget(QLabel("r:"))
+            _hb_rl.addWidget(QLabel("Radius:"))
             from PySide6.QtWidgets import QDoubleSpinBox as _DSB
             self._hbond_radius_sb = _DSB()
             self._hbond_radius_sb.setRange(0.02, 0.25); self._hbond_radius_sb.setSingleStep(0.01)
             self._hbond_radius_sb.setValue(0.07); self._hbond_radius_sb.setFixedWidth(58)
-            self._hbond_radius_sb.setToolTip("Cylinder radius (Å)")
+            self._hbond_radius_sb.setToolTip("Cylinder radius in Å")
+            self._hbond_radius_sb.setSuffix(" Å")
             self._hbond_radius_sb.valueChanged.connect(
                 lambda v: self._js(f"setHBondStyle('{self._hbond_color}',{v:.2f});"))
             _hb_rl.addWidget(self._hbond_radius_sb)
@@ -2624,8 +2613,8 @@ class ProteinAnalyzerGUI(QMainWindow):
             self._contact_color_btn = QPushButton()
             self._contact_color_btn.setFixedSize(22, 22)
             self._contact_color_btn.setStyleSheet(
-                f"background:{self._contact_color};border:1px solid #ccc;border-radius:3px;")
-            self._contact_color_btn.setToolTip("Contact line colour")
+                f"background:{self._contact_color};border:1px solid rgba(0,0,0,0.2);border-radius:6px;")
+            self._contact_color_btn.setToolTip("Click to change contact line colour")
             def _pick_contact_color():
                 from PySide6.QtWidgets import QColorDialog as _CD2
                 c = _CD2.getColor(parent=self, title="Contact colour")
@@ -2633,15 +2622,15 @@ class ProteinAnalyzerGUI(QMainWindow):
                     self._contact_color = c.name()
                     self._contact_color_btn.setStyleSheet(
                         f"background:{self._contact_color};"
-                        f"border:1px solid #ccc;border-radius:3px;")
+                        f"border:1px solid rgba(0,0,0,0.2);border-radius:6px;")
                     self._js(f"setContactStyle('{self._contact_color}',{self._contact_opacity_sb.value():.2f});")
             self._contact_color_btn.clicked.connect(_pick_contact_color)
             _ct_rl.addWidget(self._contact_color_btn)
-            _ct_rl.addWidget(QLabel("α:"))
+            _ct_rl.addWidget(QLabel("Opacity:"))
             self._contact_opacity_sb = _DSB()
             self._contact_opacity_sb.setRange(0.05, 1.0); self._contact_opacity_sb.setSingleStep(0.05)
-            self._contact_opacity_sb.setValue(0.30); self._contact_opacity_sb.setFixedWidth(58)
-            self._contact_opacity_sb.setToolTip("Line opacity (0–1)")
+            self._contact_opacity_sb.setValue(0.30); self._contact_opacity_sb.setFixedWidth(62)
+            self._contact_opacity_sb.setToolTip("Line opacity (0.05 – 1.0)")
             self._contact_opacity_sb.valueChanged.connect(
                 lambda v: self._js(f"setContactStyle('{self._contact_color}',{v:.2f});"))
             _ct_rl.addWidget(self._contact_opacity_sb)
@@ -2724,9 +2713,20 @@ class ProteinAnalyzerGUI(QMainWindow):
             self._chain_checkboxes: dict = {}
             self._chains_grp = self._chain_cbs_widget
             view_l.addWidget(_collapsible(chains_grp, expanded=False))
-            view_l.addStretch()
 
-            # ══ INTERACT TAB ══════════════════════════════════════════════════
+            # ── Interact section divider ──────────────────────────────────────
+            _interact_sep = QFrame()
+            _interact_sep.setFrameShape(QFrame.Shape.HLine)
+            _interact_sep.setFrameShadow(QFrame.Shadow.Plain)
+            _interact_sep.setObjectName("nav_sep_h")
+            _ctrl_vbox.addWidget(_interact_sep)
+            _interact_lbl = QLabel("  Interact")
+            _interact_lbl.setObjectName("struct_interact_lbl")
+            _ctrl_vbox.addWidget(_interact_lbl)
+
+            interact_l = _ctrl_vbox
+
+            # ══ INTERACT SECTIONS ════════════════════════════════════════════
 
             # ── Selection ─────────────────────────────────────────────────────
             sel_grp = QGroupBox("Selection")
@@ -2810,7 +2810,7 @@ class ProteinAnalyzerGUI(QMainWindow):
 
 
 
-            content_row.addWidget(ctrl_tabs)
+            content_row.addWidget(self.struct_ctrl_scroll)
 
             # ── 3-D viewer ────────────────────────────────────────────────────
             self.structure_viewer = QWebEngineView()
@@ -7176,9 +7176,6 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         # Update structure control panel stylesheet
         if hasattr(self, "struct_ctrl_scroll"):
             self.struct_ctrl_scroll.setStyleSheet(struct_css)
-            tabbar_css = (STRUCT_TABBAR_CSS_DARK
-                          if is_dark else STRUCT_TABBAR_CSS_LIGHT)
-            self.struct_ctrl_scroll.tabBar().setStyleSheet(tabbar_css)
         if hasattr(self, "_struct_title_lbl"):
             self._struct_title_lbl.setStyleSheet(
                 f"font-weight:700; font-size:10pt; color:{struct_title_color};"
