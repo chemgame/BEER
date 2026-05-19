@@ -1402,88 +1402,76 @@ class ProteinAnalyzerGUI(QMainWindow):
         ext_vbox.setContentsMargins(0, 2, 0, 2)
         ext_vbox.setSpacing(2)
 
-        chips_row = QHBoxLayout()
-        chips_row.setSpacing(4)
-
-        def _sep():
-            f = QFrame()
-            f.setFrameShape(QFrame.Shape.VLine)
-            f.setFrameShadow(QFrame.Shadow.Plain)
-            f.setObjectName("v_sep")
-            f.setMaximumHeight(20)
-            return f
-
-        def _chip(label, tip, slot):
+        def _chip(label, tip, slot, row):
             b = QPushButton(label)
             b.setObjectName("chip_btn")
             b.setProperty("chip_state", "normal")
             b.setEnabled(False)
             b.setToolTip(tip)
             b.clicked.connect(slot)
-            chips_row.addWidget(b)
+            row.addWidget(b)
             return b
 
+        chips_row1 = QHBoxLayout()
+        chips_row1.setSpacing(4)
         grp_lbl = QLabel("Structure")
         grp_lbl.setObjectName("group_lbl")
-        chips_row.addWidget(grp_lbl)
+        chips_row1.addWidget(grp_lbl)
         self.fetch_af_btn = _chip("AlphaFold",
             "Fetch AlphaFold predicted structure (requires UniProt accession)",
-            self.fetch_alphafold)
+            self.fetch_alphafold, chips_row1)
         self.fetch_pfam_btn = _chip("Pfam",
             "Fetch Pfam domain annotations from InterPro",
-            self.fetch_pfam)
+            self.fetch_pfam, chips_row1)
         self.fetch_deeptmhmm_btn = _chip("DeepTMHMM",
             "Run DeepTMHMM transmembrane topology prediction (requires internet + pybiolib)",
-            self._run_deeptmlhmm)
+            self._run_deeptmlhmm, chips_row1)
         self.fetch_signalp6_btn = _chip("SignalP 6",
             "Run SignalP 6.0 signal peptide prediction via BioLib (requires internet + pybiolib)",
-            self._run_signalp6)
+            self._run_signalp6, chips_row1)
         # UniProt Tracks is accessible from the Graphs tab top bar; no chip here.
         self.fetch_uniprot_tracks_btn = QPushButton(); self.fetch_uniprot_tracks_btn.hide()
         self.fetch_uniprot_tracks_btn.clicked.connect(self.fetch_uniprot_features)
+        chips_row1.addStretch()
 
-        chips_row.addSpacing(4); chips_row.addWidget(_sep()); chips_row.addSpacing(4)
-
+        chips_row2 = QHBoxLayout()
+        chips_row2.setSpacing(4)
         grp_lbl2 = QLabel("Disorder / IDP")
         grp_lbl2.setObjectName("group_lbl")
-        chips_row.addWidget(grp_lbl2)
+        chips_row2.addWidget(grp_lbl2)
         self.fetch_elm_btn = _chip("ELM",
             "Fetch experimentally validated linear motifs from ELM (UniProt only)",
-            self.fetch_elm)
+            self.fetch_elm, chips_row2)
         self.fetch_disprot_btn = _chip("DisProt",
             "Fetch disorder annotations from DisProt (UniProt only)",
-            self.fetch_disprot)
+            self.fetch_disprot, chips_row2)
         self.fetch_mobidb_btn = _chip("MobiDB",
             "Fetch consensus disorder annotations from MobiDB (UniProt only)",
-            self.fetch_mobidb)
+            self.fetch_mobidb, chips_row2)
         self.fetch_phasepdb_btn = _chip("PhaSepDB",
             "Check phase-separation database PhaSepDB (UniProt only)",
-            self.fetch_phasepdb)
+            self.fetch_phasepdb, chips_row2)
+        chips_row2.addStretch()
 
-        chips_row.addSpacing(4); chips_row.addWidget(_sep()); chips_row.addSpacing(4)
-
+        chips_row3 = QHBoxLayout()
+        chips_row3.setSpacing(4)
         grp_lbl3 = QLabel("Variants & Interactions")
         grp_lbl3.setObjectName("group_lbl")
-        chips_row.addWidget(grp_lbl3)
+        chips_row3.addWidget(grp_lbl3)
         self.fetch_variants_btn = _chip("Variants",
             "Fetch natural variants and mutagenesis data from UniProt",
-            self.fetch_variants)
+            self.fetch_variants, chips_row3)
         self.fetch_alphafold_missense_btn = _chip("AlphaMissense",
             "Fetch AlphaMissense variant pathogenicity scores from EBI (UniProt only)",
-            lambda: self._run_alphafold_missense(self.current_accession))
+            lambda: self._run_alphafold_missense(self.current_accession), chips_row3)
         self.fetch_intact_btn = _chip("IntAct",
             "Fetch curated binary interactions from IntAct / EBI (UniProt only)",
-            self.fetch_intact)
+            self.fetch_intact, chips_row3)
+        chips_row3.addStretch()
 
-        _chips_container = QWidget()
-        _chips_container.setLayout(chips_row)
-        _chips_scroll = QScrollArea()
-        _chips_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        _chips_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        _chips_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        _chips_scroll.setWidgetResizable(False)
-        _chips_scroll.setWidget(_chips_container)
-        ext_vbox.addWidget(_chips_scroll)
+        ext_vbox.addLayout(chips_row1)
+        ext_vbox.addLayout(chips_row2)
+        ext_vbox.addLayout(chips_row3)
 
         # ── PDB cross-reference chips — shown after UniProt fetch ────────────
         self._pdb_xref_inner = QWidget()
@@ -1537,6 +1525,7 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         self.seq_viewer = QTextBrowser()
         self.seq_viewer.setFont(_mono_font)
+        self.seq_viewer.setMaximumHeight(160)
         outer.addWidget(self.seq_viewer, 1)
 
         # ── Bottom bar: Clear All ────────────────────────────────────────────
