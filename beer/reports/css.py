@@ -3,7 +3,7 @@
 REPORT_CSS: str = """
 .method-badge {
     display: inline-block;
-    font-size: 8pt;
+    font-size: 9pt;
     font-weight: 600;
     padding: 2px 7px;
     border-radius: 3px;
@@ -25,7 +25,7 @@ REPORT_CSS: str = """
     border-color: #b3d9f5;
 }
 body {
-    font-family: Arial, 'Helvetica Neue';
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     font-size: 11pt;
     color: #1a1a2e;
     margin: 0;
@@ -56,7 +56,7 @@ td {
 tr:nth-child(even) td { background-color: #f8f9fd; }
 tr:hover td { background-color: #eef0f8; }
 p.note {
-    font-size: 9pt;
+    font-size: 10pt;
     color: #718096;
     font-style: italic;
     margin: 4px 0 12px 0;
@@ -114,7 +114,7 @@ pre.sequence {
 
 REPORT_CSS_DARK: str = """
 body {
-    font-family: Arial, 'Helvetica Neue';
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     font-size: 11pt;
     color: #e2e8f0;
     margin: 0;
@@ -122,9 +122,9 @@ body {
     line-height: 1.6;
     background-color: #16213e;
 }
-h1 { font-size: 18pt; color: #e2e8f0; border-bottom: 2px solid #4cc9f0; padding-bottom: 6px; margin-top: 20px; }
-h2 { font-size: 13pt; color: #4cc9f0; margin-top: 18px; margin-bottom: 8px; font-weight: 600; }
-h3 { font-size: 11pt; color: #4cc9f0; margin-top: 14px; margin-bottom: 4px; font-weight: 600; }
+h1 { font-size: 18pt; color: #e2e8f0; border-bottom: 2px solid #7b9cff; padding-bottom: 6px; margin-top: 20px; }
+h2 { font-size: 13pt; color: #7b9cff; margin-top: 18px; margin-bottom: 8px; font-weight: 600; }
+h3 { font-size: 11pt; color: #7b9cff; margin-top: 14px; margin-bottom: 4px; font-weight: 600; }
 table {
     border-collapse: collapse;
     width: 100%;
@@ -133,7 +133,7 @@ table {
 }
 th {
     background-color: #0f3460;
-    color: #4cc9f0;
+    color: #7b9cff;
     padding: 7px 12px;
     text-align: left;
     font-weight: 600;
@@ -146,7 +146,7 @@ td {
 tr:nth-child(even) td { background-color: #1e2a4a; }
 tr:hover td { background-color: #1a3a5c; }
 p.note {
-    font-size: 9pt;
+    font-size: 10pt;
     color: #94a3b8;
     font-style: italic;
     margin: 4px 0 12px 0;
@@ -164,7 +164,7 @@ pre.sequence {
 }
 .callout-info {
     background: #0f1f3d;
-    border-left: 4px solid #4cc9f0;
+    border-left: 4px solid #7b9cff;
     padding: 12px 16px;
     border-radius: 4px;
     margin: 12px 0;
@@ -213,7 +213,7 @@ def get_report_css(dark: bool = False) -> str:
 
 def make_style_tag(accent: str = "#4361ee", dark: bool = False) -> str:
     """Return a ``<style>`` HTML tag with the report CSS, accent colour substituted."""
-    css = get_report_css(dark).replace("#4361ee" if not dark else "#4cc9f0", accent)
+    css = get_report_css(dark).replace("#4361ee" if not dark else "#7b9cff", accent)
     return f"<style>{css}</style>"
 
 
