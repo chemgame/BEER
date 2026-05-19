@@ -68,9 +68,18 @@ LIGHT_THEME_CSS = """
      background-color: #ffffff;
      border: 1px solid #d0d4e0;
      border-radius: 4px;
-     padding: 4px 8px;
+     padding: 4px 28px 4px 8px;
  }
- QComboBox::drop-down { border: none; }
+ QComboBox::drop-down {
+     subcontrol-origin: padding; subcontrol-position: top right;
+     width: 22px; border-left: 1px solid #d0d4e0;
+     background: #eef0f8;
+     border-top-right-radius: 3px; border-bottom-right-radius: 3px;
+ }
+ QComboBox::down-arrow { width: 10px; height: 10px; }
+ QComboBox:hover { border-color: #4361ee; }
+ QComboBox:hover::drop-down { background: #e0e4f0; border-left-color: #4361ee; }
+ QComboBox:focus { border-color: #4361ee; }
  QLabel { color: #2d3748; font-weight: 500; }
  QCheckBox { color: #2d3748; spacing: 6px; }
  QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #d0d4e0; border-radius: 4px; }
@@ -312,9 +321,18 @@ DARK_THEME_CSS = """
      color: #e2e8f0;
      border: 1px solid #2d3561;
      border-radius: 4px;
-     padding: 4px 8px;
+     padding: 4px 28px 4px 8px;
  }
- QComboBox::drop-down { border: none; }
+ QComboBox::drop-down {
+     subcontrol-origin: padding; subcontrol-position: top right;
+     width: 22px; border-left: 1px solid #2d3561;
+     background: #1a2a50;
+     border-top-right-radius: 3px; border-bottom-right-radius: 3px;
+ }
+ QComboBox::down-arrow { width: 10px; height: 10px; }
+ QComboBox:hover { border-color: #7b9cff; }
+ QComboBox:hover::drop-down { background: #1e3060; border-left-color: #7b9cff; }
+ QComboBox:focus { border-color: #7b9cff; }
  QLabel { color: #94a3b8; font-weight: 500; }
  QCheckBox { color: #94a3b8; spacing: 6px; }
  QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #2d3561; border-radius: 4px; }
@@ -514,10 +532,17 @@ STRUCT_PANEL_CSS_LIGHT = """
     QPushButton:checked { background: #4361ee; color: white; border-color: #3451c5; font-weight: 600; }
     QComboBox {
         border: 1px solid #c8d0ec; border-radius: 4px;
-        padding: 3px 6px; background: white; color: #2d3748;
+        padding: 3px 26px 3px 6px; background: white; color: #2d3748;
         font-size: 9pt; min-height: 24px;
     }
+    QComboBox::drop-down {
+        subcontrol-origin: padding; subcontrol-position: top right;
+        width: 20px; border-left: 1px solid #c8d0ec; background: #eef1fc;
+        border-top-right-radius: 3px; border-bottom-right-radius: 3px;
+    }
+    QComboBox::down-arrow { width: 8px; height: 8px; }
     QComboBox:hover { border-color: #4361ee; }
+    QComboBox:hover::drop-down { background: #dce3f8; border-left-color: #4361ee; }
     QLabel    { font-size: 9pt; color: #5a6787; background: transparent; }
     QLabel#struct_hint  { color: #8892b0; font-size: 8pt; }
     QLabel#struct_count { color: #6b78cc; font-size: 8pt; padding-top: 1px; }
@@ -530,6 +555,25 @@ STRUCT_PANEL_CSS_LIGHT = """
     QTabWidget::pane {
         border: 1px solid #d1d9f0; border-radius: 4px;
         background: #f4f6fd;
+    }
+    QPushButton#struct_section_btn {
+        text-align: left; font-size: 9pt; font-weight: 700;
+        color: #3b4fc8; background: #eef1fc;
+        border: none; border-radius: 4px;
+        padding: 5px 6px; margin-top: 4px;
+    }
+    QPushButton#struct_section_btn:hover { background: #e0e4f8; }
+    QPushButton#struct_reset_btn {
+        background: transparent; color: #3b4fc8;
+        border: 1px solid #c8d0ec; border-radius: 4px;
+        padding: 5px 8px; font-size: 9pt; text-align: center;
+        margin-bottom: 4px;
+    }
+    QPushButton#struct_reset_btn:hover { background: #eef1fc; border-color: #4361ee; }
+    QPushButton#struct_reset_btn:pressed { background: #dce3f8; }
+    QGroupBox#struct_grp_content {
+        border: none; margin-top: 0;
+        padding: 4px 0 0 8px; background: transparent;
     }
 """
 
@@ -569,10 +613,17 @@ STRUCT_PANEL_CSS_DARK = """
     QPushButton:checked { background: #7b9cff; color: #1a1a2e; border-color: #6b8eff; font-weight: 600; }
     QComboBox {
         border: 1px solid #2d3561; border-radius: 4px;
-        padding: 3px 6px; background: #16213e; color: #e2e8f0;
+        padding: 3px 26px 3px 6px; background: #16213e; color: #e2e8f0;
         font-size: 9pt; min-height: 24px;
     }
+    QComboBox::drop-down {
+        subcontrol-origin: padding; subcontrol-position: top right;
+        width: 20px; border-left: 1px solid #2d3561; background: #1a2a50;
+        border-top-right-radius: 3px; border-bottom-right-radius: 3px;
+    }
+    QComboBox::down-arrow { width: 8px; height: 8px; }
     QComboBox:hover { border-color: #7b9cff; }
+    QComboBox:hover::drop-down { background: #1e3060; border-left-color: #7b9cff; }
     QLabel    { font-size: 9pt; color: #94a3b8; background: transparent; }
     QLabel#struct_hint  { color: #6b78a8; font-size: 8pt; }
     QLabel#struct_count { color: #7b9cff; font-size: 8pt; padding-top: 1px; }
@@ -585,6 +636,25 @@ STRUCT_PANEL_CSS_DARK = """
     QTabWidget::pane {
         border: 1px solid #1a3a5c; border-radius: 4px;
         background: #0f3460;
+    }
+    QPushButton#struct_section_btn {
+        text-align: left; font-size: 9pt; font-weight: 700;
+        color: #7b9cff; background: #1a2240;
+        border: none; border-radius: 4px;
+        padding: 5px 6px; margin-top: 4px;
+    }
+    QPushButton#struct_section_btn:hover { background: #1e2a50; }
+    QPushButton#struct_reset_btn {
+        background: transparent; color: #7b9cff;
+        border: 1px solid #2d3561; border-radius: 4px;
+        padding: 5px 8px; font-size: 9pt; text-align: center;
+        margin-bottom: 4px;
+    }
+    QPushButton#struct_reset_btn:hover { background: #1a2a50; border-color: #7b9cff; }
+    QPushButton#struct_reset_btn:pressed { background: #0f3460; }
+    QGroupBox#struct_grp_content {
+        border: none; margin-top: 0;
+        padding: 4px 0 0 8px; background: transparent;
     }
 """
 

@@ -2405,25 +2405,43 @@ class ProteinAnalyzerGUI(QMainWindow):
                 vbox._page = page   # keep alive
                 return vbox
 
-            def _collapsible(grp: QGroupBox, expanded: bool = True) -> QGroupBox:
-                """Make a QGroupBox collapsible by clicking its title checkbox."""
-                grp.setCheckable(True)
-                grp.setChecked(expanded)
+            def _collapsible(grp: QGroupBox, expanded: bool = True) -> QWidget:
+                """Wrap a GroupBox in an accordion section with a ▶/▼ toggle button."""
+                title = grp.title()
+                grp.setTitle("")
+                grp.setObjectName("struct_grp_content")
+                grp.setVisible(expanded)
 
-                def _on_toggle(checked: bool) -> None:
-                    for child in grp.findChildren(
-                            QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
-                        child.setVisible(checked)
+                wrapper = QWidget()
+                wl = QVBoxLayout(wrapper)
+                wl.setContentsMargins(0, 2, 0, 2)
+                wl.setSpacing(0)
 
-                grp.toggled.connect(_on_toggle)
-                if not expanded:
-                    _on_toggle(False)
-                return grp
+                hdr = QPushButton(f"  {'▼' if expanded else '▶'}  {title}")
+                hdr.setObjectName("struct_section_btn")
+                hdr.setCursor(Qt.CursorShape.PointingHandCursor)
+
+                def _toggle() -> None:
+                    vis = not grp.isVisible()
+                    grp.setVisible(vis)
+                    hdr.setText(f"  {'▼' if vis else '▶'}  {title}")
+
+                hdr.clicked.connect(_toggle)
+                wl.addWidget(hdr)
+                wl.addWidget(grp)
+                return wrapper
 
             view_l     = _tab_page("View")
             interact_l = _tab_page("Interact")
 
             # ══ VIEW TAB ══════════════════════════════════════════════════════
+
+            # ── Persistent Reset View ─────────────────────────────────────────
+            _rst_btn = QPushButton("↺  Reset View")
+            _rst_btn.setObjectName("struct_reset_btn")
+            _rst_btn.setToolTip("Reset representation, colour, background and camera to defaults")
+            _rst_btn.clicked.connect(self._reset_struct_view)
+            view_l.addWidget(_rst_btn)
 
             # ── Representation ────────────────────────────────────────────────
             rep_grp = QGroupBox("Representation")
@@ -2668,15 +2686,11 @@ class ProteinAnalyzerGUI(QMainWindow):
             motion_gl.addWidget(self.struct_spin_btn)
             view_l.addWidget(_collapsible(motion_grp, expanded=False))
 
-            # ── Export / Reset ────────────────────────────────────────────────
-            snap_grp = QGroupBox("Export")
+            # ── Snapshot ──────────────────────────────────────────────────────
+            snap_grp = QGroupBox("Snapshot")
             snap_gl = QVBoxLayout(snap_grp)
             snap_gl.setContentsMargins(6, 4, 6, 6)
             snap_gl.setSpacing(5)
-            reset_btn = QPushButton("Reset View")
-            reset_btn.setToolTip("Reset representation, colour, background and camera to defaults")
-            reset_btn.clicked.connect(self._reset_struct_view)
-            snap_gl.addWidget(reset_btn)
             snapshot_btn = QPushButton("Snapshot PNG")
             snapshot_btn.setToolTip("Render the current view to a PNG file")
             snapshot_btn.clicked.connect(self._take_structure_snapshot)
