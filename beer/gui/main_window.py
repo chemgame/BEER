@@ -1475,8 +1475,15 @@ class ProteinAnalyzerGUI(QMainWindow):
             "Fetch curated binary interactions from IntAct / EBI (UniProt only)",
             self.fetch_intact)
 
-        chips_row.addStretch()
-        ext_vbox.addLayout(chips_row)
+        _chips_container = QWidget()
+        _chips_container.setLayout(chips_row)
+        _chips_scroll = QScrollArea()
+        _chips_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        _chips_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        _chips_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        _chips_scroll.setWidgetResizable(False)
+        _chips_scroll.setWidget(_chips_container)
+        ext_vbox.addWidget(_chips_scroll)
 
         # ── PDB cross-reference chips — shown after UniProt fetch ────────────
         self._pdb_xref_inner = QWidget()
@@ -6314,9 +6321,12 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                     f'<span style="color:{hdr_color};font-weight:700;">{ln}</span>'
                 )
             elif ln and ln.lstrip()[0:1].isdigit():
-                parts = ln.split("  ", 1)
+                lstripped = ln.lstrip()
+                parts = lstripped.split("  ", 1)
                 if len(parts) == 2:
-                    pos_str, seq_str = parts
+                    indent = " " * (len(ln) - len(lstripped))
+                    pos_str = indent + parts[0]
+                    seq_str = parts[1]
                     coloured = _colour_residues(seq_str)
                     html_lines.append(
                         f'<span style="color:{pos_color};">{pos_str}</span>'
