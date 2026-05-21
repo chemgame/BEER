@@ -66,6 +66,7 @@ from beer.models import (
     load_nucleotide_binding_head,
     load_transit_peptide_head,
     load_aggregation_head,
+    load_secondary_structure_head,
 )
 from beer.analysis.signal_peptide import (
     predict_signal_peptide,
@@ -134,6 +135,13 @@ _BILSTM_HEAD_LOADERS: dict[str, "callable"] = {
 }
 
 
+_SS3_PROFILE_SLOT: dict[str, int] = {
+    "ss3_h_profile": 0,  # index into bilstm_predict_ss3 return tuple (h, e, c)
+    "ss3_e_profile": 1,
+    "ss3_c_profile": 2,
+}
+
+
 def compute_single_bilstm_head(
     data_key: str,
     seq: str,
@@ -147,6 +155,11 @@ def compute_single_bilstm_head(
     Returns per-residue probabilities (list of float, same length as seq),
     or None if the head model file is missing or the embedder is unavailable.
     """
+    slot = _SS3_PROFILE_SLOT.get(data_key)
+    if slot is not None:
+        from beer.utils.structure import bilstm_predict_ss3
+        result = bilstm_predict_ss3(seq, embedder, load_secondary_structure_head())
+        return result[slot] if result is not None else None
     from beer.utils.structure import bilstm_predict
     loader = _BILSTM_HEAD_LOADERS.get(data_key)
     if loader is None:
@@ -159,7 +172,7 @@ def _make_summary_bullets(
     seq, seq_length, mw, pI, disorder_f, disorder_scores,
     sp_bilstm_profile, tm_bilstm_profile, cc_bilstm_profile,
     aggr_profile, catgranule, rbp, fcr, ncpr, kappa, larks,
-    gpi_result, phospho_sites, prot_sites,
+    gpi_result, phospho_sites, prot_sites, ss3_bilstm_profile=None,
 ) -> list[str]:
     """Return a list of concise bullet-point strings summarising key findings."""
     bullets: list[str] = []
@@ -242,6 +255,25 @@ def _make_summary_bullets(
     # --- LARKS ---
     if larks:
         bullets.append(f"{len(larks)} LARKS segment(s) — potential amyloid-like interaction core(s)")
+
+    # --- Secondary structure ---
+    if ss3_bilstm_profile and seq_length > 0:
+        n_h = sum(1 for v in ss3_bilstm_profile if v == 1)
+        n_e = sum(1 for v in ss3_bilstm_profile if v == 2)
+        f_h = n_h / seq_length
+        f_e = n_e / seq_length
+        if f_h >= 0.40:
+            bullets.append(
+                f"Predominantly α-helical — {f_h*100:.0f}% helix, {f_e*100:.0f}% β-strand (BiLSTM SS3)"
+            )
+        elif f_e >= 0.25:
+            bullets.append(
+                f"Significant β-sheet content — {f_e*100:.0f}% strand, {f_h*100:.0f}% helix (BiLSTM SS3)"
+            )
+        elif f_h >= 0.20 or f_e >= 0.10:
+            bullets.append(
+                f"Mixed secondary structure — {f_h*100:.0f}% helix, {f_e*100:.0f}% β-strand (BiLSTM SS3)"
+            )
 
     # --- Phosphorylation ---
     if phospho_sites:
@@ -753,6 +785,17 @@ class AnalysisTools:
         transit_bilstm_profile  = _run_head(load_transit_peptide_head)
         agg_bilstm_profile      = _run_head(load_aggregation_head)
 
+        from beer.utils.structure import bilstm_predict_ss3 as _bpss3
+        _ss3_result = _bpss3(seq, embedder, load_secondary_structure_head())
+        if _ss3_result is not None:
+            ss3_h_profile, ss3_e_profile, ss3_c_profile = _ss3_result
+            ss3_bilstm_profile = [
+                1 if h >= e and h >= c else (2 if e >= c else 0)
+                for h, e, c in zip(ss3_h_profile, ss3_e_profile, ss3_c_profile)
+            ]
+        else:
+            ss3_h_profile = ss3_e_profile = ss3_c_profile = ss3_bilstm_profile = None
+
         def _bilstm_head_html(
             section_title: str,
             feature_label: str,
@@ -992,6 +1035,69 @@ class AnalysisTools:
             "and lack acidic residues (von Heijne 1986 EMBO J 5:1335).",
         )
 
+        # --- Secondary structure (SS3) ---
+        _b_ss3 = method_badge("ESM2 BiLSTM", "bilstm")
+        if ss3_bilstm_profile is not None:
+            _n_h = sum(1 for v in ss3_bilstm_profile if v == 1)
+            _n_e = sum(1 for v in ss3_bilstm_profile if v == 2)
+            _n_c = seq_length - _n_h - _n_e
+            _ss_str = "".join({0: "C", 1: "H", 2: "E"}.get(v, "C") for v in ss3_bilstm_profile)
+
+            def _ss3_regions(profile, cls_val):
+                regs, in_r, st = [], False, 0
+                for i, v in enumerate(profile):
+                    if v == cls_val and not in_r:
+                        in_r, st = True, i + 1
+                    elif v != cls_val and in_r:
+                        regs.append((st, i)); in_r = False
+                if in_r:
+                    regs.append((st, len(profile)))
+                return regs
+
+            _h_regs = _ss3_regions(ss3_bilstm_profile, 1)
+            _e_regs = _ss3_regions(ss3_bilstm_profile, 2)
+            _h_rows = "".join(
+                f"<tr><td>{k}</td><td>{s}–{e}</td><td>{e-s+1}</td></tr>"
+                for k, (s, e) in enumerate(_h_regs[:20], 1)
+            ) or "<tr><td colspan='3'><em>None predicted</em></td></tr>"
+            _e_rows = "".join(
+                f"<tr><td>{k}</td><td>{s}–{e}</td><td>{e-s+1}</td></tr>"
+                for k, (s, e) in enumerate(_e_regs[:20], 1)
+            ) or "<tr><td colspan='3'><em>None predicted</em></td></tr>"
+            ss3_html_bilstm = _style + f"""
+            <h2>Secondary Structure {_b_ss3}</h2>
+            <table>
+              <tr><th>Class</th><th>Residues</th><th>Fraction</th></tr>
+              <tr><td>Helix (H)</td><td>{_n_h}</td><td>{_n_h/seq_length*100:.1f}%</td></tr>
+              <tr><td>Strand (E)</td><td>{_n_e}</td><td>{_n_e/seq_length*100:.1f}%</td></tr>
+              <tr><td>Coil / Loop (C)</td><td>{_n_c}</td><td>{_n_c/seq_length*100:.1f}%</td></tr>
+            </table>
+            <h3>Predicted helix regions ({len(_h_regs)})</h3>
+            <table><tr><th>#</th><th>Residues (1-based)</th><th>Length</th></tr>
+            {_h_rows}</table>
+            <h3>Predicted strand regions ({len(_e_regs)})</h3>
+            <table><tr><th>#</th><th>Residues (1-based)</th><th>Length</th></tr>
+            {_e_rows}</table>
+            <details><summary>Full SS3 string (H/E/C per residue)</summary>
+            <pre style='font-size:0.75em;word-break:break-all;white-space:pre-wrap'>{_ss_str}</pre>
+            </details>
+            <p class="note">BiLSTM: ESM2 650M (1280-dim, frozen) → 2-layer BiLSTM (hidden=256)
+            → Linear(512→3) → argmax. Classes: H=helix (α/3₁₀/π), E=β-strand, C=coil/loop/turn.
+            Trained on UniProt Swiss-Prot ft_helix + ft_strand annotations.
+            Metric: Q3 accuracy (fraction of correctly classified residues).</p>
+            """
+        else:
+            ss3_html_bilstm = _style + f"""
+            <h2>Secondary Structure {_b_ss3}</h2>
+            <div class='callout-warn'>
+              <b style='color:#b45309'>⏳ Model training in progress</b>
+              <p style='margin:6px 0 0'>The <b>secondary structure</b> BiLSTM head
+              (Helix / Strand / Coil) is currently being trained on UniProt Swiss-Prot
+              ft_helix + ft_strand annotations. This section will populate once
+              <tt>secondary_structure_head.npz</tt> is available.</p>
+            </div>
+            """
+
         # --- Amphipathic helices ---
         amph_html    = format_amphipathic_report(seq, _accent)
         moment_alpha = calc_hydrophobic_moment_profile(seq, angle_deg=100.0)
@@ -1075,6 +1181,7 @@ class AnalysisTools:
                 "RNA-Binding (BiLSTM)":             rnabind_html_bilstm,
                 "Nucleotide-Binding (BiLSTM)":      nucbind_html_bilstm,
                 "Transit Peptide (BiLSTM)":         transit_html_bilstm,
+                "Secondary Structure (BiLSTM)":     ss3_html_bilstm,
                 "LARKS":                   larks_html,
                 "Linear Motifs":           motifs_html,
                 "\u03b2-Aggregation & Solubility": aggr_html,
@@ -1142,6 +1249,10 @@ class AnalysisTools:
             "nucbind_bilstm_profile":   nucbind_bilstm_profile,
             "transit_bilstm_profile":   transit_bilstm_profile,
             "agg_bilstm_profile":       agg_bilstm_profile,
+            "ss3_bilstm_profile":       ss3_bilstm_profile,
+            "ss3_h_profile":            ss3_h_profile,
+            "ss3_e_profile":            ss3_e_profile,
+            "ss3_c_profile":            ss3_c_profile,
             "moment_alpha":    moment_alpha,
             "moment_beta":     moment_beta,
             "amph_regions":    amph_regions,
@@ -1179,5 +1290,6 @@ class AnalysisTools:
                 gpi_result=gpi_result,
                 phospho_sites=phospho_sites,
                 prot_sites=prot_sites,
+                ss3_bilstm_profile=ss3_bilstm_profile,
             ),
         }

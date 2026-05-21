@@ -408,6 +408,9 @@ BILSTM_PROFILE_TABS: frozenset[str] = frozenset({
     "RNA Binding Profile",
     "Nucleotide-Binding Profile",
     "Transit Peptide Profile",
+    "Secondary Structure: Helix Profile",
+    "Secondary Structure: Strand Profile",
+    "Secondary Structure: Coil Profile",
 })
 
 GRAPH_TITLES: list[str] = [
@@ -438,6 +441,9 @@ GRAPH_TITLES: list[str] = [
     "RNA Binding Profile",
     "Nucleotide-Binding Profile",
     "Transit Peptide Profile",
+    "Secondary Structure: Helix Profile",
+    "Secondary Structure: Strand Profile",
+    "Secondary Structure: Coil Profile",
     # Other Sequence Profiles
     "Hydrophobicity Profile",
     "Local Charge Profile",
@@ -509,6 +515,9 @@ GRAPH_CATEGORIES: list[tuple[str, list[str]]] = [
         "Repeat Region Profile",
         "Nucleotide-Binding Profile",
         "Transit Peptide Profile",
+        "Secondary Structure: Helix Profile",
+        "Secondary Structure: Strand Profile",
+        "Secondary Structure: Coil Profile",
     ]),
     ("Aggregation & Solubility", [
         "\u03b2-Aggregation Profile",

@@ -87,3 +87,6 @@ def load_transit_peptide_head() -> dict | None:
 def load_aggregation_head() -> dict | None:
     return _load_head("aggregation_head.npz")
 
+def load_secondary_structure_head() -> dict | None:
+    return _load_head("secondary_structure_head.npz")
+

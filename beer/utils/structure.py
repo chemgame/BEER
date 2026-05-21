@@ -261,6 +261,36 @@ def bilstm_predict(seq: str, embedder, head: dict | None) -> "list[float] | None
     return None
 
 
+def bilstm_predict_ss3(
+    seq: str, embedder, head: "dict | None"
+) -> "tuple[list[float], list[float], list[float]] | None":
+    """Run the SS3 BiLSTM head.
+
+    Returns (h_probs, e_probs, c_probs) — three parallel lists of per-residue
+    softmax probabilities, each value in [0, 1].  Classes: 0=Coil, 1=Helix, 2=Strand.
+    """
+    if embedder is None or not embedder.is_available() or head is None:
+        return None
+    import numpy as np
+    arch = head.get("architecture", "")
+    if hasattr(arch, "item"):
+        arch = arch.item()
+    if arch != "bilstm2_ss3":
+        return None
+    emb = embedder.embed(seq)
+    if emb is None or len(emb) != len(seq):
+        return None
+    logits = _bilstm_crf_emit(emb.astype(np.float32), head)  # (L, 3)
+    logits -= logits.max(axis=1, keepdims=True)               # numerically stable
+    exp_l = np.exp(logits)
+    probs = exp_l / exp_l.sum(axis=1, keepdims=True)          # (L, 3)
+    return (
+        probs[:, 1].tolist(),  # helix
+        probs[:, 2].tolist(),  # strand
+        probs[:, 0].tolist(),  # coil
+    )
+
+
 def bilstm_crf_topology(seq: str, embedder, head: dict | None) -> "list[int] | None":
     """Viterbi-decoded topology sequence for bilstm2_crf heads.
 

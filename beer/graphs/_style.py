@@ -51,7 +51,10 @@ FEATURE_COLORS: dict[str, str] = {
     "motif":           "#606c38",  # olive — functional sequence
     "propeptide":      "#bc6c25",  # brown — processing
     "repeat":          "#577590",  # slate blue — structural repeat
-    "aggregation":     "#4682b4",  # steel blue — aggregation
+    "aggregation":                  "#4682b4",  # steel blue — aggregation
+    "secondary_structure_helix":   "#e63946",  # red — α-helix
+    "secondary_structure_strand":  "#457b9d",  # steel blue — β-strand
+    "secondary_structure_coil":    "#adb5bd",  # grey — coil/loop
 }
 
 

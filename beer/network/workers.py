@@ -831,6 +831,9 @@ class UniProtFeaturesWorker(QThread):
         "Zinc finger":                      "zinc_finger",
         "Glycosylation":                    "glycosylation",
         "Lipid moiety-binding region":      "lipidation",
+
+        "Helix":                            "secondary_structure_helix",
+        "Beta strand":                      "secondary_structure_strand",
     }
     # ft_mod_res description → BEER feature name (substring match, first hit wins)
     _MOD_RES_MAP: list[tuple[str, str]] = [
@@ -852,7 +855,8 @@ class UniProtFeaturesWorker(QThread):
             fields = (
                 "ft_signal,ft_transit,ft_transmem,ft_intramem,ft_coiled,ft_dna_bind,"
                 "ft_act_site,ft_binding,ft_propep,ft_repeat,ft_motif,"
-                "ft_region,ft_compbias,ft_disulfid,ft_mod_res,ft_carbohyd,ft_lipid,ft_zn_fing"
+                "ft_region,ft_compbias,ft_disulfid,ft_mod_res,ft_carbohyd,ft_lipid,ft_zn_fing,"
+                "ft_helix,ft_strand"
             )
             url = (
                 f"https://rest.uniprot.org/uniprotkb/{self._acc}.json"

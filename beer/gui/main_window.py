@@ -66,7 +66,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QProgressDialog, QAbstractItemView,
     QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QStackedWidget,
     QInputDialog, QApplication, QDoubleSpinBox, QGroupBox, QMenu, QSlider,
-    QColorDialog, QSizePolicy, QStyleFactory, QButtonGroup,
+    QColorDialog, QSizePolicy, QStyleFactory, QButtonGroup, QHeaderView,
 )
 from PySide6.QtGui import QFont, QKeySequence, QAction, QShortcut, QImage, QIcon, QPixmap
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QEvent, QUrl
@@ -228,6 +228,9 @@ _AI_HEAD_SPECS: list[tuple[str, str, str, str]] = [
     ("Repeat Region",       "rep_bilstm_profile",       "Repeat Region Profile",       "—"),
     ("Nucleotide-Binding",  "nucbind_bilstm_profile",   "Nucleotide-Binding Profile",  "—"),
     ("Transit Peptide",     "transit_bilstm_profile",   "Transit Peptide Profile",     "—"),
+    ("SS3: α-Helix",        "ss3_h_profile",  "Secondary Structure: Helix Profile",   "—"),
+    ("SS3: β-Strand",       "ss3_e_profile",  "Secondary Structure: Strand Profile",  "—"),
+    ("SS3: Coil/Loop",      "ss3_c_profile",  "Secondary Structure: Coil Profile",    "—"),
 ]
 
 # graph_title → sec_key and data_key for lazy-trigger from the Graphs tab
@@ -260,6 +263,9 @@ _AI_DISPLAY_TO_FEATURE_LABEL: dict[str, str] = {
     "RNA Binding":        "RNA-Binding",
     "Nucleotide-Binding": "Nucleotide-Binding",
     "Transit Peptide":    "Transit Peptide",
+    "SS3: α-Helix":       "SS3 Helix",
+    "SS3: β-Strand":      "SS3 Strand",
+    "SS3: Coil/Loop":     "SS3 Coil",
 }
 
 # ---------------------------------------------------------------------------
@@ -1661,10 +1667,12 @@ class ProteinAnalyzerGUI(QMainWindow):
 
         self.report_section_list = QTreeWidget()
         self.report_section_list.setObjectName("report_nav")
-        self.report_section_list.setFixedWidth(180)
+        self.report_section_list.setFixedWidth(220)
         self.report_section_list.setHeaderHidden(True)
-        self.report_section_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.report_section_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.report_section_list.setIndentation(12)
+        self.report_section_list.header().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents)
         report_h.addWidget(self.report_section_list)
 
         rsep = QFrame()
@@ -1727,7 +1735,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             return tab, browser
 
         for group_name, group_secs in _REPORT_SECTION_GROUPS:
-            grp_item = QTreeWidgetItem([group_name])
+            grp_item = QTreeWidgetItem([f"▼  {group_name}"])
             grp_item.setFont(0, bold_font)
             grp_item.setFlags(grp_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.report_section_list.addTopLevelItem(grp_item)
@@ -1736,6 +1744,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                     continue
                 leaf = QTreeWidgetItem([sec])
                 leaf.setData(0, Qt.ItemDataRole.UserRole, sec)
+                leaf.setToolTip(0, sec)
                 grp_item.addChild(leaf)
                 tab, browser = _build_section_widget(sec)
                 self.report_stack.addWidget(tab)
@@ -1748,6 +1757,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             if sec not in _grouped_secs:
                 leaf = QTreeWidgetItem([sec])
                 leaf.setData(0, Qt.ItemDataRole.UserRole, sec)
+                leaf.setToolTip(0, sec)
                 self.report_section_list.addTopLevelItem(leaf)
                 tab, browser = _build_section_widget(sec)
                 self.report_stack.addWidget(tab)
@@ -1756,7 +1766,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 _stack_idx += 1
 
         # ── AI Predictions dynamic group (populated after AI Analysis) ──────
-        self._ai_pred_grp_item = QTreeWidgetItem(["AI Feature Predictions"])
+        self._ai_pred_grp_item = QTreeWidgetItem(["▼  AI Feature Predictions"])
         self._ai_pred_grp_item.setFont(0, bold_font)
         self._ai_pred_grp_item.setFlags(
             self._ai_pred_grp_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
@@ -1764,6 +1774,8 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._ai_pred_grp_item.setHidden(True)
         self._ai_pred_section_keys: list[str] = []
         self.report_section_list.itemClicked.connect(self._on_report_section_clicked)
+        self.report_section_list.itemExpanded.connect(self._on_report_tree_expanded)
+        self.report_section_list.itemCollapsed.connect(self._on_report_tree_collapsed)
         self.report_section_list.setCurrentItem(
             self.report_section_list.topLevelItem(0).child(0)
             if self.report_section_list.topLevelItem(0) else None)
@@ -2162,9 +2174,11 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.graph_tree = QTreeWidget()
         self.graph_tree.setObjectName("graph_tree")
         self.graph_tree.setHeaderHidden(True)
-        self.graph_tree.setFixedWidth(180)
-        self.graph_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.graph_tree.setFixedWidth(220)
+        self.graph_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.graph_tree.setIndentation(14)
+        self.graph_tree.header().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents)
 
         left_outer = QWidget()
         left_vb = QVBoxLayout(left_outer)
@@ -2234,6 +2248,12 @@ class ProteinAnalyzerGUI(QMainWindow):
         self._graphs_uniprot_btn.setEnabled(False)
         self._graphs_uniprot_btn.clicked.connect(self.fetch_uniprot_features)
         top_bar.addWidget(self._graphs_uniprot_btn)
+        self._graphs_clear_tracks_btn = QPushButton("✕ Clear Tracks")
+        self._graphs_clear_tracks_btn.setMaximumHeight(26)
+        self._graphs_clear_tracks_btn.setToolTip("Remove UniProt annotation overlays from all graphs.")
+        self._graphs_clear_tracks_btn.setEnabled(False)
+        self._graphs_clear_tracks_btn.clicked.connect(self._clear_uniprot_features)
+        top_bar.addWidget(self._graphs_clear_tracks_btn)
         top_bar.addSpacing(8)
         # (Save All Graphs removed in v2.0 — use per-graph Save Graph button)
         right_v.addLayout(top_bar)
@@ -2251,7 +2271,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         bold_font.setPointSize(10)
 
         for category, titles in GRAPH_CATEGORIES:
-            cat_item = QTreeWidgetItem([f"  {category}"])
+            cat_item = QTreeWidgetItem([f"▼  {category}"])
             cat_item.setFont(0, bold_font)
             cat_item.setFlags(cat_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.graph_tree.addTopLevelItem(cat_item)
@@ -2259,6 +2279,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             for title in titles:
                 leaf = QTreeWidgetItem([f"  {title}"])
                 leaf.setData(0, Qt.ItemDataRole.UserRole, title)
+                leaf.setToolTip(0, title)
                 cat_item.addChild(leaf)
 
                 panel = QWidget()
@@ -2290,6 +2311,8 @@ class ProteinAnalyzerGUI(QMainWindow):
             cat_item.setExpanded(True)
 
         self.graph_tree.itemClicked.connect(self._on_graph_tree_clicked)
+        self.graph_tree.itemExpanded.connect(self._on_graph_tree_expanded)
+        self.graph_tree.itemCollapsed.connect(self._on_graph_tree_collapsed)
         # Select first graph
         first_cat = self.graph_tree.topLevelItem(0)
         if first_cat and first_cat.childCount():
@@ -3983,6 +4006,9 @@ window.addEventListener("load",init);
         "RNA-Binding":          "rnabind_bilstm_profile",
         "Nucleotide-Binding":   "nucbind_bilstm_profile",
         "Transit Peptide":      "transit_bilstm_profile",
+        "SS3 Helix":            "ss3_h_profile",
+        "SS3 Strand":           "ss3_e_profile",
+        "SS3 Coil":             "ss3_c_profile",
     }
 
     def _available_feature_schemes(self) -> list[str]:
@@ -4887,6 +4913,9 @@ window.addEventListener("load",init);
             ("rnabind",   "rnabind_bilstm_profile"),
             ("nucbind",   "nucbind_bilstm_profile"),
             ("transit",   "transit_bilstm_profile"),
+            ("ss3h",      "ss3_h_profile"),
+            ("ss3e",      "ss3_e_profile"),
+            ("ss3c",      "ss3_c_profile"),
         ]
         all_scores: dict[int, dict] = {}
         for js_key, data_key in _KEY_MAP:
@@ -6494,7 +6523,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             ("rnabind_bilstm_profile",  "rna_binding",       "RNA Binding Profile"),
             ("nucbind_bilstm_profile",  "nucleotide_binding","Nucleotide-Binding Profile"),
             ("transit_bilstm_profile",  "transit_peptide",   "Transit Peptide Profile"),
-            ("agg_bilstm_profile",      "aggregation",       "Aggregation Propensity Profile"),
+            ("agg_bilstm_profile",      "aggregation",              "Aggregation Propensity Profile"),
+            ("ss3_h_profile",  "secondary_structure_helix",   "Secondary Structure: Helix Profile"),
+            ("ss3_e_profile",  "secondary_structure_strand",  "Secondary Structure: Strand Profile"),
+            ("ss3_c_profile",  "secondary_structure_coil",    "Secondary Structure: Coil Profile"),
         ]
         for _ad_key, _feat, _tab_name in _ALL_BILSTM_HEADS:
             if ad.get(_ad_key):
@@ -6688,11 +6720,33 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         self.show_batch_details(row, None)
         self.main_tabs.setCurrentIndex(0)
 
-    # --- Graph tree handler ---
+    # --- Graph tree handlers ---
+
+    def _on_graph_tree_expanded(self, item: QTreeWidgetItem) -> None:
+        txt = item.text(0)
+        if txt.startswith("▶"):
+            item.setText(0, "▼" + txt[1:])
+
+    def _on_graph_tree_collapsed(self, item: QTreeWidgetItem) -> None:
+        txt = item.text(0)
+        if txt.startswith("▼"):
+            item.setText(0, "▶" + txt[1:])
+
+    def _on_report_tree_expanded(self, item: QTreeWidgetItem) -> None:
+        txt = item.text(0)
+        if txt.startswith("▶"):
+            item.setText(0, "▼" + txt[1:])
+
+    def _on_report_tree_collapsed(self, item: QTreeWidgetItem) -> None:
+        txt = item.text(0)
+        if txt.startswith("▼"):
+            item.setText(0, "▶" + txt[1:])
 
     def _on_graph_tree_clicked(self, item: QTreeWidgetItem, _col: int):
         title = item.data(0, Qt.ItemDataRole.UserRole)
         if not title or title not in self._graph_title_to_stack_idx:
+            # Category row — toggle expand/collapse
+            item.setExpanded(not item.isExpanded())
             return
         if not self.analysis_data:
             QMessageBox.information(
@@ -6905,7 +6959,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         "RNA Binding Profile":               ("rnabind_bilstm_profile",  "rna_binding"),
         "Nucleotide-Binding Profile":        ("nucbind_bilstm_profile",  "nucleotide_binding"),
         "Transit Peptide Profile":           ("transit_bilstm_profile",  "transit_peptide"),
-        "Aggregation Propensity Profile":    ("agg_bilstm_profile",      "aggregation"),
+        "Aggregation Propensity Profile":             ("agg_bilstm_profile",  "aggregation"),
+        "Secondary Structure: Helix Profile":  ("ss3_h_profile",  "secondary_structure_helix"),
+        "Secondary Structure: Strand Profile": ("ss3_e_profile",  "secondary_structure_strand"),
+        "Secondary Structure: Coil Profile":   ("ss3_c_profile",  "secondary_structure_coil"),
     }
 
     def _rebuild_bilstm_with_uncertainty(self, title: str, show_unc: bool):
@@ -8595,7 +8652,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         for btn in (self.mutate_btn,
                     self.export_structure_btn, self.find_uniprot_btn,
                     self.trunc_run_btn, self.fetch_signalp6_btn,
-                    self._graphs_uniprot_btn):
+                    self._graphs_uniprot_btn, self._graphs_clear_tracks_btn):
             btn.setEnabled(False)
         chip_buttons = self._db_fetch_btns + [
             self.fetch_uniprot_tracks_btn, self.fetch_deeptmhmm_btn,
@@ -9409,6 +9466,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             "propeptide": "Propeptide Profile",         "repeat": "Repeat Region Profile",
             "motif": "Functional Motif Profile",        "transit_peptide": "Transit Peptide Profile",
             "lipidation": "Lipidation Profile",
+            "secondary_structure_helix":  "Secondary Structure: Helix Profile",
+            "secondary_structure_strand": "Secondary Structure: Strand Profile",
         }
         if n:
             self._mark_chip_fetched(self.fetch_uniprot_tracks_btn)
@@ -9424,9 +9483,24 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         else:
             self._mark_chip_normal(self.fetch_uniprot_tracks_btn)
             self.statusBar.showMessage("UniProt features: no annotations found.", 3000)
+        # Enable/disable Clear Tracks button based on whether any features were loaded
+        has_data = bool(n)
+        if hasattr(self, "_graphs_clear_tracks_btn"):
+            self._graphs_clear_tracks_btn.setEnabled(has_data)
         # Always rebuild graph generators with the new UniProt data so overlays appear
         if self.analysis_data:
             self.update_graph_tabs()
+
+    def _clear_uniprot_features(self) -> None:
+        """Remove all UniProt annotation overlays from graphs."""
+        self._uniprot_features = {}
+        self._update_current_snapshot()
+        if hasattr(self, "_graphs_clear_tracks_btn"):
+            self._graphs_clear_tracks_btn.setEnabled(False)
+        self._mark_chip_normal(self.fetch_uniprot_tracks_btn)
+        if self.analysis_data:
+            self.update_graph_tabs()
+        self.statusBar.showMessage("UniProt annotation overlays removed.", 3000)
 
     def _on_uniprot_features_error(self, msg: str):
         self.fetch_uniprot_tracks_btn.setEnabled(True)
@@ -9762,6 +9836,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def _on_report_section_clicked(self, item, _col=0):
         sec = item.data(0, Qt.ItemDataRole.UserRole)
         if not sec:
+            # Category row — toggle expand/collapse
+            item.setExpanded(not item.isExpanded())
             return
         if sec in self._report_sec_to_idx:
             self.report_stack.setCurrentIndex(self._report_sec_to_idx[sec])
@@ -9891,6 +9967,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         "Propeptide":             ("prop_bilstm_profile",     "Propeptide Profile",              "#fdba74", 0.5),
         "Repeat Regions":         ("rep_bilstm_profile",      "Repeat Region Profile",           "#67e8f9", 0.5),
         "Amphipathic Helices":    ("moment_alpha",            "Hydrophobic Moment",              "#7b9cff", None),
+        "SS3: α-Helix":           ("ss3_h_profile",  "Secondary Structure: Helix Profile",  "#e63946", None),
+        "SS3: β-Strand":          ("ss3_e_profile",  "Secondary Structure: Strand Profile",  "#457b9d", None),
+        "SS3: Coil/Loop":         ("ss3_c_profile",  "Secondary Structure: Coil Profile",    "#adb5bd", None),
     }
 
     @staticmethod

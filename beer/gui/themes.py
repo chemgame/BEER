@@ -135,12 +135,12 @@ LIGHT_THEME_CSS = """
  }
  QTreeWidget#graph_tree::item { padding: 6px 8px; color: #4a5568; }
  QTreeWidget#graph_tree::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 4px; }
- QTreeWidget#graph_tree::branch { background-color: #f0f2fa; }
+ QTreeWidget#graph_tree::item:hover:!selected { background-color: #dce3f8; }
+ QTreeWidget#graph_tree::branch { background-color: #f0f2fa; image: none; }
  QTreeWidget#report_nav::item { padding: 6px 8px; color: #4a5568; background-color: #f0f2fa; }
-
  QTreeWidget#report_nav::item:selected { background-color: #4361ee; color: #ffffff; border-radius: 4px; }
  QTreeWidget#report_nav::item:hover:!selected { background-color: #dce3f8; }
- QTreeWidget#report_nav::branch { background-color: #f0f2fa; }
+ QTreeWidget#report_nav::branch { background-color: #f0f2fa; image: none; }
  /* --- Fetch / chip buttons --- */
  QPushButton#chip_btn {
      background: transparent;
@@ -396,11 +396,12 @@ DARK_THEME_CSS = """
  }
  QTreeWidget#graph_tree::item { padding: 6px 8px; color: #94a3b8; }
  QTreeWidget#graph_tree::item:selected { background-color: #7b9cff; color: #1a1a2e; border-radius: 4px; }
- QTreeWidget#graph_tree::branch { background-color: #16213e; }
+ QTreeWidget#graph_tree::item:hover:!selected { background-color: #1a3a5c; }
+ QTreeWidget#graph_tree::branch { background-color: #16213e; image: none; }
  QTreeWidget#report_nav::item { padding: 6px 8px; color: #94a3b8; background-color: #16213e; }
  QTreeWidget#report_nav::item:selected { background-color: #7b9cff; color: #1a1a2e; border-radius: 4px; }
  QTreeWidget#report_nav::item:hover:!selected { background-color: #1a3a5c; }
- QTreeWidget#report_nav::branch { background-color: #16213e; }
+ QTreeWidget#report_nav::branch { background-color: #16213e; image: none; }
  /* --- Fetch / chip buttons --- */
  QPushButton#chip_btn {
      background: transparent;
