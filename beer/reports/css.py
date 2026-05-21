@@ -28,6 +28,7 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     font-size: 11pt;
     color: #1a1a2e;
+    background-color: #ffffff;
     margin: 0;
     padding: 0;
     line-height: 1.6;
@@ -49,6 +50,7 @@ th {
     font-weight: 600;
 }
 td {
+    background-color: #ffffff;
     padding: 6px 12px;
     border-bottom: 1px solid #e8eaf0;
     color: #2d3748;
@@ -139,6 +141,7 @@ th {
     font-weight: 600;
 }
 td {
+    background-color: #16213e;
     padding: 6px 12px;
     border-bottom: 1px solid #2d3561;
     color: #e2e8f0;

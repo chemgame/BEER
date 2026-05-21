@@ -196,7 +196,7 @@ _SECTION_HINTS: dict = {
 _REPORT_SECTION_GROUPS: list = [
     ("Sequence Properties", ["Composition", "Properties", "Hydrophobicity", "Charge", "Aromatic & \u03c0"]),
     ("IDP & Phase Separation", ["Repeat Motifs", "Sticker & Spacer", "Charge Decoration (SCD)", "LARKS"]),
-    ("Structure & Topology", ["Amphipathic Helices"]),
+    ("Structure & Topology", ["Amphipathic Helices", "SASA Profile"]),
     ("Functional Sites", ["Linear Motifs", "Tandem Repeats", "Proteolytic Map",
                            "\u03b2-Aggregation & Solubility"]),
 ]
@@ -4305,6 +4305,8 @@ window.addEventListener("load",init);
                 f"</body></html>"
             )
             self.report_section_tabs["SASA Profile"].setHtml(html)
+            if self.analysis_data is not None:
+                self.analysis_data.setdefault("report_sections", {})["SASA Profile"] = html
             return
         rsa_vals = [rsa[k] for k in sorted(rsa)]
         asa_vals = [asa[k] for k in sorted(asa)]
@@ -6350,6 +6352,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 continue
             html = html.replace(old_css, new_css)
             browser.setHtml(html)
+        self._populate_sasa_report_section()
 
     def _update_seq_viewer(self, highlight_pattern: str = ""):
         """Refresh the sequence viewer panel with colour-coded residues (UniProt style)."""
@@ -6601,9 +6604,11 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 is_dark=getattr(self, "_is_dark", False),
             )
         if _HAS_AMPHIPATHIC:
-            gens["Hydrophobic Moment"] = lambda: _wrap(lambda: create_hydrophobic_moment_figure(
-                seq, ad.get("moment_alpha", []), ad.get("moment_beta", []),
-                ad.get("amph_regions", []), label_font=lf, tick_font=tf))
+            _amph = ad.get("amph_regions", []) if _uniprot_feats else []
+            gens["Hydrophobic Moment"] = lambda _a=_amph: _wrap(
+                lambda: create_hydrophobic_moment_figure(
+                    seq, ad.get("moment_alpha", []), ad.get("moment_beta", []),
+                    _a, label_font=lf, tick_font=tf))
         if _HAS_RBP:
             gens["RNA-Binding Profile"] = lambda: _wrap(lambda: create_rbp_profile_figure(
                 seq, ad.get("rbp_profile", []),
