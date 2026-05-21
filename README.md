@@ -2,7 +2,7 @@
 
 **Website:** [https://chemgame.github.io/BEER](https://chemgame.github.io/BEER)
 
-**BEER** is a desktop application for integrated biophysical analysis of protein sequences. It accepts a sequence (pasted, imported as FASTA/PDB, or fetched from UniProt/RCSB), runs 14 classical analysis sections and 12 ESM2 BiLSTM neural AI prediction heads on demand, and gives you interactive publication-quality graphs, a 3D structure viewer, and exportable per-section reports — all from a single GUI.
+**BEER** is a desktop application for integrated biophysical analysis of protein sequences. It accepts a sequence (pasted, imported as FASTA/PDB, or fetched from UniProt/RCSB), runs 14 classical analysis sections and 27 ESM2 BiLSTM neural AI prediction heads on demand, and gives you interactive publication-quality graphs, a 3D structure viewer, and exportable per-section reports — all from a single GUI.
 
 I built BEER because I wanted a single tool that handles everything from basic physicochemical properties to disorder prediction, aggregation hotspots, RNA-binding propensity, and phase separation metrics, without jumping between half a dozen web servers.
 
@@ -161,7 +161,7 @@ Full flag list:
 
 ## Analysis Tab
 
-After running analysis, the left panel lists 14 classical analysis sections and a separate **AI Predictions** group. Click any section name to display it. The report panel has two tabs — **Report** (all sections) and **Alanine Scan** (systematic single-site Ala mutation scan with ΔGRAVY, ΔMW, ΔCharge, and ΔDisorder fraction).
+After running analysis, the left panel lists 14 classical analysis sections and a separate **AI Predictions** group (collapsed by default). Click any section name to display it; click a group header or the ▶ arrow to expand or collapse it. The report panel has two tabs — **Report** (all sections) and **Alanine Scan** (systematic single-site Ala mutation scan with ΔGRAVY, ΔMW, ΔCharge, and ΔDisorder fraction).
 
 When you fetch a protein from UniProt or RCSB, a compact **protein info bar** appears above the report panel, showing the protein name, gene, organism, and a one-line functional description.
 
@@ -170,7 +170,7 @@ When you fetch a protein from UniProt or RCSB, a compact **protein info bar** ap
 | Button | Action |
 |--------|--------|
 | **Analyze** | Run fast (classical) analysis (`Ctrl+Enter`) |
-| **AI Analysis** | Run full ESM2 BiLSTM analysis (all 24 heads at once) |
+| **AI Analysis** | Run full ESM2 BiLSTM analysis (all 27 heads at once) |
 | **Mutate…** | Point-mutation dialog |
 | **Save / Load Session** | Save or restore a `.beer` JSON session file |
 | **Figure Composer** | Assemble a custom multi-panel publication figure |
@@ -234,13 +234,18 @@ Computed on-demand when you click a section under **AI Predictions** in the side
 | **Propeptide** | |
 | **Repeat Region** | |
 | **Transit Peptide** | |
+| **SS3: α-Helix** | Per-residue softmax probability that a residue is in an α-helix; output of the Q3 secondary structure head |
+| **SS3: β-Strand** | Per-residue softmax probability of β-strand (sheet) assignment |
+| **SS3: Coil/Loop** | Per-residue softmax probability of coil/loop assignment; the three SS3 profiles sum to 1.0 at every position |
 | **Aggregation Propensity** | BiLSTM-Window architecture (9-residue window-average pool); trained on WALTZ-DB 2.0 + AmyLoad + AmyPro + PDB amyloid fibrils |
 
 ---
 
 ## Graphs Tab
 
-Navigate using the **category tree** on the left. The matplotlib toolbar (zoom, pan, home) appears above each figure. Click the **ⓘ** button (bottom-right of each graph) for a detailed description, equations, and references. **Right-click any graph** for three options: copy to clipboard, save figure (PNG/SVG/PDF), or **Export Graph Data…** — writes the underlying data (residue scores, domain lists, site tables, etc.) to a CSV or JSON file so you can re-plot or analyse it with external tools.
+Navigate using the **category tree** on the left (all groups collapsed by default; click a group header or the ▶ arrow to expand it). The matplotlib toolbar (zoom, pan, home) appears above each figure. Click the **ⓘ** button (bottom-right of each graph) for a detailed description, equations, and references. **Right-click any graph** for three options: copy to clipboard, save figure (PNG/SVG/PDF), or **Export Graph Data…** — writes the underlying data (residue scores, domain lists, site tables, etc.) to a CSV or JSON file so you can re-plot or analyse it with external tools.
+
+After fetching **UniProt annotation tracks** (via the **Fetch UniProt Tracks** button in the toolbar), helix and strand annotations are overlaid as coloured spans on the corresponding SS3 profile graphs. Click **✕ Clear Tracks** in the Graphs toolbar to remove all UniProt overlays without re-running the analysis.
 
 Each graph panel has two inline controls in its toolbar:
 
@@ -252,7 +257,7 @@ Individual graphs and reports are exported per-section; there is no bulk "export
 | Category | Graphs |
 |----------|--------|
 | **Composition** | Amino Acid Composition (Bar) |
-| **AI Predictions** | Disorder Profile, Signal Peptide Profile, Transmembrane Profile, Intramembrane Profile, Coiled-Coil Profile, DNA-Binding Profile, RNA Binding Profile, Active Site Profile, Binding Site Profile, Phosphorylation Profile, Low-Complexity Profile, Zinc Finger Profile, Glycosylation Profile, Ubiquitination Profile, Methylation Profile, Acetylation Profile, Lipidation Profile, Disulfide Bond Profile, Functional Motif Profile, Propeptide Profile, Repeat Region Profile, Nucleotide-Binding Profile, Transit Peptide Profile, Aggregation Propensity Profile |
+| **AI Predictions** | Disorder Profile, Signal Peptide Profile, Transmembrane Profile, Intramembrane Profile, Coiled-Coil Profile, DNA-Binding Profile, RNA Binding Profile, Active Site Profile, Binding Site Profile, Phosphorylation Profile, Low-Complexity Profile, Zinc Finger Profile, Glycosylation Profile, Ubiquitination Profile, Methylation Profile, Acetylation Profile, Lipidation Profile, Disulfide Bond Profile, Functional Motif Profile, Propeptide Profile, Repeat Region Profile, Nucleotide-Binding Profile, Transit Peptide Profile, Secondary Structure: Helix Profile, Secondary Structure: Strand Profile, Secondary Structure: Coil Profile, Aggregation Propensity Profile |
 | **Other Sequence Profiles** | Hydrophobicity Profile, Local Charge Profile, SCD Profile, SHD Profile |
 | **Charge & π-Interactions** | Isoelectric Focus, Charge Decoration, Cation–π Map |
 | **Membrane & Amphipathicity** | TM Topology, Hydrophobic Moment, Helical Wheel |
