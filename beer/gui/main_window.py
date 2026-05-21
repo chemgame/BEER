@@ -1735,7 +1735,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             return tab, browser
 
         for group_name, group_secs in _REPORT_SECTION_GROUPS:
-            grp_item = QTreeWidgetItem([f"▼  {group_name}"])
+            grp_item = QTreeWidgetItem([f"▶  {group_name}"])
             grp_item.setFont(0, bold_font)
             grp_item.setFlags(grp_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.report_section_list.addTopLevelItem(grp_item)
@@ -1751,7 +1751,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 self.report_section_tabs[sec] = browser
                 self._report_sec_to_idx[sec] = _stack_idx
                 _stack_idx += 1
-            grp_item.setExpanded(True)
+            grp_item.setExpanded(False)
 
         for sec in REPORT_SECTIONS:
             if sec not in _grouped_secs:
@@ -1766,7 +1766,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 _stack_idx += 1
 
         # ── AI Predictions dynamic group (populated after AI Analysis) ──────
-        self._ai_pred_grp_item = QTreeWidgetItem(["▼  AI Feature Predictions"])
+        self._ai_pred_grp_item = QTreeWidgetItem(["▶  AI Feature Predictions"])
         self._ai_pred_grp_item.setFont(0, bold_font)
         self._ai_pred_grp_item.setFlags(
             self._ai_pred_grp_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
@@ -2271,7 +2271,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         bold_font.setPointSize(10)
 
         for category, titles in GRAPH_CATEGORIES:
-            cat_item = QTreeWidgetItem([f"▼  {category}"])
+            cat_item = QTreeWidgetItem([f"▶  {category}"])
             cat_item.setFont(0, bold_font)
             cat_item.setFlags(cat_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.graph_tree.addTopLevelItem(cat_item)
@@ -2308,7 +2308,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 self.graph_tabs[title] = (panel, vb)
                 self._graph_title_to_stack_idx[title] = idx
 
-            cat_item.setExpanded(True)
+            cat_item.setExpanded(False)
 
         self.graph_tree.itemClicked.connect(self._on_graph_tree_clicked)
         self.graph_tree.itemExpanded.connect(self._on_graph_tree_expanded)
@@ -2417,7 +2417,7 @@ class ProteinAnalyzerGUI(QMainWindow):
                 self.struct_ctrl_scroll.setStyle(_fusion)
             self.struct_ctrl_scroll.setStyleSheet(STRUCT_PANEL_CSS_LIGHT)
 
-            def _collapsible(grp: QGroupBox, expanded: bool = True) -> QWidget:
+            def _collapsible(grp: QGroupBox, expanded: bool = False) -> QWidget:
                 """Wrap a GroupBox in an accordion section with a ▶/▼ toggle button."""
                 title = grp.title()
                 grp.setTitle("")
