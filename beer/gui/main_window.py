@@ -4288,6 +4288,23 @@ window.addEventListener("load",init);
         rsa = getattr(self, "_struct_sasa_data", {})
         asa = getattr(self, "_struct_sasa_raw", {})
         if not rsa:
+            from beer.reports.css import get_report_css
+            css = get_report_css(getattr(self, "_is_dark", False))
+            html = (
+                f"<html><head><style>{css}</style></head><body>"
+                f"<h2>Solvent Accessibility (SASA)</h2>"
+                f"<p>SASA data requires a 3D structure. No structure is currently loaded.</p>"
+                f"<p>To compute SASA:</p>"
+                f"<ol>"
+                f"<li>Fetch an AlphaFold model via <b>Fetch AlphaFold</b></li>"
+                f"<li>Import a local PDB file via <b>Import PDB</b></li>"
+                f"<li>Fetch a structure by PDB ID via <b>Fetch PDB ID</b></li>"
+                f"</ol>"
+                f"<p>Once a structure is loaded, SASA is computed automatically using the "
+                f"Shrake–Rupley algorithm.</p>"
+                f"</body></html>"
+            )
+            self.report_section_tabs["SASA Profile"].setHtml(html)
             return
         rsa_vals = [rsa[k] for k in sorted(rsa)]
         asa_vals = [asa[k] for k in sorted(asa)]
@@ -6567,9 +6584,10 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             seq, ad.get("prot_sites", {}), label_font=lf, tick_font=tf))
         if _HAS_AGGREGATION:
             _aggr_prof = ad.get("aggr_profile", calc_aggregation_profile(seq))
-            gens["\u03b2-Aggregation Profile"] = lambda: _wrap(lambda: create_aggregation_profile_figure(
-                seq, _aggr_prof, predict_aggregation_hotspots(seq),
-                label_font=lf, tick_font=tf))
+            _hotspots = predict_aggregation_hotspots(seq) if _uniprot_feats else []
+            gens["\u03b2-Aggregation Profile"] = lambda _h=_hotspots: _wrap(
+                lambda: create_aggregation_profile_figure(
+                    seq, _aggr_prof, _h, label_font=lf, tick_font=tf))
             gens["Solubility Profile"] = lambda: _wrap(lambda: create_solubility_profile_figure(
                 seq, calc_camsolmt_score(seq), label_font=lf, tick_font=tf))
         _am_data = getattr(self, "_alphafold_missense_data", None)
@@ -6604,11 +6622,20 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 ad["plaac"], label_font=lf, tick_font=tf))
 
         # Structure-derived (require loaded PDB — independent of AlphaFold)
+        _STRUCT_MSG = (
+            "Load a 3D structure to see this graph.\n\n"
+            "Use Fetch AlphaFold, Import PDB, or Fetch PDB ID."
+        )
+        _is_dk = getattr(self, "_is_dark", False)
+
         _pdb_for_ss = getattr(self, "_struct_pdb_str", None)
         if _pdb_for_ss:
             gens["SS Bead Model"] = lambda _p=_pdb_for_ss: _wrap(
                 lambda: create_bead_model_ss_figure(
                     _p, show_labels=True, label_font=lf, tick_font=tf))
+        else:
+            gens["SS Bead Model"] = lambda: self._make_unavail_fig(
+                "SS Bead Model", _STRUCT_MSG, is_dark=_is_dk)
 
         if getattr(self, "_struct_sasa_data", {}):
             _rsa = dict(self._struct_sasa_data)
@@ -6618,6 +6645,9 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             gens["SASA Profile"] = lambda: _wrap(lambda: create_sasa_figure(
                 _rsa, _asa, window=_win, show_asa=_show_asa,
                 label_font=lf, tick_font=tf))
+        else:
+            gens["SASA Profile"] = lambda: self._make_unavail_fig(
+                "SASA Profile", _STRUCT_MSG, is_dark=_is_dk)
 
         # Structure-dependent
         afd = self.alphafold_data
@@ -6629,15 +6659,31 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                     lambda: create_plddt_figure(
                         afd["plddt"], label_font=lf, tick_font=tf,
                         use_bfactor=not _iaf))
+            else:
+                gens["pLDDT Profile"] = lambda: self._make_unavail_fig(
+                    "pLDDT / B-factor Profile", _STRUCT_MSG, is_dark=_is_dk)
             dm = afd.get("dist_matrix")
             if dm is not None and dm.ndim == 2 and dm.shape[0] == len(seq) > 0:
                 gens["Distance Map"] = lambda: _wrap(lambda: create_distance_map_figure(
                     afd["dist_matrix"], label_font=lf, tick_font=tf, cmap=hcm))
                 gens["Residue Contact Network"] = lambda: _wrap(lambda: create_contact_network_figure(
                     seq, afd["dist_matrix"], label_font=lf, tick_font=tf, cmap=hcm))
+            else:
+                gens["Distance Map"] = lambda: self._make_unavail_fig(
+                    "Distance Map", _STRUCT_MSG, is_dark=_is_dk)
+                gens["Residue Contact Network"] = lambda: self._make_unavail_fig(
+                    "Residue Contact Network", _STRUCT_MSG, is_dark=_is_dk)
             if _HAS_PHI_PSI:
                 gens["Ramachandran Plot"] = lambda: _wrap(lambda: create_ramachandran_figure(
                     _extract_phi_psi(afd["pdb_str"]), label_font=lf, tick_font=tf))
+            else:
+                gens["Ramachandran Plot"] = lambda: self._make_unavail_fig(
+                    "Ramachandran Plot", _STRUCT_MSG, is_dark=_is_dk)
+        else:
+            for _t in ("pLDDT Profile", "Distance Map",
+                       "Residue Contact Network", "Ramachandran Plot"):
+                gens[_t] = lambda t=_t: self._make_unavail_fig(
+                    t, _STRUCT_MSG, is_dark=_is_dk)
 
         # MSA
         if self._msa_sequences:
@@ -7747,6 +7793,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         for sec, browser in self.report_section_tabs.items():
             if sec in _rsecs:
                 browser.setHtml(_rsecs[sec])
+        self._populate_sasa_report_section()
         self._update_seq_viewer()
         self.update_graph_tabs()
         self._append_sparklines(data)
