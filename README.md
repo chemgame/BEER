@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./docs/assets/beer_logo.png" alt="Software Logo" width="200" />
+</p>
+
 # BEER — Biophysical Evaluation Engine for Residues
 
 **Website:** [https://chemgame.github.io/BEER](https://chemgame.github.io/BEER)
