@@ -99,3 +99,4 @@ warn_unused_ignores = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+pythonpath = ["."]   # import beer from a fresh checkout without installing

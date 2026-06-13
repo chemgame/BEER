@@ -15,6 +15,8 @@ jobs:
           python-version: "3.12"
       - name: Install tooling + headless deps
         run: pip install ruff pytest "numpy<2" biopython matplotlib metapredict mplcursors
+      - name: Install beer (no deps — keep CI lean; GUI/AI libs not needed for numerics)
+        run: pip install -e . --no-deps
       - name: Ruff — critical errors (blocking)
         # Syntax errors, undefined names, broken comparisons/statements only.
         run: ruff check --select E9,F63,F7,F82 .
