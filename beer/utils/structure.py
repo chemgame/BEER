@@ -4,6 +4,8 @@ import math
 import re
 from collections import Counter
 
+import numpy as np   # module-level so "np.ndarray" annotations resolve
+
 from beer.constants import (
     KYTE_DOOLITTLE,
     DISORDER_PROPENSITY,

@@ -346,7 +346,7 @@ def fetch_esmfold_pdb(sequence: str) -> dict:
         "offline by Meta in 2024. Use the BioHub Forge API instead "
         "(accessible via the ESMFold2 worker in BEER)."
     )
-    seq = sequence.strip().upper()  # noqa: unreachable — kept for reference
+    seq = sequence.strip().upper()  # unreachable — kept for reference
     if not seq:
         raise ValueError("ESMFold: no sequence provided.")
     url = "https://api.esmatlas.com/foldSequence/v1/pdb/"
