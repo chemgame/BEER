@@ -1,0 +1,213 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{colortbl}
+
+\definecolor{beerblue}{HTML}{1565C0}
+\definecolor{lightgray}{HTML}{F0F0F0}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=beerblue,
+  urlcolor=beerblue,
+  pdfauthor={Saumyak Mukherjee},
+  pdftitle={BEER v3 AI Training Summary},
+}
+
+\titleformat{\section}{\large\bfseries\color{beerblue}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+
+\captionsetup{font=small, labelfont=bf}
+
+\begin{document}
+
+% ── Title ─────────────────────────────────────────────────────────────────────
+\begin{center}
+  {\LARGE\bfseries BEER v3 --- AI Prediction Heads}\\[4pt]
+  {\large\color{beerblue} Training Summary}\\[8pt]
+  {\normalsize Saumyak Mukherjee \quad|\quad
+   \href{https://www.saumyakmukherjee.com}{www.saumyakmukherjee.com} \quad|\quad
+   \href{https://github.com/chemgame/BEER}{github.com/chemgame/BEER}}\\[4pt]
+  {\small\color{gray} BEER v3.0.0 \quad---\quad \today}
+\end{center}
+
+\vspace{4pt}\hrule\vspace{12pt}
+
+% ── Overview ──────────────────────────────────────────────────────────────────
+\section{Overview}
+
+BEER v3 uses \textbf{ESMC 600M} (EvolutionaryScale, December 2024) as its protein language model backbone to generate per-residue embeddings of dimension 1152. These embeddings are fed into task-specific \textbf{BiLSTM} prediction heads --- one per biological annotation type --- trained on curated experimental databases. All 23 shipped heads plus the in-training nucleotide-binding head are documented here.
+
+% ── Backbone ──────────────────────────────────────────────────────────────────
+\section{Backbone: ESMC 600M}
+
+\begin{tabular}{L{4.5cm} L{9.5cm}}
+\toprule
+\textbf{Property} & \textbf{Value} \\
+\midrule
+Model & EvolutionaryScale ESMC 600M (open weights, Dec 2024) \\
+Embedding dimension & 1152 \\
+Embedding type & Per-residue (one 1152-dim vector per amino acid) \\
+Access & HuggingFace Hub: \texttt{EvolutionaryScale/esmc-600m-2024-12} \\
+Inference & CPU/GPU via the \texttt{esm} Python package ($\geq$3.2) \\
+Sequence cap & 1024 residues (truncated if longer) \\
+\bottomrule
+\end{tabular}
+
+% ── Head Architecture ─────────────────────────────────────────────────────────
+\section{Prediction Head Architecture}
+
+Three head architectures are used depending on the task:
+
+\subsection{BiLSTM --- standard binary classifier (21 heads)}
+
+\begin{tabular}{L{4.5cm} L{9.5cm}}
+\toprule
+\textbf{Property} & \textbf{Value} \\
+\midrule
+Layers & 2-layer bidirectional LSTM \\
+Hidden dim & 256 per direction (512 after concat) \\
+Dropout & 0.30 (between layers) \\
+Output & Linear(512$\rightarrow$1) + sigmoid $\rightarrow$ per-residue probability \\
+Loss & Focal Loss ($\gamma = 2.0$, $\alpha = N_{\mathrm{neg}}/(N_{\mathrm{pos}}+N_{\mathrm{neg}})$) \\
+Parameters & $\approx$2.4M per head \\
+\bottomrule
+\end{tabular}
+
+\subsection{BiLSTM+CRF --- transmembrane topology (1 head)}
+
+Same BiLSTM encoder as above, followed by a linear-chain CRF with 3 states (Outside / TM Helix / Inside) and constrained transitions. Viterbi decoding at inference gives topologically valid helix assignments. Loss: CRF negative log-likelihood.
+
+\subsection{BiLSTM-SS3 --- secondary structure (1 head, 3 profiles)}
+
+Same BiLSTM encoder, output layer Linear(512$\rightarrow$3), trained with Cross-Entropy loss (ignore\_index for padding). Produces per-residue softmax probabilities for Helix, Strand, and Coil simultaneously. Metric: Q3 accuracy.
+
+\subsection{Common training settings}
+
+\begin{tabular}{L{4.5cm} L{9.5cm}}
+\toprule
+\textbf{Hyperparameter} & \textbf{Value} \\
+\midrule
+Optimiser & AdamW, lr = $5\times10^{-4}$, weight decay = $10^{-4}$ \\
+LR schedule & Cosine annealing + 3-epoch linear warmup \\
+Max epochs & 50 (early stopping, patience = 8) \\
+Batch size & 16 proteins (lazy embedding loading, no padding waste) \\
+Data split & 80/10/10 by MMseqs2 clustering at 30\% sequence identity \\
+Final model & Retrained on train+val after test evaluation \\
+Explicit negatives & Confirmed-absent 5-star Swiss-Prot entries for 10 heads \\
+Hardware & NVIDIA Quadro RTX 5000 (16\,GB), CUDA 12.0 \\
+\bottomrule
+\end{tabular}
+
+\medskip
+\noindent\textbf{Data split note:} MMseqs2 easy-cluster at 30\% sequence identity ensures no protein in the test set shares $>$30\% identity with any training protein, preventing homology-based inflation of reported metrics.
+
+% ── Results table ─────────────────────────────────────────────────────────────
+\section{Per-Head Results}
+
+\begin{longtable}{L{2.9cm} L{5.2cm} R{1.3cm} R{1.1cm} R{1.2cm} L{1.6cm} R{1.5cm}}
+\caption{Training data, sample sizes, and held-out test performance for all 24 BEER v3 prediction heads. AUROC is reported for binary heads; Q3 accuracy for the secondary structure (SS3) head. Pos rate is the fraction of positive residues in the training set.}
+\label{tab:heads}\\
+\toprule
+\textbf{Head} & \textbf{Primary database} & \textbf{Total~N} & \textbf{Test~N} & \textbf{Pos rate} & \textbf{Arch} & \textbf{Score} \\
+\midrule
+\endfirsthead
+\multicolumn{7}{c}{\tablename~\thetable\ (continued)}\\
+\toprule
+\textbf{Head} & \textbf{Primary database} & \textbf{Total~N} & \textbf{Test~N} & \textbf{Pos rate} & \textbf{Arch} & \textbf{Score} \\
+\midrule
+\endhead
+\midrule\multicolumn{7}{r}{\small continued\ldots}\\
+\endfoot
+\bottomrule
+\endlastfoot
+
+Signal Peptide      & UniProt SwissProt \texttt{ft\_signal}        &  7,956 &   791 & 4.5\%  & BiLSTM      & AUROC 0.9999 \\
+\rowcolor{lightgray}
+Disulfide Bond      & PDB SSBOND records                           &  9,876 &   982 & 1.4\%  & BiLSTM      & AUROC 0.9990 \\
+Zinc Finger         & BioLiP (Zn-coordinating residues)            &  7,650 &   757 & 9.6\%  & BiLSTM      & AUROC 0.9972 \\
+\rowcolor{lightgray}
+Transit Peptide     & UniProt SwissProt \texttt{ft\_transit}        &  5,358 &   537 & 9.6\%  & BiLSTM      & AUROC 0.9950 \\
+Glycosylation       & GlyConnect (N/O-glycosylation)               & 14,927 & 1,475 & 0.7\%  & BiLSTM      & AUROC 0.9938 \\
+\rowcolor{lightgray}
+DNA Binding         & BioLiP (protein-DNA contacts)                &  7,854 &   774 & 10.4\% & BiLSTM      & AUROC 0.9936 \\
+Lipidation          & UniProt SwissProt \texttt{ft\_lipid}          &  5,891 &   589 & 0.4\%  & BiLSTM      & AUROC 0.9928 \\
+\rowcolor{lightgray}
+Acetylation         & dbPTM (Lys/N-term acetylation)               & 11,833 & 1,179 & 0.4\%  & BiLSTM      & AUROC 0.9894 \\
+Active Site         & M-CSA (catalytic residues)                   &  3,021 &   303 & 0.3\%  & BiLSTM      & AUROC 0.9918 \\
+\rowcolor{lightgray}
+Ubiquitination      & dbPTM (Lys ubiquitination)                   &  4,542 &   444 & 0.3\%  & BiLSTM      & AUROC 0.9867 \\
+Transmembrane       & PDBTM (PDB TM structures)                    &  7,817 &   763 & ---    & BiLSTM+CRF  & AUROC 0.9870 \\
+\rowcolor{lightgray}
+Intramembrane       & UniProt SwissProt \texttt{ft\_intramem}       &  1,356 &   113 & 5.6\%  & BiLSTM      & AUROC 0.9853 \\
+Phosphorylation     & dbPTM (pSer/pThr/pTyr)                       & 11,747 & 1,163 & 0.6\%  & BiLSTM      & AUROC 0.9779 \\
+\rowcolor{lightgray}
+Coiled Coil         & UniProt SwissProt \texttt{ft\_coiled}         &  5,619 &   562 & 18.3\% & BiLSTM      & AUROC 0.9711 \\
+Low Complexity      & UniProt SwissProt \texttt{ft\_compbias}       &  7,729 &   774 & 9.5\%  & BiLSTM      & AUROC 0.9706 \\
+\rowcolor{lightgray}
+Binding Site        & BioLiP (small-molecule contacts)             &  9,798 &   980 & 1.6\%  & BiLSTM      & AUROC 0.9631 \\
+Methylation         & dbPTM (Lys/Arg methylation)                  &  8,035 &   684 & 0.3\%  & BiLSTM      & AUROC 0.9585 \\
+\rowcolor{lightgray}
+Repeat Region       & UniProt SwissProt \texttt{ft\_repeat}         &  5,792 &   577 & 34.2\% & BiLSTM      & AUROC 0.9481 \\
+Propeptide          & UniProt SwissProt \texttt{ft\_propep}         &  5,772 &   430 & 14.9\% & BiLSTM      & AUROC 0.9392 \\
+\rowcolor{lightgray}
+Functional Motif    & UniProt SwissProt \texttt{ft\_motif}          &  5,690 &   564 & 2.2\%  & BiLSTM      & AUROC 0.8834 \\
+Sec. Structure (SS3)& UniProt \texttt{ft\_helix}+\texttt{ft\_strand} &  7,839 &   785 & ---    & BiLSTM-SS3  & Q3\ \ \ 0.8275 \\
+\rowcolor{lightgray}
+Disorder            & DisProt (curated IDRs)                       &  4,613 &   460 & 10.1\% & BiLSTM      & AUROC 0.8635 \\
+RNA Binding         & BioLiP (protein-RNA contacts)                &    843 &    26 & 17.2\% & BiLSTM      & AUROC 0.7052 \\
+\rowcolor{lightgray}
+Nucleotide Binding  & UniProt KW-0547 + BioLiP                     & \multicolumn{5}{c}{\textit{training in progress}} \\
+
+\end{longtable}
+
+% ── Database notes ────────────────────────────────────────────────────────────
+\section{Training Database Sources}
+
+\begin{description}[leftmargin=2.5cm, style=sameline, font=\bfseries]
+  \item[UniProt] Swiss-Prot reviewed entries only. Feature annotations fetched via the UniProt REST API v2024. Curated database overrides take priority where available.
+  \item[BioLiP] Structure-derived protein-ligand/nucleic-acid contact database (\href{https://zhanggroup.org/BioLiP/}{zhanggroup.org/BioLiP}). Used for DNA binding, RNA binding, zinc finger, binding site, and nucleotide binding heads.
+  \item[DisProt] Curated intrinsically disordered protein database (\href{https://disprot.org}{disprot.org}). 2,614 proteins with experimentally validated disordered regions.
+  \item[dbPTM] Experimental post-translational modification database (\href{https://dbptm.mbc.nctu.edu.tw}{dbptm.mbc.nctu.edu.tw}). Used for phosphorylation, ubiquitination, methylation, and acetylation heads.
+  \item[M-CSA] Mechanism and Catalytic Site Atlas for active site residues (\href{https://www.ebi.ac.uk/thornton-srv/m-csa/}{ebi.ac.uk/thornton-srv/m-csa}).
+  \item[GlyConnect] Experimentally validated glycosylation sites (\href{https://glyconnect.expasy.org}{glyconnect.expasy.org}).
+  \item[PDBTM] PDB Transmembrane protein database for the CRF-based TM head (\href{https://pdbtm.unitmp.org}{pdbtm.unitmp.org}).
+  \item[PDB SSBOND] Disulfide bond records extracted directly from PDB coordinate files.
+\end{description}
+
+% ── Notes ─────────────────────────────────────────────────────────────────────
+\section{Notes}
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{Explicit negatives:} For 10 heads where closed-world assumption bias is a concern (e.g.\ active site, phosphorylation), up to 2,000 confirmed-negative proteins (5-star Swiss-Prot entries explicitly lacking the feature) were added as all-zero label training examples.
+  \item \textbf{Transmembrane split:} The BiLSTM+CRF head uses a random 80/10/10 split rather than MMseqs2, because PDBTM chains are already curated at the structural level.
+  \item \textbf{RNA binding (AUROC 0.705):} The small training set (843 proteins total, 26 test) and the diffuse nature of protein-RNA contacts at the residue level explain the lower performance relative to other heads. Results should be interpreted qualitatively.
+  \item \textbf{Secondary structure (Q3 0.828):} The SS3 head predicts three classes (Helix / Strand / Coil) simultaneously; Q3 accuracy is the standard metric for this task and is not directly comparable to AUROC values.
+  \item \textbf{All metrics} are evaluated on held-out test proteins with $<$30\% sequence identity to any training protein (MMseqs2 clustering). The final shipped weights are retrained on train+val combined.
+  \item \textbf{Focal Loss} down-weights easy negative residues (the majority class in all tasks), forcing the model to focus on the rare positive signal. The $\alpha$ parameter is set per-head to the fraction of negatives in the training set.
+\end{itemize}
+
+\vspace{12pt}
+\noindent\small\color{gray}
+Generated by BEER v3.0.0 $\cdot$
+\href{https://github.com/chemgame/BEER}{github.com/chemgame/BEER} $\cdot$
+\href{https://www.saumyakmukherjee.com}{www.saumyakmukherjee.com}
+
+\end{document}

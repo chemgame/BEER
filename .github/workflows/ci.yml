@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install tooling + headless deps
+        run: pip install ruff pytest "numpy<2" biopython matplotlib metapredict mplcursors
+      - name: Ruff — critical errors (blocking)
+        # Syntax errors, undefined names, broken comparisons/statements only.
+        run: ruff check --select E9,F63,F7,F82 .
+      - name: Ruff — full lint (informational)
+        run: ruff check . || true
+      - name: Import smoke test (non-GUI modules)
+        run: |
+          python -c "import beer.analysis.core, beer.utils.biophysics, beer.utils.sequence, beer.io.track_export, beer.graphs.structural, beer.constants; print('import OK')"
+      - name: Unit tests (headless numerics)
+        run: pytest -q tests/

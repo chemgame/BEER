@@ -1,0 +1,13 @@
+# Non-Python files to bundle in the source distribution (BEER v3.0)
+include README.md
+include LICENSE
+include beer/models/weights_manifest.json
+include beer/graphs/data/*.npz
+include beer/gui/icons/*.svg
+include beer/gui/icons/LICENSE
+include beer/gui/molstar.js
+include beer/gui/molstar.css
+include beer/gui/struct_viewer.html
+include beer/gui/3Dmol-min.js
+include beer/gui/3Dmol-min.js.LICENSE.txt
+include beer/beer.png

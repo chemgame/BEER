@@ -1,0 +1,101 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beer-biophys"
+version = "3.0.0"
+description = "Biophysical Evaluation Engine for Residues — desktop GUI for protein sequence analysis"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Saumyak Mukherjee", email = "mukherjee.saumyak50@gmail.com"}
+]
+keywords = ["biophysics", "protein", "sequence", "IDP", "phase-separation", "bioinformatics"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "biopython>=1.81",
+    "matplotlib>=3.7",
+    "PySide6>=6.6",
+    "PySide6-Addons>=6.6",     # QtWebEngineWidgets — 3D structure viewer (core)
+    "numpy>=1.24,<2",          # <2 required by torch>=2.0 CPU builds
+    "metapredict>=2.6",
+    "mplcursors>=0.5",
+    "esm>=3.2",                # ESMC 600M language-model backbone (core)
+    "torch>=2.0",              # 24 BiLSTM AI prediction heads (core)
+]
+
+# The AI heads and 3D viewer are core BEER features, so torch/esm and
+# PySide6-Addons are required dependencies (not optional extras). Only the
+# test toolchain is optional.
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[project.urls]
+Homepage = "https://github.com/chemgame/BEER"
+Source = "https://github.com/chemgame/BEER"
+"Bug Tracker" = "https://github.com/chemgame/BEER/issues"
+Documentation = "https://github.com/chemgame/BEER/blob/main/README.md"
+
+[project.scripts]
+beer = "beer.gui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["beer*"]
+
+[tool.setuptools.package-data]
+beer = [
+    "models/weights_manifest.json",
+    "graphs/data/*.npz",
+    "gui/icons/*.svg",
+    "gui/icons/LICENSE",
+    "beer.png",
+    "gui/molstar.js",
+    "gui/molstar.css",
+    "gui/struct_viewer.html",
+    "gui/3Dmol-min.js",
+    "gui/3Dmol-min.js.LICENSE.txt",
+]
+
+# ---------------------------------------------------------------------------
+# Tooling: lint / type-check / test baseline
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["scripts", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E501",            # line length — many long descriptive strings
+    "E741",            # ambiguous names (l, I) used in some math
+    "E402",            # import-not-at-top (matplotlib.use ordering)
+    "E722",            # bare except — several are intentional, tracked separately
+    "F403", "F405",    # star re-exports in a few modules
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]   # intentional re-exports
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

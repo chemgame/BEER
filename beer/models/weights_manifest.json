@@ -1,0 +1,127 @@
+{
+  "version": "3.0.0",
+  "release_tag": "v3.0.0",
+  "repo": "chemgame/BEER",
+  "files": {
+    "acetylation_head.npz": {
+      "sha256": "b44a5af06a1a53d38468fff4aa630a37b3ea24be3f1872c115d17cde87482eea",
+      "bytes": 16524074,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/acetylation_head.npz"
+    },
+    "active_site_head.npz": {
+      "sha256": "cb82e88e7343df2d70127a167afe392e3707c2f0822798fe87d15f7bf83bef16",
+      "bytes": 16524952,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/active_site_head.npz"
+    },
+    "binding_site_head.npz": {
+      "sha256": "febb9dae3c0a3bcbddaae500be9c5477a80f28001bee3254a7f3674251482868",
+      "bytes": 30682971,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/binding_site_head.npz"
+    },
+    "coiled_coil_head.npz": {
+      "sha256": "c9bf56e9a17ec48bc1498a2254dc915d712de1a19b6416a22e069652eda5aaf9",
+      "bytes": 30653943,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/coiled_coil_head.npz"
+    },
+    "disorder_head.npz": {
+      "sha256": "84957be09eab38b19b7a729bbab6a62cd8edd799ac50a4e29fd1bb9ffafdfbf2",
+      "bytes": 24817740,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/disorder_head.npz"
+    },
+    "disulfide_head.npz": {
+      "sha256": "5c4c559eaf93016546472a46bba576ef33cd40d0acb3f13352c30c09cc78dd1f",
+      "bytes": 16529875,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/disulfide_head.npz"
+    },
+    "dna_binding_head.npz": {
+      "sha256": "b07914b42431cb6752b1d0717daec7dabaa4b02014cbfb3136d44ab151635219",
+      "bytes": 16536110,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/dna_binding_head.npz"
+    },
+    "glycosylation_head.npz": {
+      "sha256": "e88319454302912703c1e0dabd4d93df05a46e36665e7a047bbdd26be59c9a5e",
+      "bytes": 16535695,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/glycosylation_head.npz"
+    },
+    "intramembrane_head.npz": {
+      "sha256": "a29ab5ab8555602a52507e32f28dfdc20082cc408f0b4efdc8b2fa285d0bde49",
+      "bytes": 16524490,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/intramembrane_head.npz"
+    },
+    "lcd_head.npz": {
+      "sha256": "56cdec3ac3a4e0f43bad9fb862ea512e7afb174b20837bbf735f648288a9c949",
+      "bytes": 24831285,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/lcd_head.npz"
+    },
+    "lipidation_head.npz": {
+      "sha256": "82660da0833e53b00d5f1fd59a7cd7d228c3a8256d3759971a308ea156eee0dd",
+      "bytes": 16525783,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/lipidation_head.npz"
+    },
+    "methylation_head.npz": {
+      "sha256": "9f6b25a445842226524ca06772e6e2b2555a06a83729162fa83920c95c235a86",
+      "bytes": 30645179,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/methylation_head.npz"
+    },
+    "motif_head.npz": {
+      "sha256": "d314309b9516637e50e442fe40c960f6d4a10c5f08704d7973400cd54df382d4",
+      "bytes": 24816982,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/motif_head.npz"
+    },
+    "nucleotide_binding_head.npz": {
+      "sha256": "a4d57da1dab1bcca081c9dec06eb017e7fa64779c2372653dabb9a762bc37b5f",
+      "bytes": 30672732,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/nucleotide_binding_head.npz"
+    },
+    "phosphorylation_head.npz": {
+      "sha256": "67fefd54eb43306b8539d009f7bf3b00a29d663136063d074d441a2f902a1905",
+      "bytes": 30663544,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/phosphorylation_head.npz"
+    },
+    "propeptide_head.npz": {
+      "sha256": "b274bf9231277e3842e706e6baa3c430a72d767a546663bf189804d354ee6254",
+      "bytes": 20920279,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/propeptide_head.npz"
+    },
+    "repeat_head.npz": {
+      "sha256": "505ea936baf6fcced5d8d00cb84d29cd7b5b5b0a98bb80bae79c82578e185737",
+      "bytes": 24821261,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/repeat_head.npz"
+    },
+    "rna_binding_head.npz": {
+      "sha256": "8b665c892a0cb09a6524fd779b78e850d0ced7b28a4221a1897512a5e96a02cc",
+      "bytes": 24820485,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/rna_binding_head.npz"
+    },
+    "secondary_structure_head.npz": {
+      "sha256": "250db585eb357e66b28ac889648e3b2486cbf75c7c60ba11c8ad39994321b082",
+      "bytes": 16576434,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/secondary_structure_head.npz"
+    },
+    "signal_peptide_head.npz": {
+      "sha256": "9946752cc88d33ee636270780f915d009845627f8d0c596bb888c3401b59b170",
+      "bytes": 16529550,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/signal_peptide_head.npz"
+    },
+    "transit_peptide_head.npz": {
+      "sha256": "a956cf4eb3b0e0d95d6bd98a145cd6bc72ced95221e840e454db91555c13135d",
+      "bytes": 16530118,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/transit_peptide_head.npz"
+    },
+    "transmembrane_head.npz": {
+      "sha256": "8f7e7e9bcaf4720bdd9814156bb622c203e71ba8e8658b09d404ec38e78add19",
+      "bytes": 16546524,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/transmembrane_head.npz"
+    },
+    "ubiquitination_head.npz": {
+      "sha256": "192c36794c438707391afd8519b7ec44ac146af32377a5d6099cf1a39a8781ed",
+      "bytes": 16523270,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/ubiquitination_head.npz"
+    },
+    "zinc_finger_head.npz": {
+      "sha256": "2b152f769f7cec99282947df8fba3a5a43747c8d7e9ee41849848f76cb926027",
+      "bytes": 16543686,
+      "url": "https://github.com/chemgame/BEER/releases/download/v3.0.0/zinc_finger_head.npz"
+    }
+  }
+}

@@ -1,0 +1,1834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BEER Structure Viewer</title>
+<style>
+/* molstar.css injected here by Python */
+__CSS__
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: __BG__;
+    font-family: system-ui, sans-serif;
+}
+
+#viewport {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* Native Mol* sequence panel (top region): hidden unless body.beer-seq-on.
+   Other control regions stay hidden for a clean look. */
+body:not(.beer-seq-on) .msp-layout-top { display: none !important; }
+.msp-layout-left, .msp-layout-right, .msp-layout-bottom { display: none !important; }
+
+/* ── Residue popup ───────────────────────────────────────────────── */
+#residue-popup {
+    display: none;
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 1000;
+    min-width: 200px;
+    max-width: 280px;
+    background: rgba(15, 20, 40, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    color: #e2e8f0;
+    padding: 10px 14px 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    font-size: 13px;
+    line-height: 1.5;
+}
+#residue-popup .popup-close {
+    position: absolute;
+    top: 6px;
+    right: 10px;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 16px;
+    line-height: 1;
+    user-select: none;
+}
+#residue-popup .popup-close:hover { color: #e2e8f0; }
+#residue-popup .popup-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #93c5fd;
+    margin-bottom: 6px;
+    padding-right: 18px;
+}
+#residue-popup .popup-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 1px 0;
+}
+#residue-popup .popup-label { color: rgba(226, 232, 240, 0.6); }
+#residue-popup .popup-val { color: #e2e8f0; font-weight: 500; text-align: right; }
+#residue-popup .popup-divider {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    margin: 6px 0;
+}
+
+/* ── Color bar ───────────────────────────────────────────────────── */
+#color-bar-wrap {
+    display: none;
+    position: absolute;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    background: rgba(15, 20, 40, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 6px;
+    padding: 6px 14px 4px;
+    text-align: center;
+    pointer-events: none;
+}
+#color-bar-canvas { display: block; }
+#color-bar-labels {
+    display: flex;
+    justify-content: space-between;
+    color: rgba(226, 232, 240, 0.8);
+    font-size: 10px;
+    margin-top: 2px;
+    min-width: 200px;
+}
+#color-bar-title {
+    color: rgba(226, 232, 240, 0.6);
+    font-size: 10px;
+    margin-bottom: 3px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+/* ── Measurement result readout ──────────────────────────────────── */
+#measure-result {
+    display: none;
+    position: absolute;
+    top: 52px;
+    left: 14px;
+    z-index: 1001;
+    min-width: 150px;
+    max-width: 260px;
+    background: rgba(15, 20, 40, 0.88);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(120, 170, 255, 0.35);
+    border-radius: 10px;
+    padding: 8px 12px 10px;
+    box-shadow: 0 6px 26px rgba(0, 0, 0, 0.4);
+    color: #e2e8f0;
+    font-size: 13px;
+}
+#measure-result .mr-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(226, 232, 240, 0.55);
+    margin-bottom: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+#measure-result .mr-close {
+    cursor: pointer;
+    color: rgba(255,255,255,0.5);
+    font-size: 14px;
+    line-height: 1;
+    user-select: none;
+}
+#measure-result .mr-close:hover { color: #e2e8f0; }
+#measure-result .mr-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 1px 0;
+}
+#measure-result .mr-val { font-weight: 600; color: #93c5fd; }
+
+/* ── Measurement status badge ────────────────────────────────────── */
+#measure-badge {
+    display: none;
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    z-index: 1000;
+    background: rgba(67, 97, 238, 0.88);   /* #4361ee to match panel accent */
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 20px;
+    padding: 5px 14px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    box-shadow: 0 2px 12px rgba(67,97,238,0.45);
+}
+</style>
+<!-- qwebchannel.js must be loaded before the inline script so QWebChannel is defined -->
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+</head>
+<body>
+
+<div id="viewport"></div>
+
+<!-- Residue popup -->
+<div id="residue-popup">
+    <span class="popup-close" id="popup-close-btn">&#x2715;</span>
+    <div class="popup-title" id="popup-residue-name">-</div>
+    <div class="popup-row"><span class="popup-label">Chain</span><span class="popup-val" id="popup-chain">-</span></div>
+    <div class="popup-row"><span class="popup-label">Seq #</span><span class="popup-val" id="popup-seqnum">-</span></div>
+    <div class="popup-row"><span class="popup-label">B-factor / pLDDT</span><span class="popup-val" id="popup-bfactor">-</span></div>
+    <hr class="popup-divider" id="popup-scores-divider" style="display:none">
+    <div id="popup-scores"></div>
+</div>
+
+<!-- Color bar -->
+<div id="color-bar-wrap">
+    <div id="color-bar-title">Score</div>
+    <canvas id="color-bar-canvas" width="220" height="14"></canvas>
+    <div id="color-bar-labels">
+        <span id="cb-label-min">0</span>
+        <span id="cb-label-mid">0.5</span>
+        <span id="cb-label-max">1</span>
+    </div>
+</div>
+
+<!-- Measurement status -->
+<div id="measure-badge"></div>
+
+<!-- Measurement result readout -->
+<div id="measure-result">
+    <div class="mr-title"><span id="mr-title-text">Measurement</span><span class="mr-close" id="mr-close-btn">&#x2715;</span></div>
+    <div id="mr-body"></div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+//  BEER Structure Viewer — Mol* 5.9 integration
+//  molstar.js is injected by QWebEngineScript before this runs
+// ════════════════════════════════════════════════════════════════════
+
+'use strict';
+
+// ── State ────────────────────────────────────────────────────────────
+var _plugin        = null;   // molstar Viewer instance (wrapper)
+var _ctx           = null;   // raw PluginContext (v.plugin || v)
+var _viewer        = null;   // same reference (alias)
+var _pendingQueue  = [];     // [{fn, args}] queued before plugin ready
+var _ready         = false;
+
+var _currentPDB    = null;   // raw PDB/mmCIF string (possibly chain-filtered)
+var _originalPDB   = null;   // unfiltered PDB string
+var _hiddenChains  = new Set();
+
+// overlay
+var _afPDB         = null;
+var _esmPDB        = null;
+var _afStructIdx   = 0;
+var _esmStructIdx  = 1;
+var _overlayMode   = false;
+var _afVisible     = true;   // AF model visible in overlay
+var _esmVisible    = true;   // ESM model visible in overlay
+
+// Color is locked to fixed AF=blue / ESM=orange only while BOTH overlay models
+// are visible. Hiding one model returns full color control to the visible one.
+function _overlayLocked() {
+    return _overlayMode && _afVisible && _esmVisible;
+}
+
+// representation
+var _repType       = 'cartoon';
+var _hbondsOn      = false;
+
+// color
+var _colorMode     = 'plddt';
+var _colorScheme   = 'Rainbow';
+var _seqLen        = 0;
+var _featureScores = {};   // {seqNum: score}
+var _featureThreshold = 0.5;
+var _featureColor  = '#ff4444';
+var _resiColorMap  = {};   // {seqNum: hexStr}
+var _colorBarMeta  = null; // {css, min, mid, max, unit} pushed for matplotlib-driven modes
+var _colorBarWanted = true; // mirrors the "Show color bar" checkbox (default checked)
+var _allResidueScores = {}; // {headName: [scores]}
+
+// distance / measure
+var _measureMode   = 'distance';
+var _distanceMode  = false;
+var _measureLoci   = [];
+
+// custom theme registered?
+var _customThemeRegistered = false;
+
+// #7 native-feature state
+var _selectionLoci = null;             // last applied selection loci (for focus)
+var _ligComp = null, _watComp = null, _ionComp = null;  // hetero component refs
+var _spinOn = false, _spinMode = 'spin';
+var _assemblyOn = false;               // false = asymmetric unit, true = assembly 1
+
+// bridge
+var _bridge = null;
+
+// ── QWebChannel setup ────────────────────────────────────────────────
+if (typeof QWebChannel !== 'undefined' && typeof qt !== 'undefined') {
+    new QWebChannel(qt.webChannelTransport, function(ch) {
+        _bridge = ch.objects.bridge;
+    });
+}
+
+// ── Kyte-Doolittle hydrophobicity scale ─────────────────────────────
+var KD = {
+    ILE: 4.5, VAL: 4.2, LEU: 3.8, PHE: 2.8, CYS: 2.5, MET: 1.9,
+    ALA: 1.8, GLY: -0.4, THR: -0.7, SER: -0.8, TRP: -0.9,
+    TYR: -1.3, PRO: -1.6, HIS: -3.2, GLU: -3.5, GLN: -3.5,
+    ASP: -3.5, ASN: -3.5, LYS: -3.9, ARG: -4.5
+};
+
+// Residue 3→1 letter
+var AA1 = {
+    ALA:'A',ARG:'R',ASN:'N',ASP:'D',CYS:'C',GLN:'Q',GLU:'E',GLY:'G',
+    HIS:'H',ILE:'I',LEU:'L',LYS:'K',MET:'M',PHE:'F',PRO:'P',SER:'S',
+    THR:'T',TRP:'W',TYR:'Y',VAL:'V'
+};
+
+// ── Color scheme helpers ─────────────────────────────────────────────
+function _lerpColor(c1, c2, t) {
+    var r1=(c1>>16)&0xff, g1=(c1>>8)&0xff, b1=c1&0xff;
+    var r2=(c2>>16)&0xff, g2=(c2>>8)&0xff, b2=c2&0xff;
+    return (((r1+(r2-r1)*t)|0)<<16)|(((g1+(g2-g1)*t)|0)<<8)|((b1+(b2-b1)*t)|0);
+}
+
+function _schemeColor(t, scheme) {
+    // t in [0,1]
+    t = Math.max(0, Math.min(1, t));
+    // Normalize spectrum/SASA directional names: "X (N→C)" → "X";
+    // "Reverse (C→N)" → reversed Rainbow.
+    if (scheme) {
+        if (scheme.indexOf('Reverse') !== -1) { t = 1 - t; scheme = 'Rainbow'; }
+        else scheme = scheme.replace(/\s*\((?:N→C|C→N)\)\s*$/, '');
+    }
+    switch (scheme) {
+        // ── diverging 3-stop (neg/low → mid → pos/high) ──────────────
+        case 'Red-White-Blue':     return _multiStop([0xef4444,0xffffff,0x3b82f6], t);
+        case 'Blue-White-Red':     return _multiStop([0x3b82f6,0xffffff,0xef4444], t);
+        case 'Cyan-White-Orange':  return _multiStop([0x06b6d4,0xffffff,0xf97316], t);
+        case 'Green-White-Red':    return _multiStop([0x22c55e,0xffffff,0xef4444], t);
+        case 'Purple-White-Green': return _multiStop([0x9333ea,0xffffff,0x22c55e], t);
+        case 'Blue→Red':
+        case 'Blue-to-Red':        return _multiStop([0x3b82f6,0x8b5cf6,0xef4444], t);
+        // ── charge styles (neg → neutral → pos) ──────────────────────
+        case 'Standard':           return _multiStop([0xe63946,0xf1faee,0x457b9d], t);
+        case 'Vivid':              return _multiStop([0xff1744,0xffffff,0x2979ff], t);
+        case 'Pastel':             return _multiStop([0xff9aa2,0xfdfdfd,0xa0c4ff], t);
+        case 'Monochrome':         return _multiStop([0x222222,0x888888,0xeeeeee], t);
+        case 'Neon':               return _multiStop([0xff00aa,0xffffff,0x00e5ff], t);
+        // ── sequential multi-stop ────────────────────────────────────
+        case 'Plasma':   return _multiStop([0x0d0887,0x6a00a8,0xb12a90,0xe16462,0xfca636,0xf0f921], t);
+        case 'Viridis':  return _multiStop([0x440154,0x31688e,0x35b779,0xfde725], t);
+        case 'Thermal':  return _multiStop([0x042333,0x2c4b7c,0x2d718e,0x27a87e,0xaddc30,0xfef731], t);
+        case 'Fire':     return _multiStop([0x000000,0x7f0000,0xff4500,0xffff00,0xffffff], t);
+        case 'Greyscale': { var v = (t*255)|0; return (v<<16)|(v<<8)|v; }
+        case 'Sinebow': {
+            var r = Math.sin(Math.PI * t)*255;
+            var g = Math.sin(Math.PI * (t+1/3))*255;
+            var b = Math.sin(Math.PI * (t+2/3))*255;
+            r = Math.max(0, r)|0; g = Math.max(0, g)|0; b = Math.max(0, b)|0;
+            return (r<<16)|(g<<8)|b;
+        }
+        case 'Rainbow':
+        default: {
+            // HSL rainbow: hue 240→0 (blue→red)
+            var hue = (1-t) * 240;
+            return _hslToRgbInt(hue/360, 1.0, 0.5);
+        }
+    }
+}
+
+function _multiStop(stops, t) {
+    var n = stops.length - 1;
+    var seg = t * n;
+    var i = Math.min(n-1, Math.floor(seg));
+    return _lerpColor(stops[i], stops[i+1], seg-i);
+}
+
+function _hslToRgbInt(h, s, l) {
+    var r,g,b;
+    if (s===0) { r=g=b=l; }
+    else {
+        var q = l<0.5 ? l*(1+s) : l+s-l*s;
+        var p = 2*l-q;
+        r = _hue2rgb(p,q,h+1/3);
+        g = _hue2rgb(p,q,h);
+        b = _hue2rgb(p,q,h-1/3);
+    }
+    return ((r*255|0)<<16)|((g*255|0)<<8)|(b*255|0);
+}
+function _hue2rgb(p,q,t) {
+    if(t<0) t+=1; if(t>1) t-=1;
+    if(t<1/6) return p+(q-p)*6*t;
+    if(t<1/2) return q;
+    if(t<2/3) return p+(q-p)*(2/3-t)*6;
+    return p;
+}
+
+function _hexToInt(hex) {
+    if (!hex) return 0x888888;
+    return parseInt(hex.replace('#',''), 16) || 0x888888;
+}
+
+// ── Core color dispatch ──────────────────────────────────────────────
+function _computeColor(seq, resn, chain) {
+    var mode = _colorMode;
+    switch (mode) {
+        case 'hydrophobicity': {
+            var kd = KD[resn];
+            if (kd === undefined) return 0x888888;
+            var t = (kd - (-4.5)) / (4.5 - (-4.5)); // normalize [-4.5, 4.5] → [0,1]
+            return _schemeColor(t, _colorScheme);
+        }
+        case 'charge': {
+            var pos = ['ARG','LYS','HIS'];
+            var neg = ['ASP','GLU'];
+            if (pos.indexOf(resn) !== -1) return _schemeColor(1.0, _colorScheme);
+            if (neg.indexOf(resn) !== -1) return _schemeColor(0.0, _colorScheme);
+            return _schemeColor(0.5, _colorScheme);
+        }
+        case 'mass': {
+            var masses = {
+                GLY:57,ALA:71,SER:87,PRO:97,VAL:99,THR:101,CYS:103,ILE:113,
+                LEU:113,ASN:114,ASP:115,GLN:128,LYS:128,GLU:129,MET:131,
+                HIS:137,PHE:147,ARG:156,TYR:163,TRP:186
+            };
+            var m = masses[resn] || 110;
+            var t2 = (m - 57) / (186 - 57);
+            return _schemeColor(t2, _colorScheme);
+        }
+        case 'spectrum': {
+            var len = _seqLen || 1;
+            var t3 = (seq - 1) / (len - 1 || 1);
+            return _schemeColor(t3, _colorScheme);
+        }
+        case 'feature': {
+            var score = _featureScores[seq];
+            if (score === undefined || score === null) return 0x888888;
+            if (score >= _featureThreshold) return _hexToInt(_featureColor);
+            var frac = score / (_featureThreshold || 1.0);
+            return _schemeColor(frac, _colorScheme);
+        }
+        case 'residue_color': {
+            var hex = _resiColorMap[seq];
+            return hex ? _hexToInt(hex) : 0x888888;
+        }
+        default:
+            return 0x888888;
+    }
+}
+
+// ── Register custom Mol* color theme ────────────────────────────────
+function _findColorThemeRegistry(ctx) {
+    try {
+        var r = ctx.representation.structure.themes.colorThemeRegistry;
+        if (r && typeof r.add === 'function') return r;
+    } catch(e) {
+        console.warn('[BEER] registry path 1 failed:', e.message);
+    }
+    // Viewer wrapper path: ctx might be Viewer, ctx.plugin is PluginContext
+    try {
+        var r2 = ctx.plugin && ctx.plugin.representation.structure.themes.colorThemeRegistry;
+        if (r2 && typeof r2.add === 'function') return r2;
+    } catch(e2) {
+        console.warn('[BEER] registry path 2 failed:', e2.message);
+    }
+    console.warn('[BEER] colorThemeRegistry not found — custom colors unavailable');
+    return null;
+}
+
+function _registerCustomTheme(plugin) {
+    if (_customThemeRegistered) return;
+    var reg = _findColorThemeRegistry(plugin);
+    if (!reg) { console.warn('[BEER] color theme registry not found — custom colors unavailable'); return; }
+    var customProvider = {
+        name: 'beer-custom',
+        label: 'BEER Custom',
+        category: 'Custom',
+        isApplicable: function() { return true; },
+        factory: function(ctx, props) {
+            return {
+                granularity: 'group',
+                color: function(loc) {
+                    if (!loc || !loc.unit) return 0x888888;
+                    try {
+                        var ri  = loc.unit.residueIndex[loc.element];
+                        var h   = loc.unit.model.atomicHierarchy;
+                        // label_comp_id is per-atom in Mol* 5.9 (atomicHierarchy.atoms), NOT per-residue
+                        var resn = h.atoms.label_comp_id.value(loc.element);
+                        var seq  = h.residues.auth_seq_id.value(ri);
+                        var ci   = loc.unit.chainIndex ? loc.unit.chainIndex[loc.element] : 0;
+                        var chain = (h.chains && h.chains.auth_asym_id) ? h.chains.auth_asym_id.value(ci) : '';
+                        return _computeColor(seq, resn, chain) || 0x888888;
+                    } catch(e) {
+                        console.warn('[BEER] beer-custom color error:', e.message, e.stack);
+                        return 0x888888;
+                    }
+                },
+                props: {},
+                description: 'BEER custom color theme'
+            };
+        },
+        getParams: function() { return {}; },
+        defaultValues: {}
+    };
+    reg.add(customProvider);
+    _customThemeRegistered = true;
+}
+
+// ── Apply color to all structures ────────────────────────────────────
+async function _applyColor() {
+    if (!_plugin) return;
+    // Both overlay models visible → preserve AF=blue / ESM=orange, never recolor.
+    // If one is hidden, fall through so the visible model honours the user's scheme.
+    if (_overlayLocked()) return;
+    var structures = _ctx.managers.structure.hierarchy.current.structures;
+    if (!structures || structures.length === 0) return;
+    // Rebuild reps fresh: avoids stale colorTheme.params from updateRepresentationsTheme
+    // (updateRepresentationsTheme merges old params into new theme → wrong granularity → dUsePalette crash)
+    await _rebuildReps();
+}
+
+// ── Build representation on a component ─────────────────────────────
+async function _addRep(compCell, repType, colorName, colorParams, extraTypeParams) {
+    var typeParams = extraTypeParams || {};
+    var _repOpts = { type: repType, typeParams: typeParams, color: colorName };
+    if (colorParams != null) _repOpts.colorParams = colorParams;
+    try {
+        await _ctx.builders.structure.representation.addRepresentation(compCell, _repOpts);
+    } catch(e) {
+        console.warn('[BEER] addRep error:', e);
+    }
+}
+
+// ── Delete a representation cell ────────────────────────────────────
+async function _deleteRepCell(reprCell) {
+    try {
+        var b = _ctx.state.data.build();
+        b.delete(reprCell);
+        await b.commit({ canUndo: false });
+    } catch(e) {
+        console.warn('[BEER] deleteRep error:', e);
+    }
+}
+
+// ── Determine current Mol* color name / params ────────────────────────
+function _currentColorNameParams() {
+    var builtinMap = {
+        'plddt':                'plddt-confidence',
+        'ss':                   'secondary-structure',
+        'secondary_structure':  'secondary-structure',
+        'chain':                'chain-id',
+        'element':              'element-symbol',
+        'residue':              'residue-name'
+    };
+    var colorName = builtinMap[_colorMode];
+    if (!colorName) {
+        // Custom mode: use beer-custom if registered, else fallback to element-symbol
+        colorName = _customThemeRegistered ? 'beer-custom' : 'element-symbol';
+    }
+    // No colorParams: let Mol* use theme's own defaultValues on addRepresentation
+    return { colorName: colorName, colorParams: undefined };
+}
+
+// ── Rebuild all reps (delete non-hbond, re-add with current type+color) ─
+// In overlay mode, preserves AF=blue / ESM=orange uniform colors.
+async function _rebuildReps() {
+    if (!_plugin) return;
+    var structures = _ctx.managers.structure.hierarchy.current.structures;
+    if (!structures || structures.length === 0) return;
+
+    // Overlay (both visible): rebuild with per-structure uniform colors (AF=blue, ESM=orange).
+    // If one model is hidden, the visible one is recoloured by the user's scheme instead.
+    var overlayColors = [{ value: 0x4466ff }, { value: 0xff8822 }];
+    var locked = _overlayLocked();
+
+    var cc = locked ? null : _currentColorNameParams();
+
+    // Hetero components keep their own reps (ball-and-stick/spacefill) and must
+    // NOT be recoloured/restyled by polymer color changes.
+    var heteroRefs = {};
+    if (_ligComp && _ligComp.ref) heteroRefs[_ligComp.ref] = 1;
+    if (_watComp && _watComp.ref) heteroRefs[_watComp.ref] = 1;
+    if (_ionComp && _ionComp.ref) heteroRefs[_ionComp.ref] = 1;
+
+    for (var i = 0; i < structures.length; i++) {
+        var s = structures[i];
+        if (!s.components) continue;
+        for (var j = 0; j < s.components.length; j++) {
+            var comp = s.components[j];
+            if (!comp.representations) continue;
+            var compRef = comp.cell && comp.cell.transform && comp.cell.transform.ref;
+            if (compRef && heteroRefs[compRef]) continue;   // skip ligand/water/ion
+
+            // collect reps to delete (all except interactions)
+            var toDelete = [];
+            for (var k = 0; k < comp.representations.length; k++) {
+                var repRef = comp.representations[k];
+                if (!repRef || !repRef.cell) continue;
+                var params = repRef.cell.transform && repRef.cell.transform.params;
+                var typeName = params && params.type && params.type.name;
+                if (typeName !== 'interactions') {
+                    toDelete.push(repRef.cell);
+                }
+            }
+            for (var d = 0; d < toDelete.length; d++) {
+                await _deleteRepCell(toDelete[d]);
+            }
+
+            // re-add
+            var typeParams = {};
+            if (locked) {
+                var oc = overlayColors[i] || { value: 0x888888 };
+                await _addRep(comp.cell, _repType, 'uniform', oc, typeParams);
+            } else {
+                await _addRep(comp.cell, _repType, cc.colorName, cc.colorParams, typeParams);
+            }
+        }
+    }
+}
+
+// ── Load structure from data string ──────────────────────────────────
+async function _loadStructureData(data, format, structureId) {
+    if (!_plugin) return null;
+    format = format || 'pdb';
+    try {
+        var asset = await _ctx.builders.data.rawData({ data: data, label: structureId || 'structure' });
+        var traj  = await _ctx.builders.structure.parseTrajectory(asset, format);
+        var model = await _ctx.builders.structure.createModel(traj);
+        // Biological assembly (#7) vs asymmetric unit. If the structure has no
+        // assembly 1, fall back to the asymmetric unit instead of blanking.
+        var struct = null;
+        if (_assemblyOn) {
+            try {
+                struct = await _ctx.builders.structure.createStructure(model, { name: 'assembly', params: { id: '1' } });
+            } catch(eAsm) {
+                console.warn('[BEER] assembly 1 unavailable, using asymmetric unit:', eAsm);
+            }
+        }
+        if (!struct) struct = await _ctx.builders.structure.createStructure(model);
+        return struct;
+    } catch(e) {
+        console.error('[BEER] loadStructureData error:', e);
+        return null;
+    }
+}
+
+// ── Clear all structures ─────────────────────────────────────────────
+async function _clearAll() {
+    if (!_plugin) return;
+    try {
+        var structures = _ctx.managers.structure.hierarchy.current.structures;
+        if (structures && structures.length > 0) {
+            await _ctx.managers.structure.hierarchy.remove(structures.slice(), true);
+        }
+    } catch(e) {
+        console.warn('[BEER] clear error:', e);
+    }
+}
+
+// ── Filter PDB by visible chains ─────────────────────────────────────
+function _filterPDB(pdbStr) {
+    if (!_hiddenChains || _hiddenChains.size === 0) return pdbStr;
+    var lines = pdbStr.split('\n');
+    var result = [];
+    for (var i = 0; i < lines.length; i++) {
+        var l = lines[i];
+        var rec = l.substring(0, 6).trim();
+        if (rec === 'ATOM' || rec === 'HETATM' || rec === 'TER') {
+            var chainCol = l.charAt(21);
+            if (_hiddenChains.has(chainCol)) continue;
+        }
+        result.push(l);
+    }
+    return result.join('\n');
+}
+
+// ── Detect format ─────────────────────────────────────────────────────
+function _detectFormat(data) {
+    if (!data) return 'pdb';
+    var lines = data.split('\n');
+    for (var i = 0; i < Math.min(lines.length, 20); i++) {
+        var l = lines[i].trim();
+        if (!l || l.charAt(0) === '#') continue;
+        if (l.startsWith('data_') || l.startsWith('loop_')) return 'mmcif';
+        break;
+    }
+    return 'pdb';
+}
+
+// ── _rebuild: reload structure with hidden chains applied ─────────────
+// Serialized: chain toggles fire rapidly; without a lock two reloads race
+// (clearAll of call B runs during build of call A) → structure vanishes.
+// The lock coalesces pending calls and re-runs once with the latest state.
+var _rebuildBusy = false, _rebuildPending = false;
+async function _rebuild() {
+    if (!_originalPDB) return;
+    if (_rebuildBusy) { _rebuildPending = true; return; }
+    _rebuildBusy = true;
+    try {
+        do {
+            _rebuildPending = false;
+            var fmt = _detectFormat(_originalPDB);
+            // _filterPDB uses fixed PDB columns; running it on mmCIF would
+            // corrupt the text → empty structure. Only filter real PDB.
+            var filtered = (fmt === 'pdb') ? _filterPDB(_originalPDB) : _originalPDB;
+            _currentPDB = filtered;
+            await _clearAll();
+            var struct = await _loadStructureData(filtered, fmt, 'main');
+            if (struct) await _buildDefaultComponents(struct, true);  // keep camera (no flicker)
+        } while (_rebuildPending);
+    } catch(e) {
+        console.warn('[BEER] rebuild error:', e);
+    } finally {
+        _rebuildBusy = false;
+    }
+}
+
+// ── Build default polymer component + representation ──────────────────
+async function _buildDefaultComponents(struct, keepCamera) {
+    if (!_plugin) return;
+    _ligComp = _watComp = _ionComp = null;
+    try {
+        var comp = await _ctx.builders.structure.tryCreateComponentStatic(struct, 'polymer');
+        if (!comp) return;
+        var cc = _currentColorNameParams();
+        await _addRep(comp, _repType, cc.colorName, cc.colorParams, {});
+
+        if (_hbondsOn) {
+            await _addHBondRep(comp);
+        }
+
+        // Hetero components (#7): ligand / water / ion. Built with their own
+        // reps so they toggle independently. Ligands shown by default; water and
+        // ions hidden by default (matches the Display checkboxes).
+        _ligComp = await _buildHetComp(struct, 'ligand', 'ball-and-stick', false);
+        _watComp = await _buildHetComp(struct, 'water',  'ball-and-stick', true);
+        _ionComp = await _buildHetComp(struct, 'ion',    'spacefill',      true);
+
+        if (!keepCamera && _ctx.canvas3d) _ctx.canvas3d.requestCameraReset();
+        updateColorBar();   // show/refresh the bar for the active mode (default: pLDDT)
+    } catch(e) {
+        console.error('[BEER] buildDefaultComponents error:', e);
+    }
+}
+
+// Build a hetero component (ligand/water/ion) with a representation; returns
+// the component selector (or null if the structure has none of that kind).
+async function _buildHetComp(struct, kind, repType, startHidden) {
+    try {
+        var comp = await _ctx.builders.structure.tryCreateComponentStatic(struct, kind);
+        if (!comp) return null;
+        await _ctx.builders.structure.representation.addRepresentation(
+            comp, { type: repType, color: 'element-symbol' });
+        if (startHidden) _setComponentHidden(comp.ref, true);
+        return comp;
+    } catch(e) {
+        console.warn('[BEER] build ' + kind + ' component error:', e);
+        return null;
+    }
+}
+
+// Find the hierarchy component object for a given state ref.
+function _findHierComp(ref) {
+    if (!ref) return null;
+    try {
+        var structures = _ctx.managers.structure.hierarchy.current.structures;
+        for (var i = 0; i < structures.length; i++) {
+            var comps = structures[i].components || [];
+            for (var j = 0; j < comps.length; j++) {
+                if (comps[j].cell && comps[j].cell.transform &&
+                    comps[j].cell.transform.ref === ref) return comps[j];
+            }
+        }
+    } catch(e) {}
+    return null;
+}
+
+// Hide/show a component subtree reliably (molstar.setSubtreeVisibility is NOT
+// exposed on this UMD build; the hierarchy manager's toggleVisibility is).
+function _setComponentHidden(ref, hidden) {
+    var hier = _findHierComp(ref);
+    if (!hier) return;
+    try {
+        _ctx.managers.structure.hierarchy.toggleVisibility([hier], hidden ? 'hide' : 'show');
+    } catch(e) {
+        console.warn('[BEER] setComponentHidden error:', e);
+    }
+}
+
+// ── Add H-bond interaction representation ───────────────────────────
+async function _addHBondRep(compCell) {
+    try {
+        await _ctx.builders.structure.representation.addRepresentation(
+            compCell,
+            {
+                type: 'interactions',
+                typeParams: {
+                    interactions: {
+                        hydrogen_bonds: { enabled: true },
+                        hydrophobic:    { enabled: false },
+                        halogen_bonds:  { enabled: false },
+                        metal_coordination: { enabled: false },
+                        pi_stacking:    { enabled: false },
+                        cation_pi:      { enabled: false }
+                    }
+                }
+            }
+        );
+    } catch(e) {
+        console.warn('[BEER] hbond rep error:', e);
+    }
+}
+
+// ── Color bar rendering ──────────────────────────────────────────────
+function _updateColorBarCanvas() {
+    var wrap = document.getElementById('color-bar-wrap');
+    var canvas = document.getElementById('color-bar-canvas');
+    var ctx = canvas.getContext('2d');
+    var w = canvas.width, h = canvas.height;
+    var grd = ctx.createLinearGradient(0, 0, w, 0);
+
+    // matplotlib-driven modes (residue_color from SASA/AI-gradient/Aggregation)
+    // ship a CSS gradient in meta — draw exactly those stops so the bar matches.
+    if (_colorMode === 'residue_color' && _colorBarMeta && _colorBarMeta.css) {
+        var stops = _parseGradientStops(_colorBarMeta.css);
+        if (stops.length >= 2) {
+            for (var si = 0; si < stops.length; si++) {
+                grd.addColorStop(si / (stops.length - 1), stops[si]);
+            }
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = grd;
+            ctx.fillRect(0, 0, w, h);
+            return;
+        }
+    }
+
+    // pLDDT uses Mol*'s canonical confidence palette (fixed) — draw the same
+    // legend so the bar matches the structure colors.
+    if (_colorMode === 'plddt') {
+        var pl = ['#ff7d45', '#ffdb13', '#65cbf3', '#0053d6']; // low→high
+        for (var pi = 0; pi < pl.length; pi++) grd.addColorStop(pi / (pl.length - 1), pl[pi]);
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, w, h);
+        return;
+    }
+
+    var steps = 32;
+    for (var i = 0; i <= steps; i++) {
+        var t = i / steps;
+        var c;
+        if (_colorMode === 'feature') {
+            // 0 = grey, threshold = transition, 1 = featureColor
+            if (t < _featureThreshold) {
+                var frac = t / (_featureThreshold || 1.0);
+                c = _schemeColor(frac, _colorScheme);
+            } else {
+                c = _hexToInt(_featureColor);
+            }
+        } else {
+            c = _schemeColor(t, _colorScheme);
+        }
+        var r = (c>>16)&0xff, g = (c>>8)&0xff, b = c&0xff;
+        grd.addColorStop(t, 'rgb('+r+','+g+','+b+')');
+    }
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, w, h);
+}
+
+// Extract ordered hex colours from a CSS "linear-gradient(...,#aaa,#bbb)" string.
+// meta gradients use "to top" (bottom→top); the canvas bar is left→right low→high,
+// so reverse to keep low value on the left.
+function _parseGradientStops(css) {
+    var out = [];
+    var re = /#([0-9a-fA-F]{6})/g, m;
+    while ((m = re.exec(css)) !== null) out.push('#' + m[1]);
+    if (/to top/i.test(css)) out.reverse();
+    return out;
+}
+
+function _colorBarLabels() {
+    var titleEl = document.getElementById('color-bar-title');
+    var minEl   = document.getElementById('cb-label-min');
+    var midEl   = document.getElementById('cb-label-mid');
+    var maxEl   = document.getElementById('cb-label-max');
+    switch (_colorMode) {
+        case 'plddt':
+            titleEl.textContent = 'pLDDT / B-factor';
+            minEl.textContent = '0'; midEl.textContent = '50'; maxEl.textContent = '100';
+            break;
+        case 'hydrophobicity':
+            titleEl.textContent = 'Hydrophobicity (KD)';
+            minEl.textContent = '-4.5'; midEl.textContent = '0'; maxEl.textContent = '4.5';
+            break;
+        case 'charge':
+            titleEl.textContent = 'Charge';
+            minEl.textContent = '−'; midEl.textContent = 'neutral'; maxEl.textContent = '+';
+            break;
+        case 'mass':
+            titleEl.textContent = 'Residue Mass (Da)';
+            minEl.textContent = '57'; midEl.textContent = '120'; maxEl.textContent = '186';
+            break;
+        case 'spectrum':
+            titleEl.textContent = 'Sequence Position';
+            minEl.textContent = '1'; midEl.textContent = Math.round(_seqLen/2)||''; maxEl.textContent = _seqLen||'';
+            break;
+        case 'feature':
+            titleEl.textContent = 'Feature Score';
+            minEl.textContent = '0'; midEl.textContent = _featureThreshold.toFixed(2); maxEl.textContent = '1';
+            break;
+        case 'residue_color':
+            if (_colorBarMeta) {
+                titleEl.textContent = _colorBarMeta.unit || 'Value';
+                minEl.textContent = _colorBarMeta.min != null ? _colorBarMeta.min : '0';
+                midEl.textContent = _colorBarMeta.mid != null ? _colorBarMeta.mid : '';
+                maxEl.textContent = _colorBarMeta.max != null ? _colorBarMeta.max : '1';
+            } else {
+                titleEl.textContent = 'Value';
+                minEl.textContent = '0'; midEl.textContent = '0.5'; maxEl.textContent = '1';
+            }
+            break;
+        default:
+            titleEl.textContent = _colorMode;
+            minEl.textContent = '0'; midEl.textContent = '0.5'; maxEl.textContent = '1';
+    }
+}
+
+// The color bar only makes sense for continuous (gradient) color modes.
+// Discrete built-in modes (chain / residue type / secondary structure /
+// element) have no meaningful gradient, so the bar is hidden for them.
+function _colorBarApplicable() {
+    if (_overlayLocked()) return false;   // both overlay models visible → fixed AF/ESM colors
+    return ['plddt','hydrophobicity','charge','mass','spectrum','feature','residue_color']
+        .indexOf(_colorMode) !== -1;
+}
+
+// Single source of truth for bar visibility: shown only when the user wants it
+// (checkbox) AND the current mode has a gradient. Repaints when shown.
+function updateColorBar() {
+    var wrap = document.getElementById('color-bar-wrap');
+    if (!wrap) return;
+    var show = _colorBarWanted && _colorBarApplicable();
+    wrap.style.display = show ? 'block' : 'none';
+    if (show) {
+        _updateColorBarCanvas();
+        _colorBarLabels();
+    }
+}
+
+// ── Residue popup helpers ────────────────────────────────────────────
+function _showPopup(residueName, chain, seqNum, bfactor, extraScores) {
+    document.getElementById('popup-residue-name').textContent =
+        residueName + (AA1[residueName] ? ' (' + AA1[residueName] + ')' : '');
+    document.getElementById('popup-chain').textContent   = chain || '-';
+    document.getElementById('popup-seqnum').textContent  = seqNum != null ? seqNum : '-';
+    document.getElementById('popup-bfactor').textContent = bfactor != null ? bfactor.toFixed(2) : '-';
+
+    var scoresEl  = document.getElementById('popup-scores');
+    var dividerEl = document.getElementById('popup-scores-divider');
+    scoresEl.innerHTML = '';
+
+    var rows = '';
+    if (extraScores && Object.keys(extraScores).length > 0) {
+        dividerEl.style.display = '';
+        for (var k in extraScores) {
+            if (!extraScores.hasOwnProperty(k)) continue;
+            var val = extraScores[k];
+            rows += '<div class="popup-row"><span class="popup-label">' + k + '</span>' +
+                    '<span class="popup-val">' + (typeof val === 'number' ? val.toFixed(3) : val) + '</span></div>';
+        }
+        scoresEl.innerHTML = rows;
+    } else {
+        dividerEl.style.display = 'none';
+    }
+
+    document.getElementById('residue-popup').style.display = 'block';  // '' reverts to CSS none
+}
+
+function _hidePopup() {
+    document.getElementById('residue-popup').style.display = 'none';
+}
+
+document.getElementById('popup-close-btn').addEventListener('click', function() {
+    _hidePopup();
+});
+
+document.getElementById('mr-close-btn').addEventListener('click', function() {
+    _hideMeasureResult();
+});
+
+// ── Measurement badge helpers ─────────────────────────────────────────
+function _setBadge(text) {
+    var badge = document.getElementById('measure-badge');
+    if (!text) { badge.style.display = 'none'; return; }
+    badge.style.display = 'block';  // '' reverts to CSS none
+    badge.textContent = text;
+}
+
+// ── Mol* click handler ───────────────────────────────────────────────
+function _onMolClick(e) {
+    var loci = e.current && e.current.loci;
+    if (!loci) return;
+
+    // distance/measure mode
+    if (_distanceMode) {
+        // Only accept clicks on an actual atom/element; clicking empty space
+        // gives a loci with no elements/structure and addDistance() silently
+        // bails (substructureParent.get fails), wedging the pick sequence.
+        if (!loci.structure || !loci.elements || loci.elements.length === 0) {
+            return;
+        }
+        _measureLoci.push(loci);
+        var needed = _measureMode === 'distance' ? 2 : (_measureMode === 'angle' ? 3 : 4);
+        _setBadge('Click atom ' + _measureLoci.length + '/' + needed);
+        if (_measureLoci.length >= needed) {
+            _fireMeasurement();
+        }
+        return;
+    }
+
+    // residue popup
+    try {
+        var loc = loci.elements && loci.elements[0];
+        if (!loc) return;
+        var unit = loc.unit;
+        if (!unit) return;
+        // loc.indices is an OrderedSet (not a plain array); access first element safely
+        var _firstIdx = null;
+        if (loc.indices != null) {
+            try { _firstIdx = loc.indices[0] !== undefined ? loc.indices[0] : loc.indices.min(); } catch(ex) { _firstIdx = 0; }
+        }
+        var element = (_firstIdx !== null) ? unit.elements[_firstIdx] : null;
+        if (element === null || element === undefined) return;
+        var ri     = unit.residueIndex[element];
+        var h      = unit.model.atomicHierarchy;
+        // label_comp_id is on h.atoms (per-atom) in Mol* 5.9, NOT h.residues
+        var resn   = h.atoms.label_comp_id.value(element);
+        var seqNum = h.residues.auth_seq_id.value(ri);
+        var ci     = unit.chainIndex ? unit.chainIndex[element] : 0;
+        var chain  = (h.chains && h.chains.auth_asym_id) ? h.chains.auth_asym_id.value(ci) : '';
+        var bfactor = unit.model.atomicConformation.B_iso_or_equiv
+                      ? unit.model.atomicConformation.B_iso_or_equiv.value(element)
+                      : null;
+
+        // collect all-head scores for this residue
+        // Python format: {resi: {headKey: val}} where resi is 1-based int
+        var extraScores = {};
+        var resiScores = _allResidueScores[seqNum] || _allResidueScores[String(seqNum)];
+        if (resiScores && typeof resiScores === 'object') {
+            for (var hk in resiScores) {
+                if (resiScores.hasOwnProperty(hk)) extraScores[hk] = resiScores[hk];
+            }
+        }
+
+        _showPopup(resn, chain, seqNum, bfactor, extraScores);
+
+        // notify bridge
+        if (_bridge && typeof _bridge.residueClicked === 'function') {
+            try { _bridge.residueClicked(seqNum); } catch(err) {}
+        }
+    } catch(e2) {
+        console.warn('[BEER] click handler error:', e2);
+    }
+}
+
+async function _fireMeasurement() {
+    if (!_plugin) return;
+    var meas = _ctx.managers.structure.measurement;
+    // Compute the geometry ourselves (independent of Mol* label rendering) so
+    // we can show a clear, always-readable value in the on-canvas readout box.
+    var pts = [];
+    for (var i = 0; i < _measureLoci.length; i++) {
+        var p = _lociFirstXYZ(_measureLoci[i]);
+        if (p) pts.push(p);
+    }
+    try {
+        if (_measureMode === 'distance') {
+            await meas.addDistance(_measureLoci[0], _measureLoci[1]);
+            if (pts.length >= 2) _showMeasureResult('Distance', [
+                ['d', _fmt(_vDist(pts[0], pts[1]), 2) + ' Å']
+            ]);
+        } else if (_measureMode === 'angle') {
+            await meas.addAngle(_measureLoci[0], _measureLoci[1], _measureLoci[2]);
+            if (pts.length >= 3) _showMeasureResult('Angle', [
+                ['θ', _fmt(_vAngle(pts[0], pts[1], pts[2]), 1) + '°']
+            ]);
+        } else if (_measureMode === 'dihedral') {
+            await meas.addDihedral(_measureLoci[0], _measureLoci[1], _measureLoci[2], _measureLoci[3]);
+            if (pts.length >= 4) _showMeasureResult('Dihedral', [
+                ['φ', _fmt(_vDihedral(pts[0], pts[1], pts[2], pts[3]), 1) + '°']
+            ]);
+        }
+    } catch(e) {
+        console.warn('[BEER] measurement error:', e);
+    }
+    _measureLoci = [];
+    var needed = _measureMode === 'distance' ? 2 : _measureMode === 'angle' ? 3 : 4;
+    _setBadge('Click atom 1/' + needed);
+}
+
+// ── Measurement geometry + readout ───────────────────────────────────
+function _lociFirstXYZ(loci) {
+    try {
+        var el = loci.elements && loci.elements[0];
+        if (!el) return null;
+        var unit = el.unit;
+        var idx0 = (el.indices[0] !== undefined) ? el.indices[0] : el.indices.min();
+        var element = unit.elements[idx0];
+        var c = unit.model.atomicConformation;
+        return [c.x.value(element), c.y.value(element), c.z.value(element)];
+    } catch(e) { return null; }
+}
+function _vSub(a, b) { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+function _vDot(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+function _vCross(a, b) { return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function _vLen(a) { return Math.sqrt(_vDot(a, a)); }
+function _vDist(a, b) { return _vLen(_vSub(a, b)); }
+function _vAngle(a, b, c) {
+    var u = _vSub(a, b), v = _vSub(c, b);
+    var cosA = _vDot(u, v) / (_vLen(u) * _vLen(v) || 1);
+    return Math.acos(Math.max(-1, Math.min(1, cosA))) * 180 / Math.PI;
+}
+function _vDihedral(a, b, c, d) {
+    var b1 = _vSub(b, a), b2 = _vSub(c, b), b3 = _vSub(d, c);
+    var n1 = _vCross(b1, b2), n2 = _vCross(b2, b3);
+    var m1 = _vCross(n1, [b2[0]/_vLen(b2), b2[1]/_vLen(b2), b2[2]/_vLen(b2)]);
+    var x = _vDot(n1, n2), y = _vDot(m1, n2);
+    return Math.atan2(y, x) * 180 / Math.PI;
+}
+function _fmt(v, dp) { return (v == null || isNaN(v)) ? '–' : v.toFixed(dp); }
+
+function _showMeasureResult(title, rows) {
+    var box = document.getElementById('measure-result');
+    document.getElementById('mr-title-text').textContent = title;
+    var body = document.getElementById('mr-body');
+    var html = '';
+    for (var i = 0; i < rows.length; i++) {
+        html += '<div class="mr-row"><span>' + rows[i][0] + '</span>' +
+                '<span class="mr-val">' + rows[i][1] + '</span></div>';
+    }
+    body.innerHTML = html;
+    box.style.display = 'block';
+}
+function _hideMeasureResult() {
+    var box = document.getElementById('measure-result');
+    if (box) box.style.display = 'none';
+}
+
+// ── Init Mol* viewer ─────────────────────────────────────────────────
+(function _init() {
+    function _waitForMolstar() {
+        // Support both flat (molstar.Viewer) and nested (molstar.Mol.Viewer) bundle layouts
+        var _ViewerCtor = (typeof molstar !== 'undefined') &&
+                          (molstar.Viewer || (molstar.Mol && molstar.Mol.Viewer));
+        if (!_ViewerCtor) {
+            setTimeout(_waitForMolstar, 50);
+            return;
+        }
+        _ViewerCtor.create('viewport', {
+            layoutIsExpanded:              false,
+            // controls must be mounted for the native sequence panel to exist;
+            // all regions are then hidden at init so the look stays clean and
+            // only the top (sequence) region is shown on demand.
+            layoutShowControls:            true,
+            layoutShowRemoteState:         false,
+            layoutShowSequence:            true,   // native clickable sequence (top region, toggled via setSequenceVisible)
+            layoutShowLog:                 false,
+            layoutShowLeftPanel:           false,
+            collapseLeftPanel:             true,
+            collapseRightPanel:            true,
+            viewportShowExpand:            false,
+            viewportShowControls:          false,
+            viewportShowSettings:          false,
+            viewportShowSelectionMode:     false,
+            viewportShowAnimation:         false,
+            viewportShowTrajectoryControls: false,
+        }).then(function(v) {
+            _plugin = v;
+            _viewer = v;
+            // Viewer.create() returns a thin wrapper; PluginContext is at .plugin
+            _ctx = (v && v.plugin && typeof v.plugin === 'object') ? v.plugin : v;
+
+            // register custom theme — must not throw or _ready=true is never reached
+            try { _registerCustomTheme(_ctx); } catch(e) { console.warn('[BEER] custom theme registration failed:', e); }
+
+            // canvas background
+            try {
+                var Color = molstar.Color || (molstar.Mol && molstar.Mol.Color);
+                if (_ctx.canvas3d) {
+                    var _bgInt = parseInt('__BG__'.replace('#',''), 16) || 0x1a1a2e;
+                    var _bgColor = Color ? Color(_bgInt) : _bgInt;
+                    _ctx.canvas3d.setProps({ renderer: { backgroundColor: _bgColor } });
+                }
+            } catch(e) {
+                console.warn('[BEER] background set error:', e);
+            }
+
+            // subscribe to clicks
+            if (_ctx.behaviors && _ctx.behaviors.interaction && _ctx.behaviors.interaction.click) {
+                _ctx.behaviors.interaction.click.subscribe(_onMolClick);
+            }
+
+            // Sequence panel hidden by default via CSS (body.beer-seq-on toggles it)
+            _ready = true;
+
+            // flush pending queue
+            var queue = _pendingQueue.slice();
+            _pendingQueue = [];
+            queue.forEach(function(item) {
+                try { item.fn.apply(null, item.args); } catch(e) {}
+            });
+        }).catch(function(e) {
+            console.error('[BEER] Mol* init error:', e);
+        });
+    }
+    _waitForMolstar();
+})();
+
+// ── Pending helper ────────────────────────────────────────────────────
+function _whenReady(fn) {
+    return function() {
+        var args = Array.prototype.slice.call(arguments);
+        if (!_ready) {
+            _pendingQueue.push({ fn: fn, args: args });
+        } else {
+            fn.apply(null, args);
+        }
+    };
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  PUBLIC API — called by Python / QWebEngineView.runJavaScript
+// ════════════════════════════════════════════════════════════════════
+
+/**
+ * Load PDB/mmCIF string. Pass null to clear.
+ */
+window.loadPDB = _whenReady(async function loadPDB(data, fmt) {
+    _overlayMode = false;
+    _afVisible  = true;
+    _esmVisible = true;
+    _afPDB = null;
+    _esmPDB = null;
+    _afStructIdx = 0;
+    _esmStructIdx = 1;
+    _assemblyOn = false;   // new structure always starts as asymmetric unit
+    _hideMeasureResult();
+
+    if (!data) {
+        await _clearAll();
+        _originalPDB = null;
+        _currentPDB  = null;
+        _hidePopup();
+        return;
+    }
+
+    _originalPDB = data;
+    _hiddenChains = new Set();
+    _currentPDB  = data;
+
+    await _clearAll();
+    var fmt = fmt || _detectFormat(data);
+    var struct = await _loadStructureData(data, fmt, 'main');
+    if (struct) {
+        await _buildDefaultComponents(struct);
+    }
+});
+
+/**
+ * Load two overlay structures: AF (blue) and ESM (orange).
+ */
+window.loadOverlay = _whenReady(async function loadOverlay(pdbAF, pdbESM, fmtAFArg, fmtESMArg) {
+    _overlayMode = true;
+    _afVisible  = true;
+    _esmVisible = true;
+    _afPDB   = pdbAF;
+    _esmPDB  = pdbESM;
+    _originalPDB = null;
+    _currentPDB  = null;
+    _hiddenChains = new Set();
+
+    _registerCustomTheme(_ctx);
+
+    await _clearAll();
+
+    var fmtAF  = fmtAFArg  || _detectFormat(pdbAF);
+    var fmtESM = fmtESMArg || _detectFormat(pdbESM);
+
+    var sAF  = await _loadStructureData(pdbAF,  fmtAF,  'AF');
+    var sESM = await _loadStructureData(pdbESM, fmtESM, 'ESM');
+
+    if (sAF) {
+        var compAF = await _ctx.builders.structure.tryCreateComponentStatic(sAF, 'polymer');
+        if (compAF) {
+            // single uniform-blue rep for AF
+            try {
+                await _ctx.builders.structure.representation.addRepresentation(
+                    compAF,
+                    { type: _repType, typeParams: {}, color: 'uniform',
+                      colorParams: { value: 0x4466ff } }
+                );
+            } catch(e) { console.warn('[BEER] loadOverlay AF rep error:', e); }
+        }
+    }
+    if (sESM) {
+        var compESM = await _ctx.builders.structure.tryCreateComponentStatic(sESM, 'polymer');
+        if (compESM) {
+            try {
+                await _ctx.builders.structure.representation.addRepresentation(
+                    compESM,
+                    { type: _repType, typeParams: {}, color: 'uniform',
+                      colorParams: { value: 0xff8822 } }
+                );
+            } catch(e) {}
+        }
+    }
+
+    if (_ctx.canvas3d) _ctx.canvas3d.requestCameraReset();
+    updateColorBar();   // hidden in overlay mode
+});
+
+// Force each overlay structure's hidden state to match _afVisible/_esmVisible.
+// Must run AFTER _rebuildReps(): rebuilding deletes/re-adds representation cells,
+// which resets the structure subtree to visible, so visibility is re-asserted here.
+async function _applyOverlayVisibility() {
+    if (!_overlayMode) return;
+    var structures = _ctx.managers.structure.hierarchy.current.structures;
+    if (!structures) return;
+    var sAF  = structures[_afStructIdx];
+    var sESM = structures[_esmStructIdx];
+    try {
+        // toggleVisibility(structs, n): pass "show" to unhide, "hide" to hide (sets, not blind toggle)
+        if (sAF)  await _ctx.managers.structure.hierarchy.toggleVisibility([sAF],  _afVisible  ? "show" : "hide");
+        if (sESM) await _ctx.managers.structure.hierarchy.toggleVisibility([sESM], _esmVisible ? "show" : "hide");
+    } catch(e) {
+        console.warn('[BEER] applyOverlayVisibility error:', e);
+    }
+}
+
+/**
+ * Toggle AF structure visibility.
+ */
+window.showModelAF = _whenReady(async function showModelAF(show) {
+    if (!_overlayMode) return;
+    _afVisible = !!show;
+    // Recolor first (both visible → fixed AF/ESM colors; one hidden → visible
+    // model honours the user's scheme), then re-assert which structures are hidden.
+    await _rebuildReps();
+    await _applyOverlayVisibility();
+    updateColorBar();
+});
+
+/**
+ * Toggle ESM structure visibility.
+ */
+window.showModelESM = _whenReady(async function showModelESM(show) {
+    if (!_overlayMode) return;
+    _esmVisible = !!show;
+    // Recolor first (both visible → fixed AF/ESM colors; one hidden → visible
+    // model honours the user's scheme), then re-assert which structures are hidden.
+    await _rebuildReps();
+    await _applyOverlayVisibility();
+    updateColorBar();
+});
+
+/**
+ * Set representation type: 'cartoon'|'stick'|'sphere'
+ */
+window.setRepresentation = _whenReady(async function setRepresentation(name) {
+    var typeMap = {
+        cartoon: 'cartoon', stick: 'ball-and-stick', sphere: 'spacefill',
+        surface: 'molecular-surface'
+    };
+    _repType = typeMap[name] || name;
+    await _rebuildReps();
+});
+
+/**
+ * Set color mode. mode: plddt|ss|chain|element|hydrophobicity|charge|mass|spectrum|feature|residue_color
+ * scheme: gradient scheme name
+ * seqLen: sequence length for spectrum mode
+ */
+window.setColorMode = _whenReady(async function setColorMode(mode, scheme, seqLen) {
+    _colorMode   = mode   || _colorMode;
+    _colorScheme = scheme || _colorScheme;
+    _seqLen      = seqLen || _seqLen;
+    _colorBarMeta = null;   // _schemeColor / builtin modes don't use a meta gradient
+    await _applyColor();
+    updateColorBar();
+});
+
+/**
+ * Change gradient scheme within current color mode.
+ */
+window.setScheme = _whenReady(async function setScheme(scheme, seqLen) {
+    _colorScheme = scheme || _colorScheme;
+    if (seqLen) _seqLen = seqLen;
+    await _applyColor();
+    updateColorBar();
+});
+
+/**
+ * Set per-residue feature scores for 'feature' color mode.
+ * scores: array indexed by seqNum-1  OR  object {seqNum: score}
+ */
+window.setFeatureData = _whenReady(async function setFeatureData(name, scores, hexColor, threshold) {
+    _featureColor     = hexColor   || '#ff4444';
+    _featureThreshold = threshold  != null ? threshold : 0.5;
+
+    _featureScores = {};
+    if (Array.isArray(scores)) {
+        for (var i = 0; i < scores.length; i++) {
+            _featureScores[i + 1] = scores[i];
+        }
+    } else if (scores && typeof scores === 'object') {
+        _featureScores = scores;
+    }
+
+    _colorBarMeta = null;     // feature mode uses its own threshold-based bar
+    _colorMode = 'feature';   // always switch mode (mirrors old _3DMOL_HTML behavior)
+    await _applyColor();
+    updateColorBar();
+});
+
+/**
+ * Set explicit residue→color map for 'residue_color' mode.
+ * colorMap: {seqNum: hexString}
+ */
+window.setResidueColorMap = _whenReady(async function setResidueColorMap(colorMap, name, meta) {
+    _resiColorMap = colorMap || {};
+    _colorBarMeta = meta || null;   // drives the color bar gradient + labels
+    _colorMode = 'residue_color';   // always switch mode (mirrors old _3DMOL_HTML behavior)
+    await _applyColor();
+    updateColorBar();
+});
+
+/**
+ * Set all residue scores for popup display.
+ * data: {headName: [scores]}
+ */
+window.setAllResidueScores = function setAllResidueScores(data) {
+    _allResidueScores = data || {};
+};
+
+/**
+ * Set canvas background color.
+ */
+window.setBackground = _whenReady(function setBackground(hexColor) {
+    if (!_plugin || !_ctx.canvas3d) return;
+    try {
+        var intColor = parseInt((hexColor || '#1a1a2e').replace('#',''), 16);
+        var Color = (molstar && molstar.Color) || (molstar && molstar.Mol && molstar.Mol.Color);
+        var bgColor = Color ? Color(intColor) : intColor;
+        _ctx.canvas3d.setProps({ renderer: { backgroundColor: bgColor } });
+        document.body.style.background = hexColor;
+    } catch(e) {
+        console.warn('[BEER] setBackground error:', e);
+    }
+});
+
+/**
+ * Reset camera and representation to defaults.
+ */
+window.resetView = _whenReady(async function resetView() {
+    if (!_plugin) return;
+    _repType = 'cartoon';
+    _colorMode = 'plddt';
+    await _rebuildReps();
+    await _applyColor();
+    if (_ctx.canvas3d) _ctx.canvas3d.requestCameraReset();
+    _hidePopup();
+});
+
+/**
+ * Apply selection spec. Returns selected residue count.
+ * Spec formats:
+ *   "42"          → residue 42
+ *   "10-20"       → residues 10–20
+ *   "A:10-20"     → chain A, residues 10–20
+ *   "A:10"        → chain A, residue 10
+ *   "GLY"         → all GLY residues
+ */
+window.applySelection = _whenReady(async function applySelection(spec) {
+    if (!_plugin || !spec) return 0;
+    try {
+        var structures = _ctx.managers.structure.hierarchy.current.structures;
+        if (!structures || structures.length === 0) return 0;
+
+        // parse spec
+        var chainFilter = null, minSeq = null, maxSeq = null, resnFilter = null;
+        spec = String(spec).trim();
+
+        var chainMatch = spec.match(/^([A-Za-z]):(.+)$/);
+        if (chainMatch) {
+            chainFilter = chainMatch[1];
+            spec = chainMatch[2];
+        }
+
+        var rangeMatch = spec.match(/^(\d+)-(\d+)$/);
+        var singleMatch = spec.match(/^(\d+)$/);
+        var nameMatch = spec.match(/^([A-Za-z]{3})$/);
+
+        if (rangeMatch) {
+            minSeq = parseInt(rangeMatch[1]);
+            maxSeq = parseInt(rangeMatch[2]);
+        } else if (singleMatch) {
+            minSeq = maxSeq = parseInt(singleMatch[1]);
+        } else if (nameMatch) {
+            resnFilter = nameMatch[1].toUpperCase();
+        }
+
+        if (chainFilter === null && minSeq === null && resnFilter === null) return 0;
+
+        // MolScript is NOT exposed on this UMD bundle. Use the structure query
+        // generators under molstar.lib.structure instead.
+        var L = molstar.lib && molstar.lib.structure;
+        if (!L) { console.warn('[BEER] molstar.lib.structure unavailable'); return 0; }
+        var Q = L.Queries, QC = L.QueryContext, P = L.StructureProperties, SS = L.StructureSelection;
+        if (!Q || !QC || !P || !SS) { console.warn('[BEER] selection query API missing'); return 0; }
+
+        // Per-residue / per-chain predicates read live element location via
+        // StructureProperties (atom.label_comp_id, residue.auth_seq_id, chain.auth_asym_id).
+        var chainTest = chainFilter
+            ? function(ctx) { return P.chain.auth_asym_id(ctx.element) === chainFilter; }
+            : void 0;
+        var residueTest = function(ctx) {
+            if (resnFilter && P.atom.label_comp_id(ctx.element) !== resnFilter) return false;
+            if (minSeq !== null) {
+                var sn = P.residue.auth_seq_id(ctx.element);
+                if (sn < minSeq || sn > maxSeq) return false;
+            }
+            return true;
+        };
+        var query = Q.generators.atoms({ chainTest: chainTest, residueTest: residueTest });
+
+        // Apply to every loaded structure; first selectOnly, then additive select.
+        var selectedCount = 0, first = true;
+        _selectionLoci = null;
+        for (var i = 0; i < structures.length; i++) {
+            var s = structures[i];
+            if (!s || !s.cell || !s.cell.obj) continue;
+            var structure = s.cell.obj.data;
+            if (!structure) continue;
+            try {
+                var sel  = query(new QC(structure));
+                var uni  = SS.unionStructure(sel);
+                if (uni) selectedCount += (uni.residueCount || 0);
+                var loci = SS.toLociWithSourceUnits(sel);
+                if (first) { _ctx.managers.interactivity.lociSelects.selectOnly({ loci: loci }); _selectionLoci = loci; first = false; }
+                else       { _ctx.managers.interactivity.lociSelects.select({ loci: loci }); }
+            } catch(e) {
+                console.warn('[BEER] selection per-structure error:', e);
+            }
+        }
+
+        return selectedCount;
+    } catch(e) {
+        console.warn('[BEER] applySelection error:', e);
+        return 0;
+    }
+});
+
+/**
+ * Clear all selections.
+ */
+window.clearSelection = _whenReady(function clearSelection() {
+    if (!_plugin) return;
+    _selectionLoci = null;
+    try {
+        _ctx.managers.interactivity.lociSelects.deselectAll();
+    } catch(e) {
+        console.warn('[BEER] clearSelection error:', e);
+    }
+});
+
+/**
+ * Highlight a single residue; pass null to clear.
+ */
+window.highlightResidue = _whenReady(function highlightResidue(resi, chain) {
+    if (!_plugin) return;
+    if (resi === null || resi === undefined) {
+        clearHighlight();
+        return;
+    }
+    // Use applySelection for consistency
+    var spec = chain ? (chain + ':' + resi) : String(resi);
+    window.applySelection(spec);
+});
+
+/**
+ * Clear highlight / selection.
+ */
+window.clearHighlight = _whenReady(function clearHighlight() {
+    window.clearSelection();
+});
+
+/**
+ * Enter distance measurement mode.
+ */
+window.enterDistanceMode = _whenReady(function enterDistanceMode() {
+    _distanceMode = true;
+    _measureMode  = 'distance';
+    _measureLoci  = [];
+    _setBadge('Click atom 1/2');
+});
+
+/**
+ * Exit distance measurement mode.
+ */
+window.exitDistanceMode = _whenReady(function exitDistanceMode() {
+    _distanceMode = false;
+    _measureLoci  = [];
+    _setBadge(null);
+});
+
+/**
+ * Set measurement mode: 'distance'|'angle'|'dihedral'
+ */
+window.setMeasureMode = _whenReady(function setMeasureMode(mode) {
+    _measureMode = mode;
+    _measureLoci = [];
+    if (_distanceMode) {
+        var needed = mode === 'distance' ? 2 : mode === 'angle' ? 3 : 4;
+        _setBadge('Click atom 1/' + needed);
+    }
+});
+
+/**
+ * Clear all distance/angle/dihedral measurements.
+ */
+window.clearDistances = _whenReady(async function clearDistances() {
+    if (!_plugin) return;
+    try {
+        // All measurements (distance/angle/dihedral/label) live under one state
+        // group tagged 'measurement-group'. Deleting that cell removes them all.
+        var state = _ctx.state.data;
+        var groupRefs = [];
+        state.cells.forEach(function(cell, ref) {
+            var tags = cell && cell.transform && cell.transform.tags;
+            if (tags && tags.indexOf('measurement-group') !== -1) groupRefs.push(ref);
+        });
+        if (groupRefs.length === 0) { _hideMeasureResult(); return; }
+        var b = state.build();
+        for (var i = 0; i < groupRefs.length; i++) b.delete(groupRefs[i]);
+        await b.commit({ canUndo: false });
+    } catch(e) {
+        console.warn('[BEER] clearDistances error:', e);
+    }
+    _hideMeasureResult();
+});
+
+/**
+ * Toggle H-bond / interactions representation.
+ */
+window.toggleHBonds = _whenReady(async function toggleHBonds(on) {
+    _hbondsOn = !!on;
+    if (!_plugin) return;
+    var structures = _ctx.managers.structure.hierarchy.current.structures;
+    if (!structures || structures.length === 0) return;
+
+    for (var i = 0; i < structures.length; i++) {
+        var s = structures[i];
+        if (!s.components) continue;
+        for (var j = 0; j < s.components.length; j++) {
+            var comp = s.components[j];
+            if (!comp.representations) continue;
+
+            // find and delete existing interactions reps
+            var toDelete = [];
+            for (var k = 0; k < comp.representations.length; k++) {
+                var repRef = comp.representations[k];
+                if (!repRef || !repRef.cell) continue;
+                var params = repRef.cell.transform && repRef.cell.transform.params;
+                var typeName = params && params.type && params.type.name;
+                if (typeName === 'interactions') {
+                    toDelete.push(repRef.cell);
+                }
+            }
+            for (var d = 0; d < toDelete.length; d++) {
+                await _deleteRepCell(toDelete[d]);
+            }
+
+            // add if turning on
+            if (_hbondsOn) {
+                await _addHBondRep(comp.cell);
+            }
+        }
+    }
+});
+
+/**
+ * Show/hide a specific chain by chain ID.
+ */
+window.setChainVisible = _whenReady(async function setChainVisible(chainId, visible) {
+    if (visible) {
+        _hiddenChains.delete(chainId);
+    } else {
+        _hiddenChains.add(chainId);
+    }
+    if (!_overlayMode) {
+        await _rebuild();
+    }
+});
+
+/**
+ * Show all chains.
+ */
+window.showAllChains = _whenReady(async function showAllChains() {
+    _hiddenChains = new Set();
+    if (!_overlayMode) {
+        await _rebuild();
+    }
+});
+
+/**
+ * Hide all chains in the provided list.
+ */
+window.hideAllChains = _whenReady(async function hideAllChains(chainList) {
+    _hiddenChains = new Set(chainList || []);
+    if (!_overlayMode) {
+        await _rebuild();
+    }
+});
+
+/**
+ * Show or hide the color bar overlay.
+ */
+window.setColorBarVisible = function setColorBarVisible(visible) {
+    _colorBarWanted = !!visible;
+    updateColorBar();   // applies wanted × applicable and repaints
+};
+
+/**
+ * Return PNG data URL of the current viewport.
+ */
+window.pngURI = function pngURI() {
+    var canvas = document.querySelector('#viewport canvas');
+    if (!canvas) return null;
+    try {
+        return canvas.toDataURL('image/png');
+    } catch(e) {
+        return null;
+    }
+};
+
+// ── Convenience viewer namespace (Python expects window.viewer.pngURI) ─
+window.viewer = {
+    pngURI: window.pngURI
+};
+
+/**
+ * Clear residue label annotations (stub — labels not yet implemented in Mol* path).
+ * Defined so main_window._reset_struct_view doesn't throw a ReferenceError.
+ */
+window.clearResidueLabels = _whenReady(async function clearResidueLabels() {
+    if (!_plugin) return;
+    try {
+        // Remove any loci-label state cells if present
+        var structures = _ctx.managers.structure.hierarchy.current.structures;
+        if (!structures) return;
+        // no-op for now; extend when residue-label API is wired up
+    } catch(e) {
+        console.warn('[BEER] clearResidueLabels error:', e);
+    }
+});
+
+// ════════════════════════════════════════════════════════════════════
+//  #7 — Native Mol* feature API
+// ════════════════════════════════════════════════════════════════════
+
+/**
+ * Zoom/centre the camera on the current selection (or whole structure if none).
+ */
+window.focusSelection = _whenReady(function focusSelection() {
+    if (!_plugin) return;
+    try {
+        if (_selectionLoci) {
+            _ctx.managers.camera.focusLoci(_selectionLoci);
+        } else if (_ctx.canvas3d) {
+            _ctx.canvas3d.requestCameraReset();
+        }
+    } catch(e) {
+        console.warn('[BEER] focusSelection error:', e);
+    }
+});
+
+/**
+ * Show/hide a hetero component: kind = 'ligand' | 'water' | 'ion'.
+ */
+window.setComponentVisible = _whenReady(function setComponentVisible(kind, visible) {
+    if (!_plugin) return;
+    var comp = kind === 'ligand' ? _ligComp
+             : kind === 'water'  ? _watComp
+             : kind === 'ion'    ? _ionComp : null;
+    if (!comp || !comp.ref) return;
+    _setComponentHidden(comp.ref, !visible);
+});
+
+/**
+ * Spin / rock animation. mode = 'spin' | 'rock'; on=false stops.
+ */
+window.setSpin = _whenReady(function setSpin(on, mode) {
+    _spinOn   = !!on;
+    _spinMode = (mode === 'rock') ? 'rock' : 'spin';
+    if (!_ctx.canvas3d) return;
+    try {
+        if (_spinOn) {
+            var params = _spinMode === 'rock'
+                ? { speed: 0.3, angle: 10, axis: [0, 1, 0] }
+                : { speed: 1.0, axis: [0, 1, 0] };
+            _ctx.canvas3d.setProps({ trackball: { animate: { name: _spinMode, params: params } } });
+        } else {
+            _ctx.canvas3d.setProps({ trackball: { animate: { name: 'off', params: {} } } });
+        }
+    } catch(e) {
+        console.warn('[BEER] setSpin error:', e);
+    }
+});
+
+/**
+ * Toggle biological assembly (assembly 1) vs asymmetric unit. Reloads structure.
+ */
+window.setAssembly = _whenReady(async function setAssembly(on) {
+    _assemblyOn = !!on;
+    if (_overlayMode) return;   // overlay path doesn't use assemblies
+    await _rebuild();
+});
+
+/**
+ * Show/hide the native Mol* sequence panel (top region).
+ */
+window.setSequenceVisible = function setSequenceVisible(on) {
+    // CSS-driven: Mol*'s internal layout region state is unreliable to toggle,
+    // so we show/hide the .msp-layout-top DOM region via a body class.
+    document.body.classList.toggle('beer-seq-on', !!on);
+};
+
+// ── Expose viewer plugin for debugging ──────────────────────────────
+window.getPlugin = function() { return _plugin; };
+</script>
+</body>
+</html>
