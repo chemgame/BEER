@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "beer-biophys"
-version = "3.0.0"
+version = "3.1.0"
 description = "Biophysical Evaluation Engine for Residues — desktop GUI for protein sequence analysis"
 readme = "README.md"
 license = {file = "LICENSE"}

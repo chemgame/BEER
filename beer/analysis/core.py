@@ -103,6 +103,9 @@ from beer.analysis.proteolysis import (
 )
 from beer.utils.biophysics import calc_polyx_stretches, calc_plaac_score
 from beer.embeddings.base import SequenceEmbedder
+from beer.analysis.calls import protein_call, signal_peptide_call, tm_segments
+from beer.analysis.head_report import head_findings_html
+from beer.models.metrics import architecture_note, f1_threshold
 
 # Maps analysis_data key → model-loader callable for lazy per-section AI computation.
 _BILSTM_HEAD_LOADERS: dict[str, "callable"] = {
@@ -169,7 +172,7 @@ def _make_summary_bullets(
     seq, seq_length, mw, pI, disorder_f, disorder_scores,
     sp_bilstm_profile, tm_bilstm_profile, cc_bilstm_profile,
     aggr_profile, catgranule, fcr, ncpr, kappa, larks,
-    gpi_result, prot_sites, ss3_bilstm_profile=None,
+    gpi_result, prot_sites, ss3_bilstm_profile=None, tm_topology=None,
 ) -> list[str]:
     """Return a list of concise bullet-point strings summarising key findings."""
     bullets: list[str] = []
@@ -181,7 +184,8 @@ def _make_summary_bullets(
 
     # --- Disorder ---
     if disorder_scores and seq_length > 0:
-        d_frac = sum(1 for v in disorder_scores if v > 0.5) / seq_length
+        d_thr = f1_threshold("disorder")
+        d_frac = sum(1 for v in disorder_scores if v > d_thr) / seq_length
         if d_frac >= 0.5:
             bullets.append(
                 f"Highly disordered — {d_frac*100:.0f}% of residues predicted disordered (BiLSTM)"
@@ -196,30 +200,26 @@ def _make_summary_bullets(
             )
 
     # --- Signal peptide ---
-    if sp_bilstm_profile:
-        sp_max = max(sp_bilstm_profile[:35]) if len(sp_bilstm_profile) >= 10 else 0
-        if sp_max > 0.7:
-            bullets.append(
-                f"Strong N-terminal signal peptide detected (BiLSTM score {sp_max:.2f})"
-            )
+    sp_called, sp_end = signal_peptide_call(sp_bilstm_profile)
+    if sp_called:
+        bullets.append(f"N-terminal signal peptide predicted (residues 1\u2013{sp_end}, BiLSTM)")
 
     # --- GPI anchor ---
     if gpi_result and gpi_result.get("has_gpi"):
         bullets.append("GPI anchor signal present at C-terminus")
 
     # --- Transmembrane ---
-    if tm_bilstm_profile:
-        n_tm = sum(1 for v in tm_bilstm_profile if v > 0.5)
-        if n_tm >= 15:
-            bullets.append(
-                f"Transmembrane protein — ~{n_tm} residues predicted in TM helices (BiLSTM)"
-            )
+    segments = tm_segments(tm_topology)
+    if segments:
+        n = len(segments)
+        bullets.append(f"Transmembrane protein \u2014 {n} transmembrane "
+                       f"segment{'s' if n > 1 else ''} predicted (BiLSTM-CRF)")
 
     # --- Coiled coil ---
-    if cc_bilstm_profile:
-        n_cc = sum(1 for v in cc_bilstm_profile if v > 0.5)
-        if n_cc >= 10:
-            bullets.append(f"Coiled-coil region(s) predicted ({n_cc} residues, BiLSTM)")
+    cc_call = protein_call("coiled_coil", cc_bilstm_profile)
+    if cc_call.called:
+        n_cc = sum(e - s + 1 for s, e in cc_call.spans)
+        bullets.append(f"Coiled-coil region(s) predicted ({n_cc} residues, BiLSTM)")
 
     # --- Aggregation ---
     if aggr_profile:
@@ -519,12 +519,13 @@ class AnalysisTools:
             return regions
 
         if disorder_scores and seq_length > 0:
-            disordered_frac = sum(1 for v in disorder_scores if v > 0.5) / seq_length
+            _dthr = f1_threshold("disorder")
+            disordered_frac = sum(1 for v in disorder_scores if v > _dthr) / seq_length
             _disordered_frac_html = (
-                f"<tr><td>Disordered fraction (score &gt; 0.5)</td>"
+                f"<tr><td>Disordered fraction (score &gt; {_dthr:.2f})</td>"
                 f"<td>{disordered_frac:.3f} ({disordered_frac*100:.1f}%)</td></tr>"
             )
-            _idr_regions = _contiguous_regions(disorder_scores, 0.5)
+            _idr_regions = _contiguous_regions(disorder_scores, _dthr)
             if _idr_regions:
                 _idr_rows = "".join(
                     f"<tr><td>IDR {k}</td><td>{s}–{e}</td><td>{e-s+1}</td></tr>"
@@ -534,15 +535,12 @@ class AnalysisTools:
                     "<h3 style='margin:10px 0 4px'>Predicted Intrinsically Disordered Regions</h3>"
                     "<table><tr><th>#</th><th>Residues</th><th>Length</th></tr>"
                     f"{_idr_rows}</table>"
-                    f"<p class='note'>{len(_idr_regions)} IDR(s) predicted at threshold 0.5.</p>"
+                    f"<p class='note'>{len(_idr_regions)} IDR(s) predicted at threshold {_dthr:.2f}.</p>"
                 )
             else:
-                _idr_table = "<p class='note'>No contiguous disordered regions predicted (threshold 0.5).</p>"
-            _disorder_note = (
-                "ESMC 600M BiLSTM disorder head. "
-                "Threshold of 0.5 on calibrated disorder probability (DisProt benchmark, "
-                "Necci et al. 2021, Nucleic Acids Res.)."
-            )
+                _idr_table = ("<p class='note'>No contiguous disordered regions predicted "
+                              f"(threshold {_dthr:.2f}).</p>")
+            _disorder_note = "AI disorder head: " + architecture_note("disorder")
             disorder_html = _style + f"""
             <h2>Disorder &amp; Flexibility {method_badge("ESMC BiLSTM", "bilstm")}</h2>
             <table>
@@ -646,7 +644,7 @@ class AnalysisTools:
         """
 
         tm_html = _style + """
-        <h2>Transmembrane Helices</h2>
+        <h2>Transmembrane Segments</h2>
         <p>Use <b>AI Predictions &rarr; Transmembrane</b> for ESMC BiLSTM per-residue scores.</p>
         """
 
@@ -720,15 +718,7 @@ class AnalysisTools:
         if sp_bilstm_profile is not None:
             _n70 = sp_bilstm_profile[:70]
             _sp_max = max(_n70) if _n70 else 0.0
-            _sp_det = _sp_max > 0.5
-            _sp_end = 0
-            if _sp_det:
-                _peak_i = _n70.index(max(_n70))
-                _sp_end = len(_n70)
-                for _si in range(_peak_i, len(_n70)):
-                    if _n70[_si] < 0.5:
-                        _sp_end = _si
-                        break
+            _sp_det, _sp_end = signal_peptide_call(sp_bilstm_profile)
             sp_result: dict = {
                 "has_signal_peptide": _sp_det,
                 "signal_peptide_prob": round(_sp_max, 4),
@@ -760,6 +750,11 @@ class AnalysisTools:
 
         # TM and CC run eagerly — summary bullets use them.
         tm_bilstm_profile    = _run_head(load_transmembrane_head)
+        try:
+            from beer.utils.structure import bilstm_crf_topology as _tm_topo
+            tm_topology = _tm_topo(seq, embedder, load_transmembrane_head())
+        except Exception:
+            tm_topology = None
         cc_bilstm_profile    = _run_head(load_coiled_coil_head)
         # 19 detail heads are deferred; AISectionWorker computes them on demand.
         intramem_bilstm_profile = None
@@ -813,41 +808,11 @@ class AnalysisTools:
                     f"Results are cached for the session.</p>"
                     f"</div>"
                 )
-            _scores_np = scores
-            _n = seq_length
-            _mean = sum(_scores_np) / _n
-            _n_pos = sum(1 for v in _scores_np if v > 0.5)
-            _frac  = _n_pos / _n
-            # Predicted regions
-            _regs, _in, _st = [], False, 0
-            for _i, _v in enumerate(_scores_np):
-                if _v > 0.5 and not _in:
-                    _in, _st = True, _i + 1
-                elif _v <= 0.5 and _in:
-                    _regs.append((_st, _i))
-                    _in = False
-            if _in:
-                _regs.append((_st, _n))
-            _reg_str = (
-                ", ".join(f"{rs}–{re}" for rs, re in _regs[:8])
-                + ("…" if len(_regs) > 8 else "")
-            ) if _regs else "None"
             return _style + f"""
             <h2>{section_title} {_b}</h2>
-            <table>
-              <tr><th>Property</th><th>Value</th></tr>
-              <tr><td>Mean per-residue probability</td><td>{_mean:.3f}</td></tr>
-              <tr><td>Predicted positive fraction (score &gt; 0.5)</td>
-                  <td>{_frac:.3f} &mdash; {_n_pos} / {_n} residues ({_frac*100:.1f}%)</td></tr>
-              <tr><td>Predicted regions (1-based)</td><td>{_reg_str}</td></tr>
-              <tr><td>Number of predicted regions</td><td>{len(_regs)}</td></tr>
-            </table>
-            <p class="note">
-              BiLSTM: ESMC 600M (1152-dim, frozen) → 2-layer Bidirectional LSTM
-              (hidden = 256) → Linear(512 → 1) → Sigmoid; trained on {train_labels}.
-              Threshold 0.5. {classical_note}
-              {ref_note}
-            </p>
+            {head_findings_html(feature_label, scores, seq, tm_topology)}
+            <p class="note">{architecture_note(feature_label)} Trained on {train_labels}.
+              {classical_note} {ref_note}</p>
             """
 
         _TM_NOTE = (
@@ -858,11 +823,12 @@ class AnalysisTools:
         )
 
         tm_html_bilstm = _bilstm_head_html(
-            "Transmembrane Helices — BiLSTM", "transmembrane",
+            "Transmembrane Segments — BiLSTM", "transmembrane",
             tm_bilstm_profile,
             "UniProt Swiss-Prot 'Transmembrane' (ft_transmem) annotations",
             _TM_NOTE,
-            "Predicted residues form TM helix segments (topology inferred from inside-positive rule).",
+            "Transmembrane segments are the stretches the Viterbi path assigns to the membrane "
+            "state; segments of at least 12 residues are reported.",
         )
         cc_html_bilstm = _bilstm_head_html(
             "Coiled-Coil Regions — BiLSTM", "coiled_coil",
@@ -1147,8 +1113,8 @@ class AnalysisTools:
                 "Disorder":                disorder_html,
                 "Repeat Motifs":           repeats_html,
                 "Sticker & Spacer":        sticker_html,
-                "TM Helices":              tm_html,
-                "TM Helices (BiLSTM)":         tm_html_bilstm,
+                "Transmembrane Segments":  tm_html,
+                "Transmembrane Segments (BiLSTM)": tm_html_bilstm,
                 "Intramembrane (BiLSTM)":      intramem_html_bilstm,
                 "Coiled-Coil (BiLSTM)":        cc_html_bilstm,
                 "DNA-Binding (BiLSTM)":        dna_html_bilstm,
@@ -1215,6 +1181,7 @@ class AnalysisTools:
             "sp_bilstm_profile":  sp_bilstm_profile,
             "gpi_result":         gpi_result,
             "tm_bilstm_profile":      tm_bilstm_profile,
+            "tm_topology":            tm_topology,
             "intramem_bilstm_profile": intramem_bilstm_profile,
             "cc_bilstm_profile":      cc_bilstm_profile,
             "dna_bilstm_profile":     dna_bilstm_profile,
@@ -1262,6 +1229,7 @@ class AnalysisTools:
                 disorder_scores=disorder_scores,
                 sp_bilstm_profile=sp_bilstm_profile,
                 tm_bilstm_profile=tm_bilstm_profile,
+                tm_topology=tm_topology,
                 cc_bilstm_profile=cc_bilstm_profile,
                 aggr_profile=aggr_profile_zygg,
                 catgranule=catgranule_score,

@@ -773,6 +773,7 @@ class AISectionWorker(QThread):
         self.data_key    = data_key
         self.seq         = seq
         self.embedder    = embedder
+        self.tm_topology = None   # Viterbi states, set when the transmembrane head runs
 
     def run(self) -> None:
         if self.embedder is None or not self.embedder.is_available():
@@ -785,6 +786,11 @@ class AISectionWorker(QThread):
         try:
             from beer.analysis.core import compute_single_bilstm_head
             scores = compute_single_bilstm_head(self.data_key, self.seq, self.embedder)
+            if scores and self.data_key == "tm_bilstm_profile":
+                from beer.utils.structure import bilstm_crf_topology
+                from beer.models import load_transmembrane_head
+                self.tm_topology = bilstm_crf_topology(
+                    self.seq, self.embedder, load_transmembrane_head())
             if scores:
                 self.result_ready.emit(self.section_key, scores)
             else:
@@ -909,6 +915,10 @@ class MCDropoutWorker(QThread):
                 "nucleotide_binding":  "load_nucleotide_binding_head",
                 "transit_peptide":     "load_transit_peptide_head",
             }
+            _ss3_class = {"secondary_structure_helix": 1, "secondary_structure_strand": 2,
+                          "secondary_structure_coil": 0}.get(self.feat)
+            if _ss3_class is not None:
+                _loaders[self.feat] = "load_secondary_structure_head"
             loader_name = _loaders.get(self.feat)
             if not loader_name or not hasattr(_m, loader_name):
                 self.error.emit(self.title, f"No loader for feature '{self.feat}'")
@@ -918,7 +928,8 @@ class MCDropoutWorker(QThread):
                 self.error.emit(self.title, "Model or embedder unavailable.")
                 return
             result = bilstm_predict_mc(
-                self.seq, self.embedder, head, n_passes=self.n_passes)
+                self.seq, self.embedder, head, n_passes=self.n_passes,
+                ss3_class=_ss3_class)
             if result is not None:
                 _, uncertainty = result
                 self.result_ready.emit(self.title, list(uncertainty))

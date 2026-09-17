@@ -74,3 +74,6 @@ beer_biophys.egg-info/
 # Internal audit reports — never part of the public repo
 AUDIT_REPORT.md
 CODE_AUDIT_FIXES.md
+
+# Migration archive (local only — not part of the distribution)
+_migration/

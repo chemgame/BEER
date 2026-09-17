@@ -223,7 +223,7 @@ def method_badge(label: str, kind: str = "bilstm") -> str:
     Parameters
     ----------
     label:
-        Text to display, e.g. ``"ESMC 600M BiLSTM · AUROC 0.9999"`` or
+        Text to display, e.g. ``"ESMC 600M BiLSTM · AUROC 0.9998"`` or
         ``"ZYGGREGATOR"`` or ``"Rule-based (von Heijne 1986)"``.
     kind:
         CSS class to apply: ``"bilstm"`` (blue), ``"classical"`` (gray).

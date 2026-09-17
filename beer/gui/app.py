@@ -285,14 +285,27 @@ def _force_qt_file_dialogs() -> None:
     QFileDialog._beer_nonnative = True
 
 
+# Options QApplication itself understands; these still launch the GUI.
+_QT_OPTIONS = frozenset({
+    "-platform", "-platformpluginpath", "-platformtheme", "-plugin", "-qwindowgeometry",
+    "-qwindowicon", "-qwindowtitle", "-reverse", "-session", "-style", "-stylesheet",
+    "-widgetcount", "-qmljsdebugger", "-display", "-geometry",
+})
+
+
+def _is_qt_option(arg: str) -> bool:
+    return arg.split("=", 1)[0] in _QT_OPTIONS
+
+
 def main() -> None:
     _harden_native_runtime()   # must precede any torch/esm import
     _setup_logging()
     _log = logging.getLogger("beer.app")
 
-    # Dispatch to CLI if any arguments are provided
+    # Any argument other than a Qt option goes to the CLI, so `beer --help`,
+    # typos and unknown flags get argparse's usage or error message.
     raw_args = sys.argv[1:]
-    if raw_args and raw_args[0] in ("analyze", "version", "--version", "-V"):
+    if raw_args and not _is_qt_option(raw_args[0]):
         if raw_args[0] in ("--version", "-V"):
             import beer as _bp; print(f"BEER v{_bp.__version__}"); return
         _run_cli(raw_args)

@@ -58,24 +58,33 @@ def _lstm_step(x, h, c, W_ih, W_hh, b_ih, b_hh):
     return h_new, c_new
 
 
-def _bilstm_forward(emb: "np.ndarray", head: dict) -> "np.ndarray":
-    """Full BiLSTM forward pass for one sequence using exported PyTorch weights.
+def _dropout(x: "np.ndarray", p: float, rng) -> "np.ndarray":
+    """Inverted dropout, as torch.nn.Dropout in training mode. No-op without *rng*."""
+    import numpy as np
+    if rng is None or not p:
+        return x
+    return x * (rng.random(x.shape) >= p).astype(np.float32) / np.float32(1.0 - p)
 
-    Supports arbitrary num_layers and hidden size as saved by train_all_heads.py.
+
+def _n_layers(head: dict) -> int:
+    v = head.get("lstm_layers", 2)
+    return int(v.item() if hasattr(v, "item") else v)
+
+
+def _bilstm_layers(x: "np.ndarray", head: dict,
+                   drop_p: float = 0.0, rng=None) -> "np.ndarray":
+    """Stacked bidirectional LSTM on exported PyTorch weights; returns (L, 2*hidden).
+
+    With *rng* given and *drop_p* > 0 it applies nn.LSTM's inter-layer dropout. The hidden
+    size is read from the weight shapes, not the stored metadata.
     """
     import numpy as np
-    n_layers = int(head.get("lstm_layers", np.array(2)).item()
-                   if hasattr(head.get("lstm_layers", 2), "item")
-                   else head.get("lstm_layers", 2))
-
-    x = emb.astype(np.float32)   # (L, D)
+    n_layers = _n_layers(head)
+    x = x.astype(np.float32)
     L = len(x)
-
     for layer in range(n_layers):
-        # --- forward direction ---
         W_ih_f = head[f"lstm.weight_ih_l{layer}"]
         W_hh_f = head[f"lstm.weight_hh_l{layer}"]
-        # Derive hidden from actual weight shape — robust against wrong metadata.
         hidden = W_hh_f.shape[1]
         b_ih_f = head[f"lstm.bias_ih_l{layer}"]
         b_hh_f = head[f"lstm.bias_hh_l{layer}"]
@@ -99,108 +108,47 @@ def _bilstm_forward(emb: "np.ndarray", head: dict) -> "np.ndarray":
             bwd[t] = h_b
 
         x = np.concatenate([np.stack(fwd), np.stack(bwd)], axis=1)  # (L, 2*hidden)
+        if layer < n_layers - 1:
+            x = _dropout(x, drop_p, rng)
+    return x
 
-    W_out = head["W_out"]   # (1, 2*hidden)
-    b_out = head["b_out"]   # (1,)
-    logits = x @ W_out.T + b_out
+
+def _bilstm_forward(emb: "np.ndarray", head: dict,
+                    drop_p: float = 0.0, rng=None) -> "np.ndarray":
+    """BiLSTM -> dropout -> linear -> sigmoid, matching BiLSTMHead.forward."""
+    import numpy as np
+    h = _dropout(_bilstm_layers(emb, head, drop_p, rng), drop_p, rng)
+    logits = h @ head["W_out"].T + head["b_out"]
     return 1.0 / (1.0 + np.exp(-logits.ravel()))
 
 
-def _bilstm_forward_window(emb: "np.ndarray", head: dict) -> "np.ndarray":
+def _bilstm_forward_window(emb: "np.ndarray", head: dict,
+                           drop_p: float = 0.0, rng=None) -> "np.ndarray":
     """BiLSTM + sliding average-pool + linear classifier (aggregation head).
 
-    Identical to _bilstm_forward but applies a sliding average window over
-    the hidden states before the output layer. The window size is stored in
-    head['window_size'].
+    The window size is stored in head['window_size'].
     """
     import numpy as np
     window = int(head.get("window_size", np.array(7)).item()
                  if hasattr(head.get("window_size", 7), "item")
                  else head.get("window_size", 7))
-
-    # Run BiLSTM layers to get hidden states (L, 2*hidden)
-    n_layers = int(head.get("lstm_layers", np.array(2)).item()
-                   if hasattr(head.get("lstm_layers", 2), "item")
-                   else head.get("lstm_layers", 2))
-    hidden   = int(head["lstm_hidden"].item()
-                   if hasattr(head["lstm_hidden"], "item")
-                   else head["lstm_hidden"])
-    x = emb.astype(np.float32)
-    L = len(x)
-
-    for layer in range(n_layers):
-        W_ih_f = head[f"lstm.weight_ih_l{layer}"]
-        W_hh_f = head[f"lstm.weight_hh_l{layer}"]
-        b_ih_f = head[f"lstm.bias_ih_l{layer}"]
-        b_hh_f = head[f"lstm.bias_hh_l{layer}"]
-        W_ih_b = head[f"lstm.weight_ih_l{layer}_reverse"]
-        W_hh_b = head[f"lstm.weight_hh_l{layer}_reverse"]
-        b_ih_b = head[f"lstm.bias_ih_l{layer}_reverse"]
-        b_hh_b = head[f"lstm.bias_hh_l{layer}_reverse"]
-
-        h_f = np.zeros(hidden, np.float32);  c_f = np.zeros(hidden, np.float32)
-        fwd = []
-        for t in range(L):
-            h_f, c_f = _lstm_step(x[t], h_f, c_f, W_ih_f, W_hh_f, b_ih_f, b_hh_f)
-            fwd.append(h_f)
-
-        h_b = np.zeros(hidden, np.float32);  c_b = np.zeros(hidden, np.float32)
-        bwd = [None] * L
-        for t in range(L - 1, -1, -1):
-            h_b, c_b = _lstm_step(x[t], h_b, c_b, W_ih_b, W_hh_b, b_ih_b, b_hh_b)
-            bwd[t] = h_b
-        x = np.concatenate([np.stack(fwd), np.stack(bwd)], axis=1)
-
-    # Sliding average window pool over hidden states
-    half  = window // 2
+    x = _bilstm_layers(emb, head, drop_p, rng)
+    L, half = len(x), window // 2
     x_pad = np.pad(x, ((half, half), (0, 0)), mode="reflect")
     x_win = np.stack([x_pad[i:i + window].mean(axis=0) for i in range(L)])
-
-    W_out  = head["W_out"]   # (1, 2*hidden)
-    b_out  = head["b_out"]   # (1,)
-    logits = x_win @ W_out.T + b_out
+    x_win = _dropout(x_win, drop_p, rng)
+    logits = x_win @ head["W_out"].T + head["b_out"]
     return 1.0 / (1.0 + np.exp(-logits.ravel()))
 
 
-def _bilstm_crf_emit(emb: "np.ndarray", head: dict) -> "np.ndarray":
-    """BiLSTM + linear emission layer for CRF head. Returns (L, N_states) logits."""
-    import numpy as np
-    n_layers = int(head.get("lstm_layers", np.array(2)).item()
-                   if hasattr(head.get("lstm_layers", 2), "item")
-                   else head.get("lstm_layers", 2))
-    hidden   = int(head["lstm_hidden"].item()
-                   if hasattr(head["lstm_hidden"], "item")
-                   else head["lstm_hidden"])
+def _bilstm_crf_emit(emb: "np.ndarray", head: dict,
+                     drop_p: float = 0.0, rng=None) -> "np.ndarray":
+    """BiLSTM -> dropout -> linear emission layer; returns (L, N_states) logits.
 
-    x = emb.astype(np.float32)
-    L = len(x)
-
-    for layer in range(n_layers):
-        W_ih_f = head[f"lstm.weight_ih_l{layer}"]
-        W_hh_f = head[f"lstm.weight_hh_l{layer}"]
-        b_ih_f = head[f"lstm.bias_ih_l{layer}"]
-        b_hh_f = head[f"lstm.bias_hh_l{layer}"]
-        W_ih_b = head[f"lstm.weight_ih_l{layer}_reverse"]
-        W_hh_b = head[f"lstm.weight_hh_l{layer}_reverse"]
-        b_ih_b = head[f"lstm.bias_ih_l{layer}_reverse"]
-        b_hh_b = head[f"lstm.bias_hh_l{layer}_reverse"]
-
-        h_f = np.zeros(hidden, np.float32);  c_f = np.zeros(hidden, np.float32)
-        fwd = []
-        for t in range(L):
-            h_f, c_f = _lstm_step(x[t], h_f, c_f, W_ih_f, W_hh_f, b_ih_f, b_hh_f)
-            fwd.append(h_f)
-
-        h_b = np.zeros(hidden, np.float32);  c_b = np.zeros(hidden, np.float32)
-        bwd = [None] * L
-        for t in range(L - 1, -1, -1):
-            h_b, c_b = _lstm_step(x[t], h_b, c_b, W_ih_b, W_hh_b, b_ih_b, b_hh_b)
-            bwd[t] = h_b
-        x = np.concatenate([np.stack(fwd), np.stack(bwd)], axis=1)
-
-    W_out = head["W_out"]   # (N_states, 2*hidden)
-    b_out = head["b_out"]   # (N_states,)
-    return x @ W_out.T + b_out   # (L, N_states)
+    Used by the transmembrane CRF head and the plain 3-class secondary-structure head.
+    """
+    h = _dropout(_bilstm_layers(emb, head, drop_p, rng), drop_p, rng)
+    return h @ head["W_out"].T + head["b_out"]
 
 
 def _viterbi_decode(emissions: "np.ndarray", transitions: "np.ndarray") -> "np.ndarray":
@@ -242,82 +190,62 @@ def _conv1d_relu_numpy(x: "np.ndarray", weight: "np.ndarray",
     return np.maximum(0.0, out + bias)         # ReLU
 
 
-def _apply_cnn_branch(x: "np.ndarray", head: dict) -> "np.ndarray":
-    """Apply the multi-scale CNN branch and return augmented (L, D+cnn_out) array."""
+def _cnn_features(x: "np.ndarray", head: dict) -> "np.ndarray":
+    """Multi-scale CNN branch with eval-mode batch norm; returns (L, C*n_filters)."""
     import numpy as np
     filter_widths = head.get("cnn_filters", [3, 7, 15])
     if hasattr(filter_widths, "tolist"):
         filter_widths = filter_widths.tolist()
     cnn_outs = []
     for idx, kw in enumerate(filter_widths):
-        kw  = int(kw)
-        W   = head[f"convs.{idx}.weight"]    # (C, D, K)
-        b   = head[f"convs.{idx}.bias"]      # (C,)
-        cnn_outs.append(_conv1d_relu_numpy(x, W, b, kw // 2))
-    cnn_cat = np.concatenate(cnn_outs, axis=1)   # (L, C*n_filters)
-    # Batch-norm with running statistics (eval mode)
-    bn_w    = head["cnn_bn.weight"]
-    bn_b    = head["cnn_bn.bias"]
-    bn_mean = head["cnn_bn.running_mean"]
-    bn_var  = head["cnn_bn.running_var"]
-    cnn_cat = (cnn_cat - bn_mean) / np.sqrt(bn_var + 1e-5) * bn_w + bn_b
-    return np.concatenate([x, cnn_cat], axis=1)  # (L, D+cnn_out)
+        kw = int(kw)
+        cnn_outs.append(_conv1d_relu_numpy(x, head[f"convs.{idx}.weight"],
+                                           head[f"convs.{idx}.bias"], kw // 2))
+    cnn_cat = np.concatenate(cnn_outs, axis=1)
+    return ((cnn_cat - head["cnn_bn.running_mean"])
+            / np.sqrt(head["cnn_bn.running_var"] + 1e-5)
+            * head["cnn_bn.weight"] + head["cnn_bn.bias"]).astype(np.float32)
 
 
-def _bilstm_cnn_forward(emb: "np.ndarray", head: dict) -> "np.ndarray":
-    """bilstm2_cnn forward: CNN branch → augmented input → BiLSTM → sigmoid."""
-    x_aug = _apply_cnn_branch(emb, head)
-    return _bilstm_forward(x_aug, head)
+def _apply_cnn_branch(x: "np.ndarray", head: dict, drop_p: float = 0.0, rng=None,
+                      features: "np.ndarray | None" = None) -> "np.ndarray":
+    """Append the (dropout-masked) CNN features to the embedding: (L, D + cnn_out).
 
-
-def _bilstm_cnn_forward_ss3(emb: "np.ndarray", head: dict) -> "np.ndarray":
-    """bilstm2_ss3_cnn forward: CNN branch → BiLSTM → (L, 3) logits."""
+    *features* lets Monte Carlo passes reuse the deterministic CNN output.
+    """
     import numpy as np
-    x_aug  = _apply_cnn_branch(emb, head)
-    n_layers = int(head.get("lstm_layers", 2))
-    hidden   = int(head["lstm_hidden"].item() if hasattr(head["lstm_hidden"], "item")
-                   else head["lstm_hidden"])
-    x = x_aug.astype(np.float32)
-    L = len(x)
-    for layer in range(n_layers):
-        W_ih_f = head[f"lstm.weight_ih_l{layer}"]
-        W_hh_f = head[f"lstm.weight_hh_l{layer}"]
-        b_ih_f = head[f"lstm.bias_ih_l{layer}"]
-        b_hh_f = head[f"lstm.bias_hh_l{layer}"]
-        W_ih_b = head[f"lstm.weight_ih_l{layer}_reverse"]
-        W_hh_b = head[f"lstm.weight_hh_l{layer}_reverse"]
-        b_ih_b = head[f"lstm.bias_ih_l{layer}_reverse"]
-        b_hh_b = head[f"lstm.bias_hh_l{layer}_reverse"]
-        h_f = np.zeros(hidden, np.float32); c_f = np.zeros(hidden, np.float32)
-        fwd = []
-        for t in range(L):
-            h_f, c_f = _lstm_step(x[t], h_f, c_f, W_ih_f, W_hh_f, b_ih_f, b_hh_f)
-            fwd.append(h_f)
-        h_b = np.zeros(hidden, np.float32); c_b = np.zeros(hidden, np.float32)
-        bwd = [None] * L
-        for t in range(L - 1, -1, -1):
-            h_b, c_b = _lstm_step(x[t], h_b, c_b, W_ih_b, W_hh_b, b_ih_b, b_hh_b)
-            bwd[t] = h_b
-        x = np.concatenate([np.stack(fwd), np.stack(bwd)], axis=1)
-    W_out = head["W_out"]   # (3, 2*hidden)
-    b_out = head["b_out"]   # (3,)
-    return x @ W_out.T + b_out   # (L, 3)
+    feats = _cnn_features(x, head) if features is None else features
+    return np.concatenate([x, _dropout(feats, drop_p, rng)], axis=1)
 
 
-def _bilstm_pos_forward(emb: "np.ndarray", head: dict) -> "np.ndarray":
-    """bilstm2_pos forward: add positional embedding → BiLSTM → sigmoid."""
-    import numpy as np
-    pos_w  = head["pos_emb.weight"]   # (max_len, D)
-    max_len = len(pos_w)
-    L      = len(emb)
-    emb_f  = emb.astype(np.float32)
-    if L <= max_len:
-        x = emb_f + pos_w[:L]
-    else:
-        # Sequence longer than training max_len: clamp table and zero-pad remainder.
-        x = emb_f.copy()
-        x[:max_len] += pos_w
-    return _bilstm_forward(x, head)
+def _bilstm_cnn_forward(emb: "np.ndarray", head: dict, drop_p: float = 0.0, rng=None,
+                        features: "np.ndarray | None" = None) -> "np.ndarray":
+    """bilstm2_cnn forward: CNN branch -> augmented input -> BiLSTM -> sigmoid."""
+    return _bilstm_forward(_apply_cnn_branch(emb, head, drop_p, rng, features),
+                           head, drop_p, rng)
+
+
+def _bilstm_cnn_forward_ss3(emb: "np.ndarray", head: dict, drop_p: float = 0.0, rng=None,
+                            features: "np.ndarray | None" = None) -> "np.ndarray":
+    """bilstm2_ss3_cnn forward: CNN branch -> BiLSTM -> (L, 3) logits."""
+    x_aug = _apply_cnn_branch(emb, head, drop_p, rng, features)
+    h = _dropout(_bilstm_layers(x_aug, head, drop_p, rng), drop_p, rng)
+    return h @ head["W_out"].T + head["b_out"]
+
+
+def _with_positions(emb: "np.ndarray", head: dict) -> "np.ndarray":
+    """Add the learned positional embedding (clamped beyond its table length)."""
+    pos_w = head["pos_emb.weight"]
+    x = emb.astype("float32").copy()
+    n = min(len(x), len(pos_w))
+    x[:n] += pos_w[:n]
+    return x
+
+
+def _bilstm_pos_forward(emb: "np.ndarray", head: dict,
+                        drop_p: float = 0.0, rng=None) -> "np.ndarray":
+    """bilstm2_pos forward: add positional embedding -> BiLSTM -> sigmoid."""
+    return _bilstm_forward(_with_positions(emb, head), head, drop_p, rng)
 
 
 def bilstm_predict(seq: str, embedder, head: dict | None) -> "list[float] | None":
@@ -338,20 +266,34 @@ def bilstm_predict(seq: str, embedder, head: dict | None) -> "list[float] | None
     if hasattr(arch, "item"):
         arch = arch.item()
     if arch == "bilstm2":
-        return _bilstm_forward(emb.astype(np.float32), head).tolist()
-    if arch == "bilstm2_crf":
+        raw = _bilstm_forward(emb.astype(np.float32), head)
+    elif arch == "bilstm2_crf":
         emits = _bilstm_crf_emit(emb.astype(np.float32), head)
         emits -= emits.max(axis=1, keepdims=True)
         e = np.exp(emits)
         probs = e / e.sum(axis=1, keepdims=True)
-        return probs[:, 1].tolist()
-    if arch == "bilstm2_window":
-        return _bilstm_forward_window(emb.astype(np.float32), head).tolist()
-    if arch == "bilstm2_cnn":
-        return _bilstm_cnn_forward(emb.astype(np.float32), head).tolist()
-    if arch == "bilstm2_pos":
-        return _bilstm_pos_forward(emb.astype(np.float32), head).tolist()
-    return None
+        raw = probs[:, 1]
+    elif arch == "bilstm2_window":
+        raw = _bilstm_forward_window(emb.astype(np.float32), head)
+    elif arch == "bilstm2_cnn":
+        raw = _bilstm_cnn_forward(emb.astype(np.float32), head)
+    elif arch == "bilstm2_pos":
+        raw = _bilstm_pos_forward(emb.astype(np.float32), head)
+    else:
+        return None
+    return _calibrated(head, raw).tolist()
+
+
+def _calibrated(head: dict, values):
+    """Put *values* on the calibrated scale for this head, if it has a fitted map.
+
+    Heads without one, including the two Viterbi-decoded heads, come back unchanged.
+    """
+    from beer.models.calibration import apply as _apply
+    task = head.get("task")
+    if hasattr(task, "item"):
+        task = task.item()
+    return _apply(task, values)
 
 
 def bilstm_predict_ss3(
@@ -409,23 +351,28 @@ def bilstm_crf_topology(seq: str, embedder, head: dict | None) -> "list[int] | N
     return _viterbi_decode(emits, transitions).tolist()
 
 
+_SS3_ARCHS = ("bilstm2_ss3", "bilstm2_ss3_crf", "bilstm2_ss3_cnn")
+
+
 def bilstm_predict_mc(
     seq: str,
     embedder,
     head: dict | None,
     n_passes: int = 20,
     dropout_p: float | None = None,
+    ss3_class: int | None = None,
+    seed: int | None = None,
 ) -> "tuple[list[float], list[float]] | None":
-    """MC-Dropout inference: run *n_passes* stochastic forward passes.
+    """MC-Dropout inference for any head: mean and standard deviation per residue.
 
-    Applies dropout to inter-layer activations (matching training behaviour).
-    Returns ``(mean_probs, std_probs)`` per residue, or ``None`` if unavailable.
+    Each of *n_passes* forward passes keeps dropout active where the trained model had it:
+    on the CNN features (CNN heads), between LSTM layers, and after the last LSTM layer.
+    The embedding, CNN output and positional terms are computed once. The returned
+    probability is the one the head plots: P(feature) for binary heads, P(membrane) for
+    the transmembrane CRF head, and P(class *ss3_class*) for secondary structure
+    (0 = coil, 1 = helix, 2 = strand).
 
-    Parameters
-    ----------
-    dropout_p:
-        Override the dropout probability. Defaults to the value stored in
-        ``head["lstm_dropout"]`` if present, else 0.3 (training default).
+    *dropout_p* defaults to ``head["lstm_dropout"]`` when stored, else 0.3.
     """
     if embedder is None or not embedder.is_available() or head is None:
         return None
@@ -436,65 +383,46 @@ def bilstm_predict_mc(
     arch = head.get("architecture", "bilstm2")
     if hasattr(arch, "item"):
         arch = arch.item()
-    if arch != "bilstm2":
+    if dropout_p is None:
+        stored = head.get("lstm_dropout", None)
+        dropout_p = float(stored) if stored is not None else 0.3
+    rng = np.random.default_rng(seed)
+    x = emb.astype(np.float32)
+
+    def softmax(z):
+        z = z - z.max(axis=1, keepdims=True)
+        e = np.exp(z)
+        return e / e.sum(axis=1, keepdims=True)
+
+    if arch in _SS3_ARCHS:
+        if ss3_class not in (0, 1, 2):
+            return None
+        if arch == "bilstm2_ss3_cnn":
+            feats = _cnn_features(x, head)
+            one = lambda: softmax(_bilstm_cnn_forward_ss3(x, head, dropout_p, rng, feats))[:, ss3_class]
+        else:
+            one = lambda: softmax(_bilstm_crf_emit(x, head, dropout_p, rng))[:, ss3_class]
+    elif arch == "bilstm2":
+        one = lambda: _bilstm_forward(x, head, dropout_p, rng)
+    elif arch == "bilstm2_cnn":
+        feats = _cnn_features(x, head)
+        one = lambda: _bilstm_cnn_forward(x, head, dropout_p, rng, feats)
+    elif arch == "bilstm2_pos":
+        xp = _with_positions(x, head)
+        one = lambda: _bilstm_forward(xp, head, dropout_p, rng)
+    elif arch == "bilstm2_window":
+        one = lambda: _bilstm_forward_window(x, head, dropout_p, rng)
+    elif arch == "bilstm2_crf":
+        one = lambda: softmax(_bilstm_crf_emit(x, head, dropout_p, rng))[:, 1]
+    else:
         return None
 
-    x = emb.astype(np.float32)
-    p = dropout_p
-    if p is None:
-        stored = head.get("lstm_dropout", None)
-        p = float(stored) if stored is not None else 0.3
-
-    n_layers = int(head.get("lstm_layers", np.array(2)).item()
-                   if hasattr(head.get("lstm_layers", 2), "item")
-                   else head.get("lstm_layers", 2))
-    hidden   = int(head["lstm_hidden"].item()
-                   if hasattr(head["lstm_hidden"], "item")
-                   else head["lstm_hidden"])
-    L = len(x)
-
-    all_probs = np.zeros((n_passes, L), dtype=np.float32)
-    for i in range(n_passes):
-        xi = x.copy()
-        for layer in range(n_layers):
-            W_ih_f = head[f"lstm.weight_ih_l{layer}"]
-            W_hh_f = head[f"lstm.weight_hh_l{layer}"]
-            b_ih_f = head[f"lstm.bias_ih_l{layer}"]
-            b_hh_f = head[f"lstm.bias_hh_l{layer}"]
-            W_ih_b = head[f"lstm.weight_ih_l{layer}_reverse"]
-            W_hh_b = head[f"lstm.weight_hh_l{layer}_reverse"]
-            b_ih_b = head[f"lstm.bias_ih_l{layer}_reverse"]
-            b_hh_b = head[f"lstm.bias_hh_l{layer}_reverse"]
-
-            h_f = np.zeros(hidden, dtype=np.float32)
-            c_f = np.zeros(hidden, dtype=np.float32)
-            fwd = []
-            for t in range(L):
-                h_f, c_f = _lstm_step(xi[t], h_f, c_f, W_ih_f, W_hh_f, b_ih_f, b_hh_f)
-                fwd.append(h_f)
-
-            h_b = np.zeros(hidden, dtype=np.float32)
-            c_b = np.zeros(hidden, dtype=np.float32)
-            bwd = [None] * L
-            for t in range(L - 1, -1, -1):
-                h_b, c_b = _lstm_step(xi[t], h_b, c_b, W_ih_b, W_hh_b, b_ih_b, b_hh_b)
-                bwd[t] = h_b
-
-            xi = np.concatenate([np.stack(fwd), np.stack(bwd)], axis=1)
-
-            # Apply dropout between layers (not after the last layer)
-            if layer < n_layers - 1 and 0 < p < 1:
-                mask = np.random.binomial(1, 1.0 - p, xi.shape).astype(np.float32)
-                xi = xi * mask / (1.0 - p)  # inverted dropout (scale-correct)
-
-        W_out = head["W_out"]
-        b_out = head["b_out"]
-        logits = xi @ W_out.T + b_out
-        all_probs[i] = 1.0 / (1.0 + np.exp(-logits.ravel()))
-
-    mean_p = all_probs.mean(axis=0).tolist()
-    std_p  = all_probs.std(axis=0).tolist()
-    return mean_p, std_p
+    runs = np.stack([one() for _ in range(n_passes)])
+    # Calibrate each pass before reducing.  Mapping the mean instead would be wrong: a monotone
+    # map of a mean is not the mean of the mapped values, and the spread would then describe the
+    # raw scale while the mean described the calibrated one.
+    runs = _calibrated(head, runs)
+    return runs.mean(axis=0).tolist(), runs.std(axis=0).tolist()
 
 
 def _add_window_context(emb, win: int):

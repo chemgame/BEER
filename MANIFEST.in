@@ -1,6 +1,7 @@
 # Non-Python files to bundle in the source distribution (BEER v3.0)
 include README.md
 include LICENSE
+include NOTICE
 include beer/models/weights_manifest.json
 include beer/graphs/data/*.npz
 include beer/gui/icons/*.svg

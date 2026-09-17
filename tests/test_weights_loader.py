@@ -16,7 +16,7 @@ def test_manifest_lists_all_heads_with_required_fields():
 
 def test_manifest_file_is_valid_json():
     data = json.loads(m._MANIFEST_PATH.read_text(encoding="utf-8"))
-    assert data["release_tag"] == "v3.0.0" and "files" in data
+    assert data["release_tag"] == "v3.1.0" and "files" in data
 
 
 def test_verify_rejects_wrong_checksum(tmp_path):

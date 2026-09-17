@@ -88,6 +88,14 @@ from beer.gui.nav_widget import NavTabWidget
 from beer.gui.dialogs import MutationDialog, _FigureComposerDialog, FormatChooserDialog
 from beer.io.structure_formats import pdb_to_mmcif, pdb_to_gro, pdb_to_xyz
 from beer.io.graph_data_export import get_graph_data
+from beer.models.metrics import (
+    auroc_str as _auroc,
+    f1_threshold as _thr,
+)
+from beer.models import metrics as _metrics
+from beer.analysis.calls import protein_call, signal_peptide_call, tm_segments
+from beer.analysis.head_report import DATA_KEY_TO_TASK, head_findings_html
+from beer.models.metrics import architecture_note, f1_threshold as _head_threshold
 from beer.constants import (
     NAMED_COLORS, NAMED_COLORMAPS, GRAPH_TITLES, GRAPH_CATEGORIES,
     REPORT_SECTIONS, VALID_AMINO_ACIDS, _AA_COLOURS, BILSTM_PROFILE_TABS,
@@ -220,10 +228,10 @@ _SECTION_HINTS: dict = {
     "Charge":                    "Net charge, FCR, NCPR, charge asymmetry (\u03ba/\u03a9) at the set pH.",
     "Aromatic & \u03c0":         "Aromatic fraction and cation\u2013\u03c0 / \u03c0\u2013\u03c0 pair counts.",
     "Low Complexity":            "Shannon entropy, prion-like score, LC fraction, PLAAC score, PolyX runs.",
-    "Disorder":                  "AI Predictions disorder score (ESMC 600M → BiLSTM classifier, AUROC 0.9999); classical propensity fallback. Predicted IDR regions listed with residue ranges.",
+    "Disorder":                  "AI disorder head (ESM C 600M → CNN-BiLSTM) with its calibrated threshold; predicted IDRs listed with residue ranges.",
     "Repeat Motifs":             "RGG/RG, FG, SR/RS, QN/NQ repeat motifs relevant to RNA-binding and phase separation.",
     "Sticker & Spacer":          "Aromatic/charged stickers and uncharged spacers \u2014 key determinants of condensate properties.",
-    "TM Helices":                "Kyte\u2013Doolittle sliding-window TM helix prediction; inside-positive topology rule.",
+    "Transmembrane Segments":    "AI transmembrane head (BiLSTM-CRF on ESM C embeddings); Viterbi-decoded transmembrane segments of at least 12 residues.",
     "LARKS":                     "Low-complexity Aromatic-Rich Kinked Segments \u2014 structural motifs associated with amyloid-like fibres (Hughes et al. 2018).",
     "Linear Motifs":             "Regex scan for 15+ short linear motifs: NLS, NES, PxxP, 14-3-3, KFERQ, KDEL, and more.",
     "\u03b2-Aggregation & Solubility": "ZYGGREGATOR \u03b2-aggregation hotspots and CamSol intrinsic solubility per residue.",
@@ -253,34 +261,82 @@ _REPORT_SECTION_GROUPS: list = [
 _WORKER_WAIT_MS = 1500
 
 # AI Predictions head specs: (display_name, data_key, graph_title, auroc)
+# AUROCs come from beer.models.metrics, which mirrors the shipped .npz files.
 _AI_HEAD_SPECS: list[tuple[str, str, str, str]] = [
-    ("Disorder",            "disorder_scores",          "Disorder Profile",            "0.9923"),
-    ("Signal Peptide",      "sp_bilstm_profile",        "Signal Peptide Profile",      "0.9999"),
-    ("Transmembrane",       "tm_bilstm_profile",        "Transmembrane Profile",       "0.9826"),
-    ("Intramembrane",       "intramem_bilstm_profile",  "Intramembrane Profile",       "0.9853"),
-    ("Coiled-Coil",         "cc_bilstm_profile",        "Coiled-Coil Profile",         "0.9819"),
-    ("DNA-Binding",         "dna_bilstm_profile",       "DNA-Binding Profile",         "0.9251"),
-    ("RNA Binding",         "rnabind_bilstm_profile",   "RNA Binding Profile",         "0.9198"),
-    ("Active Site",         "act_bilstm_profile",       "Active Site Profile",         "0.9926"),
-    ("Binding Site",        "bnd_bilstm_profile",       "Binding Site Profile",        "0.8331"),
-    ("Phosphorylation",     "phos_bilstm_profile",      "Phosphorylation Profile",     "0.9766"),
-    ("Low-Complexity",      "lcd_bilstm_profile",       "Low-Complexity Profile",      "0.9672"),
-    ("Zinc Finger",         "znf_bilstm_profile",       "Zinc Finger Profile",         "0.9335"),
-    ("Glycosylation",       "glyc_bilstm_profile",      "Glycosylation Profile",       "0.9958"),
-    ("Ubiquitination",      "ubiq_bilstm_profile",      "Ubiquitination Profile",      "0.9843"),
-    ("Methylation",         "meth_bilstm_profile",      "Methylation Profile",         "0.9702"),
-    ("Acetylation",         "acet_bilstm_profile",      "Acetylation Profile",         "0.9870"),
-    ("Lipidation",          "lipid_bilstm_profile",     "Lipidation Profile",          "0.9983"),
-    ("Disulfide Bond",      "disulf_bilstm_profile",    "Disulfide Bond Profile",      "0.9990"),
-    ("Functional Motif",    "motif_bilstm_profile",     "Functional Motif Profile",    "0.9722"),
-    ("Propeptide",          "prop_bilstm_profile",      "Propeptide Profile",          "0.9879"),
-    ("Repeat Region",       "rep_bilstm_profile",       "Repeat Region Profile",       "0.9835"),
-    ("Nucleotide-Binding",  "nucbind_bilstm_profile",   "Nucleotide-Binding Profile",  "0.9774"),
-    ("Transit Peptide",     "transit_bilstm_profile",   "Transit Peptide Profile",     "0.9950"),
-    ("SS3: α-Helix",        "ss3_h_profile",  "Secondary Structure: Helix Profile",   "0.843"),
-    ("SS3: β-Strand",       "ss3_e_profile",  "Secondary Structure: Strand Profile",  "0.843"),
-    ("SS3: Coil/Loop",      "ss3_c_profile",  "Secondary Structure: Coil Profile",    "0.843"),
+    ("Disorder",            "disorder_scores",          "Disorder Profile",            _auroc("disorder")),
+    ("Signal Peptide",      "sp_bilstm_profile",        "Signal Peptide Profile",      _auroc("signal_peptide")),
+    ("Transmembrane",       "tm_bilstm_profile",        "Transmembrane Profile",       _auroc("transmembrane")),
+    ("Intramembrane",       "intramem_bilstm_profile",  "Intramembrane Profile",       _auroc("intramembrane")),
+    ("Coiled-Coil",         "cc_bilstm_profile",        "Coiled-Coil Profile",         _auroc("coiled_coil")),
+    ("DNA-Binding",         "dna_bilstm_profile",       "DNA-Binding Profile",         _auroc("dna_binding")),
+    ("RNA Binding",         "rnabind_bilstm_profile",   "RNA Binding Profile",         _auroc("rna_binding")),
+    ("Active Site",         "act_bilstm_profile",       "Active Site Profile",         _auroc("active_site")),
+    ("Binding Site",        "bnd_bilstm_profile",       "Binding Site Profile",        _auroc("binding_site")),
+    ("Phosphorylation",     "phos_bilstm_profile",      "Phosphorylation Profile",     _auroc("phosphorylation")),
+    ("Low-Complexity",      "lcd_bilstm_profile",       "Low-Complexity Profile",      _auroc("lcd")),
+    ("Zinc Finger",         "znf_bilstm_profile",       "Zinc Finger Profile",         _auroc("zinc_finger")),
+    ("Glycosylation",       "glyc_bilstm_profile",      "Glycosylation Profile",       _auroc("glycosylation")),
+    ("Ubiquitination",      "ubiq_bilstm_profile",      "Ubiquitination Profile",      _auroc("ubiquitination")),
+    ("Methylation",         "meth_bilstm_profile",      "Methylation Profile",         _auroc("methylation")),
+    ("Acetylation",         "acet_bilstm_profile",      "Acetylation Profile",         _auroc("acetylation")),
+    ("Lipidation",          "lipid_bilstm_profile",     "Lipidation Profile",          _auroc("lipidation")),
+    ("Disulfide Bond",      "disulf_bilstm_profile",    "Disulfide Bond Profile",      _auroc("disulfide")),
+    ("Functional Motif",    "motif_bilstm_profile",     "Functional Motif Profile",    _auroc("motif")),
+    ("Propeptide",          "prop_bilstm_profile",      "Propeptide Profile",          _auroc("propeptide")),
+    ("Repeat Region",       "rep_bilstm_profile",       "Repeat Region Profile",       _auroc("repeat")),
+    ("Nucleotide-Binding",  "nucbind_bilstm_profile",   "Nucleotide-Binding Profile",  _auroc("nucleotide_binding")),
+    ("Transit Peptide",     "transit_bilstm_profile",   "Transit Peptide Profile",     _auroc("transit_peptide")),
+    ("SS3: α-Helix",        "ss3_h_profile",  "Secondary Structure: Helix Profile",   _auroc("secondary_structure")),
+    ("SS3: β-Strand",       "ss3_e_profile",  "Secondary Structure: Strand Profile",  _auroc("secondary_structure")),
+    ("SS3: Coil/Loop",      "ss3_c_profile",  "Secondary Structure: Coil Profile",    _auroc("secondary_structure")),
 ]
+
+# (task, display name, primary training source) for the Help → AI Predictions
+# table. The source is provenance, not a metric, so it lives here; the AUROC
+# column is filled in from beer.models.metrics at render time.
+_HEAD_TRAINING_SOURCES: list[tuple[str, str, str]] = [
+    ("signal_peptide",     "Signal Peptide",            "UniProt ft_signal (Swiss-Prot)"),
+    ("disulfide",          "Disulfide Bond",            "UniProt ft_disulfid"),
+    ("zinc_finger",        "Zinc Finger",               "BioLiP Zn-coordinating residues"),
+    ("methylation",        "Methylation",               "dbPTM"),
+    ("transit_peptide",    "Transit Peptide",           "UniProt ft_transit"),
+    ("glycosylation",      "Glycosylation",             "GlyConnect site-resolved glycoproteomics"),
+    ("dna_binding",        "DNA-Binding",               "BioLiP (PDB-derived protein-DNA contacts)"),
+    ("disorder",           "Disorder",                  "DisProt + UniProt ft_region:disordered"),
+    ("lipidation",         "Lipidation",                "UniProt ft_lipid"),
+    ("active_site",        "Active Site",               "M-CSA mechanistically validated catalytic residues"),
+    ("acetylation",        "Acetylation",               "dbPTM"),
+    ("propeptide",         "Propeptide",                "UniProt ft_propep"),
+    ("transmembrane",      "Transmembrane",             "UniProt ft_transmem (BiLSTM-CRF)"),
+    ("ubiquitination",     "Ubiquitination",            "dbPTM"),
+    ("intramembrane",      "Intramembrane",             "UniProt ft_intramem"),
+    ("repeat",             "Repeat Region",             "UniProt ft_repeat"),
+    ("coiled_coil",        "Coiled-Coil",               "UniProt ft_coiled"),
+    ("phosphorylation",    "Phosphorylation",           "dbPTM (PSP + PhosphoELM + HPRD aggregate)"),
+    ("nucleotide_binding", "Nucleotide-Binding",        "BioLiP (ATP/ADP/NAD/FAD/CoA/…)"),
+    ("motif",              "Functional Motif",          "UniProt ft_motif"),
+    ("lcd",                "Low-Complexity",            "UniProt ft_compbias"),
+    ("binding_site",       "Binding Site",              "BioLiP small-molecule binding residues"),
+    ("rna_binding",        "RNA Binding",               "BioLiP (PDB-derived protein-RNA contacts)"),
+    ("secondary_structure", "Secondary Structure (SS3)", "UniProt ft_helix / ft_strand (BiLSTM-CRF Q3)"),
+]
+
+#: Placeholder swapped for the generated table when the Help tab is built.
+_AI_HEAD_TABLE_MARKER = "__AI_HEAD_TABLE__"
+
+
+def _ai_head_table_html() -> str:
+    """Head/AUROC/training-source rows for Help, ordered by AUROC descending."""
+    rows = sorted(_HEAD_TRAINING_SOURCES, key=lambda r: _metrics.auroc(r[0]) or 0.0,
+                  reverse=True)
+    out = []
+    for task, display, source in rows:
+        score = _auroc(task)
+        if task == "secondary_structure":
+            score += " Q3"
+        out.append(f"  <tr><td>{display}</td><td>{score}</td><td>{source}</td></tr>")
+    return "\n".join(out)
+
 
 # graph_title → sec_key and data_key for lazy-trigger from the Graphs tab
 _GRAPH_TITLE_TO_AI_SEC:      dict[str, str] = {gt: f"AI:{dn}" for dn, dk, gt, _ in _AI_HEAD_SPECS}
@@ -628,7 +684,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         "Disorder Profile": (
             "Per-residue disorder probability from the BEER AI Predictions head (0 = ordered, 1 = disordered).\n\n"
             "Architecture: ESMC 600M embeddings → 2-layer BiLSTM classifier (hidden=256) → sigmoid. "
-            "Trained on UniProt Swiss-Prot 'Disordered region' annotations (AUROC 0.9999 on held-out test set). "
+            "Trained on UniProt Swiss-Prot 'Disordered region' annotations (AUROC 0.9532 on held-out test set). "
             "Threshold at F1-max ≈ 0.5 (dashed line). MC-Dropout (20 passes) provides ±1σ uncertainty band.\n\n"
             "Regions consistently above the threshold are predicted intrinsically disordered (IDRs)."
         ),
@@ -2564,27 +2620,26 @@ class ProteinAnalyzerGUI(QMainWindow):
         # ── Disorder & structure ──────────────────────────────────────────
         struct = []
         if disorder_scores:
-            d_frac = sum(1 for v in disorder_scores if v > 0.5) / L
+            d_frac = sum(1 for v in disorder_scores if v > _head_threshold("disorder")) / L
             if d_frac >= 0.5:
-                struct.append(f"<b>Highly disordered</b> — {d_frac*100:.0f}% residues predicted disordered (AI Predictions, AUROC 0.9999)")
+                struct.append(f"<b>Highly disordered</b> — {d_frac*100:.0f}% residues predicted disordered (AI Predictions, AUROC {_auroc('disorder')})")
             elif d_frac >= 0.25:
                 struct.append(f"<b>Partially disordered</b> — {d_frac*100:.0f}% disordered regions (AI Predictions)")
             else:
                 struct.append(f"<b>Predominantly ordered</b> — {d_frac*100:.0f}% disordered (AI Predictions)")
-        if sp_prof:
-            sp_max = max(sp_prof[:35]) if len(sp_prof) >= 10 else 0
-            if sp_max > 0.7:
-                struct.append(f"<b>Signal peptide</b> detected at N-terminus (AI Predictions, score {sp_max:.2f}, AUROC 0.9999)")
+        sp_called, sp_end = signal_peptide_call(sp_prof)
+        if sp_called:
+            struct.append(f"<b>Signal peptide</b> predicted at residues 1\u2013{sp_end} (AI Predictions, AUROC {_auroc('signal_peptide')})")
         if gpi.get("has_gpi"):
             struct.append("<b>GPI anchor</b> signal at C-terminus")
-        if tm_prof:
-            n_tm = sum(1 for v in tm_prof if v > 0.5)
-            if n_tm >= 15:
-                struct.append(f"<b>Transmembrane protein</b> — ~{n_tm} residues in TM helices (AI Predictions, AUROC 0.992)")
-        if cc_prof:
-            n_cc = sum(1 for v in cc_prof if v > 0.5)
-            if n_cc >= 10:
-                struct.append(f"<b>Coiled-coil region</b> — {n_cc} residues (AI Predictions)")
+        segments = tm_segments((self.analysis_data or {}).get("tm_topology")) if tm_prof else []
+        if segments:
+            n = len(segments)
+            struct.append(f"<b>Transmembrane protein</b> \u2014 {n} transmembrane segment{'s' if n > 1 else ''} (AI Predictions, AUROC {_auroc('transmembrane')})")
+        cc_call = protein_call("coiled_coil", cc_prof)
+        if cc_call.called:
+            n_cc = sum(e - s + 1 for s, e in cc_call.spans)
+            struct.append(f"<b>Coiled-coil region</b> — {n_cc} residues (AI Predictions)")
         if pfam:
             struct.append(f"<b>Pfam domains:</b> {', '.join(d.get('name','?') for d in pfam[:5])}"
                           + (" …" if len(pfam) > 5 else ""))
@@ -2670,7 +2725,7 @@ class ProteinAnalyzerGUI(QMainWindow):
             "<div style='font-family:sans-serif;max-width:800px'>"
             f"<h2 style='color:{_accent};margin:0 0 4px'>{_html_mod.escape(self._display_name())}</h2>"
             f"<p style='color:{_muted};font-size:11px;margin:0 0 10px'>"
-            f"BEER v3.0 · AI Predictions analysis</p>"
+            f"BEER v3.1 · AI Predictions analysis</p>"
         )
         if card_items:
             src_label = card.get("source", "Entry")
@@ -3649,20 +3704,32 @@ class ProteinAnalyzerGUI(QMainWindow):
         self.struct_scheme_combo.setVisible(show_scheme)
 
 
-    # Per-feature F1-maximising thresholds (from training validation sets)
+    # Per-feature F1-maximising thresholds, from the shipped weights
+    # (beer.models.metrics). Heads absent here fall back to 0.5.
     _FEATURE_THRESHOLDS: dict[str, float] = {
-        "Disorder":        0.56235,
-        "Signal Peptide":  0.70173,
-        "Transmembrane":   0.81339,
-        "Intramembrane":   0.67273,
-        "Coiled-Coil":     0.55178,
-        "DNA-Binding":     0.87760,
-        "Active Site":     0.86688,
-        "Binding Site":    0.98014,
-        "Phosphorylation": 0.79967,
-        "Low Complexity":  0.65838,
-        "Glycosylation":   0.80024,
-        "Ubiquitination":  0.83320,
+        "Disorder":           _thr("disorder"),
+        "Signal Peptide":     _thr("signal_peptide"),
+        "Transmembrane":      _thr("transmembrane"),
+        "Intramembrane":      _thr("intramembrane"),
+        "Coiled-Coil":        _thr("coiled_coil"),
+        "DNA-Binding":        _thr("dna_binding"),
+        "RNA-Binding":        _thr("rna_binding"),
+        "Active Site":        _thr("active_site"),
+        "Binding Site":       _thr("binding_site"),
+        "Phosphorylation":    _thr("phosphorylation"),
+        "Low Complexity":     _thr("lcd"),
+        "Zinc Finger":        _thr("zinc_finger"),
+        "Glycosylation":      _thr("glycosylation"),
+        "Ubiquitination":     _thr("ubiquitination"),
+        "Methylation":        _thr("methylation"),
+        "Acetylation":        _thr("acetylation"),
+        "Lipidation":         _thr("lipidation"),
+        "Disulfide Bond":     _thr("disulfide"),
+        "Functional Motif":   _thr("motif"),
+        "Propeptide":         _thr("propeptide"),
+        "Repeat Region":      _thr("repeat"),
+        "Nucleotide-Binding": _thr("nucleotide_binding"),
+        "Transit Peptide":    _thr("transit_peptide"),
     }
 
     def _push_feature_scores(self, feature_label: str) -> None:
@@ -4894,7 +4961,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         _HELP_SECTIONS = [
             ("Getting Started", """
 <h1>Getting Started</h1>
-<p>BEER v3.0 uses <b>ESMC 600M</b> (EvolutionaryScale) as its sequence embedding backbone.
+<p>BEER v3.1 uses <b>ESMC 600M</b> (EvolutionaryScale) as its sequence embedding backbone.
 All 24 per-residue AI prediction heads run on ESMC embeddings — no classical fallback methods are used
 for any feature that has a trained AI head.</p>
 <h2>Input methods</h2>
@@ -4981,8 +5048,8 @@ Choose the feature (Disorder, Signal Peptide, etc.) from the adjacent selector; 
 </ul>
 <h2>Secondary Structure</h2>
 <p>Per-residue secondary structure (Helix / Strand / Coil) is predicted by the SS3 AI head
-(BiLSTM-CRF Q3 decoder, Q3 accuracy 0.843). Per-residue disorder probability is predicted by
-the Disorder AI head (BiLSTM, AUROC 0.9923). Both are shown in <b>Graphs → AI Predictions</b>.</p>
+(BiLSTM-CRF Q3 decoder, Q3 accuracy 0.8267). Per-residue disorder probability is predicted by
+the Disorder AI head (BiLSTM, AUROC 0.9532). Both are shown in <b>Graphs → AI Predictions</b>.</p>
 <h2>Repeat Motifs</h2>
 <ul>
   <li><b>RGG</b> — Arg-Gly-Gly; key driver in FUS, hnRNP family.</li>
@@ -4998,21 +5065,25 @@ Spacers = all others. Mean/min/max gaps between consecutive stickers (Mittag &am
 <h2>Linear Motifs</h2>
 <p>Regex scan against 15 built-in functional short linear motif patterns (SLiMs): NLS, NES, PxxP, 14-3-3, RGG, FG, KFERQ, KDEL, PKA, SxIP, WW ligand, caspase-3, N-glycosylation, SUMOylation, CK2 sites. All matches require experimental validation.</p>
 """),
-            ("Transmembrane Helices", """
-<h1>Transmembrane Helix Prediction</h1>
-<p>Transmembrane topology prediction in BEER v3.0 uses an AI <b>BiLSTM-CRF</b> head trained on
-UniProt Swiss-Prot <tt>ft_transmem</tt> annotations (AUROC 0.9870). The CRF decoder enforces
-valid outside→helix→inside topological constraints via Viterbi decoding, preventing physically
-impossible helix arrangements. No external server is required.</p>
+            ("Transmembrane Segments", """
+<h1>Transmembrane Segment Prediction</h1>
+<p>Transmembrane topology in BEER v3.1 comes from an AI <b>BiLSTM-CRF</b> head trained on
+UniProt Swiss-Prot <tt>ft_transmem</tt> annotations, with soluble proteins as negatives. The CRF
+labels every residue outside, membrane or inside, and Viterbi decoding returns the most probable
+path, so segments always alternate sides. No external server is required.</p>
+<h2>What is reported</h2>
+<p>A <b>transmembrane segment</b> is a stretch of at least 12 residues that the Viterbi path assigns
+to the membrane state. The 12-residue minimum was chosen on the validation split: UniProt
+annotations include β-barrel strands and helices of 13–17 residues, which a helix-length cut-off
+would discard. A protein with at least one segment is reported as a transmembrane protein, and the
+<b>AI Predictions → Transmembrane</b> section lists each segment with its residue range.
+Very hydrophobic amphipathic helices in soluble proteins can occasionally decode as short
+segments.</p>
 <h2>Transmembrane Profile graph</h2>
-<p>Per-residue TM probability (0–1) from the BiLSTM-CRF model, shown in the <b>Graphs → AI Predictions</b>
-category. Regions exceeding the F1-maximising threshold are highlighted and listed in the
-<b>AI Predictions → Transmembrane</b> report section with their residue ranges.</p>
-<h2>TM Topology graph</h2>
-<p>A simplified snake-plot derived from the AI-predicted helix positions. The yellow band represents
-the membrane. Blue rectangles are TM helices labelled with their residue range. Loops are drawn
-above (extracellular) or below (cytoplasmic) the band according to the predicted topology,
-using the inside-positive rule to assign orientation.</p>
+<p>Per-residue membrane probability (0–1) from the same head, shown in the
+<b>Graphs → AI Predictions</b> category.</p>
+<p>Intramembrane regions (re-entrant loops that enter the bilayer without crossing it) come from a
+separate head; see <b>AI Predictions → Intramembrane</b>.</p>
 """),
             ("AlphaFold & 3D Structure", """
 <h1>3D Structure &amp; AlphaFold Integration</h1>
@@ -5140,7 +5211,7 @@ Each graph has a <b>Save Graph</b> button to save that graph individually.</p>
 <ul>
   <li><b>Hydrophobicity Profile</b> — Kyte-Doolittle sliding-window average (window set in Settings).</li>
   <li><b>Local Charge Profile</b> — sliding-window NCPR.</li>
-  <li><b>Disorder Profile</b> — AI per-residue disorder probability (ESMC → BiLSTM, AUROC 0.9923); fill = disordered above threshold.</li>
+  <li><b>Disorder Profile</b> — AI per-residue disorder probability (ESMC → BiLSTM, AUROC 0.9532); fill = disordered above threshold.</li>
   <li><b>Linear Sequence Map</b> — colour-coded overview of hydrophobicity and charge along the sequence.</li>
 </ul>
 <h2>Charge &amp; π-Interactions</h2>
@@ -5153,7 +5224,6 @@ Each graph has a <b>Save Graph</b> button to save that graph individually.</p>
 <ul>
   <li><b>Sticker Map</b> — aromatic (amber), basic (blue), acidic (pink), spacer (grey).</li>
   <li><b>Helical Wheel</b> — Cartesian projection of first 18 residues at 100°/step; KD coloured with luminance-contrast labels.</li>
-  <li><b>TM Topology</b> — snake-plot derived from AI BiLSTM-CRF transmembrane prediction (see Transmembrane Helices).</li>
 </ul>
 <h2>Structural Graphs</h2>
 <ul>
@@ -5195,7 +5265,7 @@ The dashed boundary (Uversky 2000) separates compact/ordered proteins (above lin
 <pre>&lt;H&gt; = 2.785 × &lt;|R|&gt; + 0.446</pre>
 <p class="note">Reference: Uversky, Gillespie &amp; Fink (2000) <i>Proteins</i> 41, 415–427.</p>
 <h2>Coiled-Coil Profile</h2>
-<p>Per-residue coiled-coil probability from the AI BiLSTM head (AUROC 0.9819) trained on
+<p>Per-residue coiled-coil probability from the AI BiLSTM head (AUROC 0.9803) trained on
 UniProt Swiss-Prot <tt>ft_coiled</tt> annotations. Available in <b>Graphs → AI Predictions → Coiled-Coil Profile</b>.</p>
 <h2>Single-Residue Perturbation Map</h2>
 <p>Every residue is substituted in silico to all 20 amino acids. The heatmap colour encodes
@@ -5230,7 +5300,7 @@ For comprehensive SLiM prediction use ELM (elm.eu.org) or SLiMFinder.</p>
 """),
             ("AI Predictions", """
 <h1>AI Predictions</h1>
-<p>BEER v3.0 includes 24 per-residue AI prediction heads. Each head uses <b>ESMC 600M</b> embeddings
+<p>BEER v3.1 includes 24 per-residue AI prediction heads. Each head uses <b>ESMC 600M</b> embeddings
 (1152-dim, frozen) fed into a 2-layer BiLSTM classifier trained on curated structural databases
 and UniProt Swiss-Prot annotations. Every head produces a per-residue probability in [0, 1].
 Each AI head is computed on demand — click any <b>AI Predictions</b> entry in the sidebar to trigger it.
@@ -5251,30 +5321,7 @@ shows a one-time notice. Classical (non-AI) analyses have no length limit.</p>
 <h2>All 24 Heads</h2>
 <table>
   <tr><th>Head</th><th>AUROC</th><th>Primary Training Source</th></tr>
-  <tr><td>Signal Peptide</td><td>0.9999</td><td>UniProt ft_signal (Swiss-Prot)</td></tr>
-  <tr><td>Disulfide Bond</td><td>0.9990</td><td>UniProt ft_disulfid</td></tr>
-  <tr><td>Zinc Finger</td><td>0.9972</td><td>BioLiP Zn-coordinating residues</td></tr>
-  <tr><td>Methylation</td><td>0.9965</td><td>dbPTM</td></tr>
-  <tr><td>Transit Peptide</td><td>0.9950</td><td>UniProt ft_transit</td></tr>
-  <tr><td>Glycosylation</td><td>0.9938</td><td>GlyConnect site-resolved glycoproteomics</td></tr>
-  <tr><td>DNA-Binding</td><td>0.9936</td><td>BioLiP (PDB-derived protein-DNA contacts)</td></tr>
-  <tr><td>Disorder</td><td>0.9923</td><td>DisProt + UniProt ft_region:disordered</td></tr>
-  <tr><td>Lipidation</td><td>0.9928</td><td>UniProt ft_lipid</td></tr>
-  <tr><td>Active Site</td><td>0.9918</td><td>M-CSA mechanistically validated catalytic residues</td></tr>
-  <tr><td>Acetylation</td><td>0.9894</td><td>dbPTM</td></tr>
-  <tr><td>Propeptide</td><td>0.9879</td><td>UniProt ft_propep</td></tr>
-  <tr><td>Transmembrane</td><td>0.9870</td><td>UniProt ft_transmem (BiLSTM-CRF)</td></tr>
-  <tr><td>Ubiquitination</td><td>0.9868</td><td>dbPTM</td></tr>
-  <tr><td>Intramembrane</td><td>0.9853</td><td>UniProt ft_intramem</td></tr>
-  <tr><td>Repeat Region</td><td>0.9835</td><td>UniProt ft_repeat</td></tr>
-  <tr><td>Coiled-Coil</td><td>0.9819</td><td>UniProt ft_coiled</td></tr>
-  <tr><td>Phosphorylation</td><td>0.9779</td><td>dbPTM (PSP + PhosphoELM + HPRD aggregate)</td></tr>
-  <tr><td>Nucleotide-Binding</td><td>0.9774</td><td>BioLiP (ATP/ADP/NAD/FAD/CoA/…)</td></tr>
-  <tr><td>Functional Motif</td><td>0.9722</td><td>UniProt ft_motif</td></tr>
-  <tr><td>Low-Complexity</td><td>0.9688</td><td>UniProt ft_compbias</td></tr>
-  <tr><td>Binding Site</td><td>0.9631</td><td>BioLiP small-molecule binding residues</td></tr>
-  <tr><td>RNA Binding</td><td>0.9198</td><td>BioLiP (PDB-derived protein-RNA contacts)</td></tr>
-  <tr><td>Secondary Structure (SS3)</td><td>0.843 Q3</td><td>UniProt ft_helix / ft_strand (BiLSTM-CRF Q3)</td></tr>
+__AI_HEAD_TABLE__
 </table>
 <h2>UniProt Annotation Overlay</h2>
 <p>Each graph tab shows the AI prediction probability curve as the primary element.
@@ -5348,7 +5395,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             browser.setOpenExternalLinks(True)
             full_html = (
                 f"<style>{REPORT_CSS} body{{padding:12px;}}</style>"
-                + html_body
+                + html_body.replace(_AI_HEAD_TABLE_MARKER, _ai_head_table_html())
             )
             browser.setHtml(full_html)
             page_v.addWidget(browser)
@@ -5444,8 +5491,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         info_lbl = QLabel(
             "<p style='text-align:center;'>"
             "Saumyak Mukherjee<br>"
-            "Theoretical Biophysics<br>"
-            "Max Planck Institute of Biophysics, Frankfurt am Main, Germany"
+            "Department of Chemical Sciences<br>"
+            "Indian Institute of Science Education and Research, Berhampur, Odisha, India"
             "</p>"
         )
         info_lbl.setWordWrap(True)
@@ -5456,6 +5503,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
         cite_lbl = QLabel(
             "<p style='text-align:center;font-size:8pt;'>"
+            "AI predictions use ESM C 600M (MIT licence, Chan Zuckerberg<br>"
+            "Biohub). BEER source code: GPL v3.<br><br>"
             "If you use BEER in your research, please cite:<br>"
             "Mukherjee, S. <i>arXiv</i>:2504.20561<br>"
             "<a href='https://doi.org/10.48550/arXiv.2504.20561'>https://doi.org/10.48550/arXiv.2504.20561</a>"
@@ -6054,7 +6103,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 else:
                     ax.grid(False)
             # Provenance watermark
-            _prov = f"BEER v3.0  |  {sn}" if sn else "BEER v3.0"
+            _prov = f"BEER v3.1  |  {sn}" if sn else "BEER v3.1"
             fig.text(0.99, 0.01, _prov, ha="right", va="bottom",
                      fontsize=7, color="#adb5bd",
                      transform=fig.transFigure)
@@ -6960,7 +7009,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 ax.set_axisbelow(True)
             else:
                 ax.grid(False)
-        _prov = f"BEER v3.0  |  {self.sequence_name}" if self.sequence_name else "BEER v3.0"
+        _prov = f"BEER v3.1  |  {self.sequence_name}" if self.sequence_name else "BEER v3.1"
         fig.text(0.99, 0.01, _prov, ha="right", va="bottom",
                  fontsize=7, color="#9ca3af", alpha=0.7,
                  transform=fig.transFigure)
@@ -7307,6 +7356,11 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                     _ai_keep = {dk: self.analysis_data[dk]
                                 for _dn, dk, _gt, _au in _AI_HEAD_SPECS
                                 if self.analysis_data.get(dk)}
+                    # The Viterbi topology is not a head score, so it is absent from
+                    # _AI_HEAD_SPECS.  Carry it over explicitly, or applying settings drops it
+                    # and the transmembrane report loses its segments.
+                    if self.analysis_data.get("tm_topology"):
+                        _ai_keep["tm_topology"] = self.analysis_data["tm_topology"]
                     _new = AnalysisTools.analyze_sequence(
                         _seq, self.default_pH, self.default_window_size,
                         self.use_reducing, self.custom_pka,
@@ -7666,8 +7720,13 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         except RuntimeError: pass
         if worker.isRunning():
             self._discarded_workers.add(worker)
-            worker.finished.connect(lambda _data, w=worker: self._discarded_workers.discard(w))
-            worker.error.connect(lambda _msg, w=worker: self._discarded_workers.discard(w))
+            # Workers differ in what their completion signals carry: AnalysisWorker declares
+            # finished(dict) and error(str), while AISectionWorker has no finished of its own
+            # (so QThread's no-argument one applies) and error(str, str).  Accept any arity,
+            # or retiring an AI worker raises TypeError inside its teardown and the results it
+            # was carrying, such as the transmembrane topology, are lost.
+            worker.finished.connect(lambda *_a, w=worker: self._discarded_workers.discard(w))
+            worker.error.connect(lambda *_a, w=worker: self._discarded_workers.discard(w))
 
     def _cancel_analysis(self):
         if self._analysis_worker is not None:
@@ -8080,7 +8139,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     def _fetch_pdb_fasta(self, pdb_id: str) -> str:
         """Fetch FASTA sequence(s) from RCSB PDB for a given 4-char PDB ID."""
         url = f"https://www.rcsb.org/fasta/entry/{pdb_id.upper()}"
-        req = urllib.request.Request(url, headers={"User-Agent": "BEER/3.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "BEER/3.1"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             return resp.read().decode()
 
@@ -8100,7 +8159,7 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
                 self.statusBar.showMessage(
                     f"Assembly CIF not found for {pdb_id}; falling back to asymmetric unit.", 4000)
         url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
-        req = urllib.request.Request(url, headers={"User-Agent": "BEER/3.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "BEER/3.1"})
         with urllib.request.urlopen(req, timeout=30) as resp:
             return resp.read().decode(), False
 
@@ -11173,7 +11232,7 @@ function setBackground(c) {
         # Disorder
         dis = d.get("disorder_scores", d.get("disorder_profile", []))
         if dis:
-            frac = sum(1 for v in dis if v > 0.5) / len(dis) * 100
+            frac = sum(1 for v in dis if v > _head_threshold("disorder")) / len(dis) * 100
             label = "largely disordered" if frac > 60 else ("partially disordered" if frac > 30 else "mostly ordered")
             summaries["Disorder"] = f"{frac:.0f}% of residues predicted disordered \u2014 {label}."
         # Charge
@@ -11216,32 +11275,34 @@ function setBackground(c) {
     # Maps each report-section name to: data key in analysis_data, full graph
     # title (for navigation), sparkline colour, optional threshold value.
     _SPARKLINE_MAP: dict[str, tuple[str, str, str, float | None]] = {
+        # AI-head thresholds come from beer.models.metrics (the shipped weights);
+        # the classical rows carry their own fixed reference lines.
         # section                     data_key                    graph_title                       colour     threshold
-        "Disorder":               ("disorder_scores",         "Disorder Profile",               "#4361ee", 0.56235),
+        "Disorder":               ("disorder_scores",         "Disorder Profile",               "#4361ee", _thr("disorder")),
         "Hydrophobicity":         ("hydro_profile",           "Hydrophobicity Profile",         "#f77f00", 0.0),
         "Charge":                 ("ncpr_profile",            "Local Charge Profile",           "#e63946", 0.0),
         "Charge Decoration (SCD)":("scd_profile",             "SCD Profile",                    "#9b5de5", None),
         "Hydrophobicity Decoration (SHD)": ("shd_profile",   "SHD Profile",                    "#f77f00", None),
         "β-Aggregation & Solubility": ("aggr_profile",        "β-Aggregation Profile",          "#e07a5f", 1.0),
-        "Signal Peptide & GPI":   ("sp_bilstm_profile",       "Signal Peptide Profile",          "#f72585", 0.70173),
-        "TM Helices":             ("tm_bilstm_profile",       "Transmembrane Profile",           "#34d399", 0.81339),
-        "Intramembrane":          ("intramem_bilstm_profile", "Intramembrane Profile",           "#6ee7b7", 0.67273),
-        "Coiled-Coil":            ("cc_bilstm_profile",       "Coiled-Coil Profile",             "#fb923c", 0.55178),
-        "DNA-Binding":            ("dna_bilstm_profile",      "DNA-Binding Profile",             "#60a5fa", 0.87760),
-        "Active Site":            ("act_bilstm_profile",      "Active Site Profile",             "#f87171", 0.86688),
-        "Binding Site":           ("bnd_bilstm_profile",      "Binding Site Profile",            "#a78bfa", 0.98014),
-        "Phosphorylation":        ("phos_bilstm_profile",     "Phosphorylation Profile",         "#fbbf24", 0.79967),
-        "Low-Complexity":         ("lcd_bilstm_profile",      "Low-Complexity Profile",          "#94a3b8", 0.65838),
-        "Zinc Finger":            ("znf_bilstm_profile",      "Zinc Finger Profile",             "#4ade80", 0.5),
-        "Glycosylation":          ("glyc_bilstm_profile",     "Glycosylation Profile",           "#f9a8d4", 0.80024),
-        "Ubiquitination":         ("ubiq_bilstm_profile",     "Ubiquitination Profile",          "#fb7185", 0.83320),
-        "Methylation":            ("meth_bilstm_profile",     "Methylation Profile",             "#a3e635", 0.5),
-        "Acetylation":            ("acet_bilstm_profile",     "Acetylation Profile",             "#38bdf8", 0.5),
-        "Lipidation":             ("lipid_bilstm_profile",    "Lipidation Profile",              "#e879f9", 0.5),
-        "Disulfide Bonds":        ("disulf_bilstm_profile",   "Disulfide Bond Profile",          "#fde68a", 0.5),
-        "Functional Motifs":      ("motif_bilstm_profile",    "Functional Motif Profile",        "#c4b5fd", 0.5),
-        "Propeptide":             ("prop_bilstm_profile",     "Propeptide Profile",              "#fdba74", 0.5),
-        "Repeat Regions":         ("rep_bilstm_profile",      "Repeat Region Profile",           "#67e8f9", 0.5),
+        "Signal Peptide & GPI":   ("sp_bilstm_profile",       "Signal Peptide Profile",          "#f72585", _thr("signal_peptide")),
+        "Transmembrane Segments": ("tm_bilstm_profile",       "Transmembrane Profile",           "#34d399", _thr("transmembrane")),
+        "Intramembrane":          ("intramem_bilstm_profile", "Intramembrane Profile",           "#6ee7b7", _thr("intramembrane")),
+        "Coiled-Coil":            ("cc_bilstm_profile",       "Coiled-Coil Profile",             "#fb923c", _thr("coiled_coil")),
+        "DNA-Binding":            ("dna_bilstm_profile",      "DNA-Binding Profile",             "#60a5fa", _thr("dna_binding")),
+        "Active Site":            ("act_bilstm_profile",      "Active Site Profile",             "#f87171", _thr("active_site")),
+        "Binding Site":           ("bnd_bilstm_profile",      "Binding Site Profile",            "#a78bfa", _thr("binding_site")),
+        "Phosphorylation":        ("phos_bilstm_profile",     "Phosphorylation Profile",         "#fbbf24", _thr("phosphorylation")),
+        "Low-Complexity":         ("lcd_bilstm_profile",      "Low-Complexity Profile",          "#94a3b8", _thr("lcd")),
+        "Zinc Finger":            ("znf_bilstm_profile",      "Zinc Finger Profile",             "#4ade80", _thr("zinc_finger")),
+        "Glycosylation":          ("glyc_bilstm_profile",     "Glycosylation Profile",           "#f9a8d4", _thr("glycosylation")),
+        "Ubiquitination":         ("ubiq_bilstm_profile",     "Ubiquitination Profile",          "#fb7185", _thr("ubiquitination")),
+        "Methylation":            ("meth_bilstm_profile",     "Methylation Profile",             "#a3e635", _thr("methylation")),
+        "Acetylation":            ("acet_bilstm_profile",     "Acetylation Profile",             "#38bdf8", _thr("acetylation")),
+        "Lipidation":             ("lipid_bilstm_profile",    "Lipidation Profile",              "#e879f9", _thr("lipidation")),
+        "Disulfide Bonds":        ("disulf_bilstm_profile",   "Disulfide Bond Profile",          "#fde68a", _thr("disulfide")),
+        "Functional Motifs":      ("motif_bilstm_profile",    "Functional Motif Profile",        "#c4b5fd", _thr("motif")),
+        "Propeptide":             ("prop_bilstm_profile",     "Propeptide Profile",              "#fdba74", _thr("propeptide")),
+        "Repeat Regions":         ("rep_bilstm_profile",      "Repeat Region Profile",           "#67e8f9", _thr("repeat")),
         "Amphipathic Helices":    ("moment_alpha",            "Hydrophobic Moment",              "#7b9cff", None),
         "SS3: α-Helix":           ("ss3_h_profile",  "Secondary Structure: Helix Profile",  "#e63946", None),
         "SS3: β-Strand":          ("ss3_e_profile",  "Secondary Structure: Strand Profile",  "#457b9d", None),
@@ -11390,65 +11451,21 @@ function setBackground(c) {
 
     # ── AI Predictions report sections ───────────────────────────────────────
 
-    @staticmethod
-    def _get_predicted_regions(scores: list[float], threshold: float = 0.5) -> list[tuple[int, int]]:
-        """Return list of (start, end) 1-based residue ranges above threshold."""
-        regions: list[tuple[int, int]] = []
-        in_region = False
-        start = 0
-        for i, v in enumerate(scores):
-            if v > threshold and not in_region:
-                in_region = True
-                start = i
-            elif v <= threshold and in_region:
-                in_region = False
-                regions.append((start + 1, i))
-        if in_region:
-            regions.append((start + 1, len(scores)))
-        return regions
-
-    # One-letter → three-letter amino acid code
-    _AA1_TO_3: dict[str, str] = {
-        "A": "Ala", "R": "Arg", "N": "Asn", "D": "Asp", "C": "Cys",
-        "Q": "Gln", "E": "Glu", "G": "Gly", "H": "His", "I": "Ile",
-        "L": "Leu", "K": "Lys", "M": "Met", "F": "Phe", "P": "Pro",
-        "S": "Ser", "T": "Thr", "W": "Trp", "Y": "Tyr", "V": "Val",
-    }
-
     def _build_ai_head_html(
         self,
         display_name: str,
         scores: list[float],
         graph_title: str,
         auroc: str,
-        threshold: float = 0.5,
         sparkline_uri: str = "",
+        task: str = "",
     ) -> str:
         """Return HTML for one AI Predictions head section."""
         import urllib.parse as _up
-        seq = (self.analysis_data or {}).get("seq", "")
-        mean_score = sum(scores) / len(scores) if scores else 0.0
-        regions = self._get_predicted_regions(scores, threshold)
+        data = self.analysis_data or {}
+        findings_html = head_findings_html(task, scores, data.get("seq", ""),
+                                           tm_topology=data.get("tm_topology"))
         graph_href = "beer://graph/" + _up.quote(graph_title)
-
-        def _res_label(pos: int) -> str:
-            aa = seq[pos - 1] if seq and 0 < pos <= len(seq) else ""
-            return f"{self._AA1_TO_3.get(aa, aa)}-{pos}" if aa else str(pos)
-
-        # Build regions table
-        if regions:
-            region_rows = "".join(
-                f"<tr><td>{k}</td><td>{_res_label(s)} – {_res_label(e)}</td><td>{e - s + 1}</td></tr>"
-                for k, (s, e) in enumerate(regions, 1)
-            )
-            regions_html = (
-                f"<h3 style='margin:10px 0 4px;font-size:12px'>Predicted Regions</h3>"
-                f"<table><tr><th>#</th><th>Residues</th><th>Length (aa)</th></tr>"
-                f"{region_rows}</table>"
-                f"<p class='note'>{len(regions)} region(s) above threshold {threshold:.2f}.</p>"
-            )
-        else:
-            regions_html = f"<p class='note'>No regions predicted above threshold {threshold:.2f}.</p>"
         auroc_str = f"AUROC {auroc}" if auroc != "—" else "AUROC: training in progress"
         if sparkline_uri:
             sparkline_html = (
@@ -11468,16 +11485,9 @@ function setBackground(c) {
         return (
             f"<h2>{display_name} <span style='font-size:10px;font-weight:normal;"
             f"color:#64748b'>AI Predictions · {auroc_str}</span></h2>"
-            f"<table>"
-            f"<tr><th>Property</th><th>Value</th></tr>"
-            f"<tr><td>Mean score</td><td>{mean_score:.3f}</td></tr>"
-            f"<tr><td>Classification threshold</td><td>{threshold:.2f}</td></tr>"
-            f"<tr><td>Sequence length</td><td>{len(scores)} aa</td></tr>"
-            f"</table>"
-            f"{regions_html}"
+            f"{findings_html}"
             f"{sparkline_html}"
-            f"<p class='note'>Method: ESMC 600M embeddings → 2-layer BiLSTM classifier → sigmoid. "
-            f"Trained on UniProt Swiss-Prot annotations.</p>"
+            f"<p class='note'>Method: {architecture_note(task)}</p>"
         )
 
     # ── Lazy AI section loading ───────────────────────────────────────────────
@@ -11686,22 +11696,32 @@ function setBackground(c) {
 
         # Persist scores in analysis_data so graphs and downstream sections can use them.
         self.analysis_data[data_key] = scores
+        if data_key == "tm_bilstm_profile":
+            # Take the Viterbi topology from the worker that emitted this signal.  Its thread
+            # may already have finished, which clears _active_ai_worker; reading the topology
+            # from there would then yield None and the report would say "no transmembrane
+            # segment" for a membrane protein whose profile is drawn correctly.
+            topo = getattr(self.sender(), "tm_topology", None)
+            if topo is None:
+                topo = getattr(self._active_ai_worker, "tm_topology", None)
+            if topo is not None:
+                self.analysis_data["tm_topology"] = topo
 
         # Mark as computed before building HTML (prevents re-trigger on re-click).
         self._ai_computed_sections.add(sec_key)
 
         # Build sparkline and section HTML.
+        task = DATA_KEY_TO_TASK.get(data_key, "")
         color, threshold = {
             v[0]: (v[2], v[3]) for v in self._SPARKLINE_MAP.values()
-        }.get(data_key, ("#4361ee", 0.5))
+        }.get(data_key, ("#4361ee", _head_threshold(task)))
         sparkline_uri = self._make_sparkline_png(scores, color, threshold)
 
         from beer.reports.css import make_style_tag
         _style = make_style_tag(dark=getattr(self, "_is_dark", False))
-        thr = threshold if threshold is not None else 0.5
         html = _style + self._build_ai_head_html(
-            display_name, scores, graph_title, auroc, threshold=thr,
-            sparkline_uri=sparkline_uri)
+            display_name, scores, graph_title, auroc,
+            sparkline_uri=sparkline_uri, task=task)
 
         browser = self.report_section_tabs.get(sec_key)
         if browser:
@@ -11796,7 +11816,8 @@ function setBackground(c) {
             sec_key = f"AI:{display_name}"
 
             # Generate inline sparkline for this head.
-            color, threshold = _dk_to_color.get(data_key, ("#4361ee", 0.5))
+            task = DATA_KEY_TO_TASK.get(data_key, "")
+            color, threshold = _dk_to_color.get(data_key, ("#4361ee", _head_threshold(task)))
             sparkline_uri = self._make_sparkline_png(scores, color, threshold)
 
             # Build section widget (tab + browser)
@@ -11814,10 +11835,9 @@ function setBackground(c) {
             vb.addLayout(btn_row)
             browser = QTextBrowser()
             _install_beer_link_filter(browser, self._on_report_link_clicked)
-            thr = threshold if threshold is not None else 0.5
             html = _style + self._build_ai_head_html(
-                display_name, scores, graph_title, auroc, threshold=thr,
-                sparkline_uri=sparkline_uri)
+                display_name, scores, graph_title, auroc,
+                sparkline_uri=sparkline_uri, task=task)
             browser.setHtml(html)
             vb.addWidget(browser)
 

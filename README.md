@@ -2,6 +2,8 @@
 
 **Website:** [https://chemgame.github.io/BEER](https://chemgame.github.io/BEER)
 
+The AI predictions use the **ESM C 600M** protein language model (MIT licence, Chan Zuckerberg Biohub), downloaded automatically on first use.
+
 **BEER** is a desktop application for integrated biophysical analysis of protein sequences. It accepts a sequence (pasted, imported as FASTA/PDB, or fetched from UniProt/RCSB), runs 14 classical analysis sections and 24 ESMC BiLSTM neural AI prediction heads on demand, and gives you interactive publication-quality graphs, a 3D structure viewer, and exportable per-section reports — all from a single GUI.
 
 I built BEER because I wanted a single tool that handles everything from basic physicochemical properties to disorder prediction, aggregation hotspots, RNA-binding propensity, and phase separation metrics, without jumping between half a dozen web servers.
@@ -101,7 +103,7 @@ is now printed (via `faulthandler`); please attach it when reporting the issue.
 
 ## Model weights
 
-The 24 BiLSTM prediction heads (~490 MB) are **not** bundled in the package — they
+The 24 prediction heads (~490 MB) are **not** bundled in the package — they
 are hosted as assets on the [GitHub Release](https://github.com/chemgame/BEER/releases)
 and downloaded automatically on first use into a per-user cache
 (`~/.cache/beer/models`, or `%LOCALAPPDATA%\beer\models` on Windows). Each download
@@ -142,6 +144,10 @@ beer analyze --accession P04637 --format tsv --no-esmc --output p53.tsv
 
 # Print version
 beer version
+
+# Show all commands and options
+beer --help
+beer analyze --help
 ```
 
 Full flag list:
@@ -223,13 +229,23 @@ These 14 sections are always computed when you click **Analyze** (no ESMC requir
 
 ### AI Predictions sections
 
-Computed on-demand when you click a section under **AI Predictions** in the sidebar (or click **AI Analysis** to run all 24 at once). Every profile tab has a **Show Uncertainty (MC-Dropout)** checkbox that adds ±1σ confidence bands.
+Computed on-demand when you click a section under **AI Predictions** in the sidebar (or click **AI Analysis** to run all 24 at once). Every profile tab has a **Show Uncertainty (MC-Dropout)** checkbox that adds ±1σ bands from 20 stochastic forward passes, for every head architecture (plain, CNN and positional BiLSTMs, the transmembrane BiLSTM-CRF and the secondary-structure head). Dropout is applied where the trained model applied it: on the CNN features, between LSTM layers and after the last LSTM layer.
+
+**How each head is reported.** Every head section shows the head's decision threshold (the F1 maximum on its validation split), how many residues score above it, and a **protein-level call**: does this protein carry the feature at all?
+- **Site heads** (active site, binding site, DNA/RNA/nucleotide binding, zinc finger, disulfide, and the five PTM heads), trained on single-residue annotations, list their predicted residues with scores.
+- **Region heads** (disorder, coiled coil, intramembrane, low complexity, motif, propeptide, repeat, signal and transit peptides) list their predicted regions.
+- A protein is called positive when it has a run of residues above the threshold at least as long as that head's minimum, chosen on the validation split. For site heads the minimum is one residue.
+- The signal peptide and transit peptide runs must start within the first three residues.
+- A transmembrane protein is reported when the Viterbi-decoded topology contains at least one transmembrane segment of 12 or more residues.
+  - The minimum was chosen on the validation split: UniProt's annotations include β-barrel strands and 13–17-residue helices.
+  - Very hydrophobic amphipathic helices in soluble proteins can occasionally decode as short segments.
+- Heads that separate proteins with and without the feature only weakly (protein-level AUROC below 0.80 on the test split) make no protein-level call and show their residue scores only.
 
 | Head | Notes |
 |------|-------|
-| **Disorder** | Falls back to metapredict (Emenecker et al. 2021) or classical scale if ESMC unavailable |
-| **Signal Peptide** | AUROC 0.9999; classical Von Heijne D-score and AXA motif shown alongside; GPI anchor detection |
-| **Transmembrane** | BiLSTM-CRF with Viterbi topology decoding (outside→helix→inside); AUROC 0.992 |
+| **Disorder** | Trained on experimentally annotated disordered regions (DisProt, UniProt); requires ESMC — there is no classical or metapredict substitute |
+| **Signal Peptide** | AUROC 0.9997; classical Von Heijne D-score and AXA motif shown alongside; GPI anchor detection |
+| **Transmembrane** | BiLSTM-CRF with Viterbi topology decoding (outside → membrane → inside); transmembrane segments of ≥12 residues are reported; AUROC 0.9889, topology accuracy 0.930 |
 | **Intramembrane** | Re-entrant membrane loops |
 | **Coiled Coil** | |
 | **DNA Binding** | Trained on BioLiP structure-derived protein-DNA contacts |
@@ -253,7 +269,6 @@ Computed on-demand when you click a section under **AI Predictions** in the side
 | **SS3: α-Helix** | Per-residue softmax probability that a residue is in an α-helix; output of the Q3 secondary structure head |
 | **SS3: β-Strand** | Per-residue softmax probability of β-strand (sheet) assignment |
 | **SS3: Coil/Loop** | Per-residue softmax probability of coil/loop assignment; the three SS3 profiles sum to 1.0 at every position |
-| **Aggregation Propensity** | BiLSTM-Window architecture (9-residue window-average pool); trained on WALTZ-DB 2.0 + AmyLoad + AmyPro + PDB amyloid fibrils |
 
 ---
 
@@ -270,7 +285,7 @@ Individual graphs export per-section, or use the toolbar buttons: **Export All a
 | Category | Graphs |
 |----------|--------|
 | **Composition** | Amino Acid Composition (Bar) |
-| **AI Predictions** | Disorder Profile, Signal Peptide Profile, Transmembrane Profile, Intramembrane Profile, Coiled-Coil Profile, DNA-Binding Profile, RNA Binding Profile, Active Site Profile, Binding Site Profile, Phosphorylation Profile, Low-Complexity Profile, Zinc Finger Profile, Glycosylation Profile, Ubiquitination Profile, Methylation Profile, Acetylation Profile, Lipidation Profile, Disulfide Bond Profile, Functional Motif Profile, Propeptide Profile, Repeat Region Profile, Nucleotide-Binding Profile, Transit Peptide Profile, Secondary Structure: Helix Profile, Secondary Structure: Strand Profile, Secondary Structure: Coil Profile, Aggregation Propensity Profile |
+| **AI Predictions** | Disorder Profile, Signal Peptide Profile, Transmembrane Profile, Intramembrane Profile, Coiled-Coil Profile, DNA-Binding Profile, RNA Binding Profile, Active Site Profile, Binding Site Profile, Phosphorylation Profile, Low-Complexity Profile, Zinc Finger Profile, Glycosylation Profile, Ubiquitination Profile, Methylation Profile, Acetylation Profile, Lipidation Profile, Disulfide Bond Profile, Functional Motif Profile, Propeptide Profile, Repeat Region Profile, Nucleotide-Binding Profile, Transit Peptide Profile, Secondary Structure: Helix Profile, Secondary Structure: Strand Profile, Secondary Structure: Coil Profile |
 | **Other Sequence Profiles** | Hydrophobicity Profile, Local Charge Profile, SCD Profile, SHD Profile |
 | **Charge & π-Interactions** | Isoelectric Focus, Charge Decoration, Cation–π Map |
 | **Membrane & Amphipathicity** | TM Topology, Hydrophobic Moment, Helical Wheel |
@@ -287,7 +302,7 @@ Individual graphs export per-section, or use the toolbar buttons: **Export All a
 
 **pLDDT / B-Factor Profile**: when the structure was loaded from the AlphaFold EBI database the graph is titled "pLDDT Profile" with confidence-zone colouring (Very High ≥ 90, Confident 70–90, Low 50–70, Very Low < 50). When loaded from RCSB PDB or a local file the graph switches to "B-Factor Profile" with crystallographic B-factor zones (< 20 / 20–40 / 40–60 / > 60 Å²).
 
-**Domain Architecture**: shows Pfam domains (UniProt fetch required), BEER AI disorder regions, and disordered linker spans. TM helices are intentionally omitted here — use the dedicated **TM Topology** graph (TMHMM 2.0 snake-plot with inside/outside orientation) for transmembrane topology.
+**Domain Architecture**: shows Pfam domains (UniProt fetch required), BEER AI disorder regions, and disordered linker spans. Transmembrane segments are not drawn here; they are listed in **AI Predictions → Transmembrane**, and the per-residue membrane probability is in the **Transmembrane Profile** graph.
 
 ---
 
@@ -387,7 +402,7 @@ The AI Predictions heads use EvolutionaryScale's ESMC 600M protein language mode
 
 **Sequence length**: all 24 heads were trained on sequences truncated to **1024 residues** — no head saw a residue beyond position 1024 during training. There is **no hard cap at inference**: longer proteins are embedded and scored end-to-end and always produce a full-length profile, but per-residue predictions **beyond residue 1024 are extrapolation** and should be interpreted with caution. BEER shows a one-time notice when you run an AI head on a sequence longer than 1024 residues. Classical (non-AI) analyses have no length limit.
 
-If ESMC is not installed, disorder falls back to **metapredict** (Emenecker et al. 2021, *Cell Syst.*) if available, or a classical sliding-window scale otherwise. All classical analysis runs fully offline without ESMC.
+If ESMC is not installed, the AI Predictions heads — including the disorder profile — are simply unavailable; BEER does not substitute a classical or third-party predictor for any feature that has an AI head. The composition-based disorder-promoting fraction in the Properties section, and all other classical analysis, still run fully offline without ESMC.
 
 ---
 
@@ -426,6 +441,17 @@ If ESMC is not installed, disorder falls back to **metapredict** (Emenecker et a
 
 ## Recent changes
 
+- **Calibrated probabilities:** the AI heads now report probabilities on a calibrated scale, so a residue scored 0.8 is positive about eighty per cent of the time. Each head's decision threshold moves with it, so every prediction BEER makes is unchanged. Thresholds shown in the interface are lower than before as a result. Two heads are unaffected: transmembrane, which decodes with a CRF, and secondary structure, which picks the highest of three classes.
+- **Transmembrane report fix:** the Report tab could state "no transmembrane segment" for a membrane protein whose profile clearly showed membrane helices. The segments are now carried through reliably, including after applying settings, so the report and the profile agree.
+- **Worker shutdown fix:** cancelling an analysis or starting a new one while an AI prediction was still running could raise a `TypeError` while the prediction was being retired, and the results it was carrying were lost. Predictions are now retired cleanly whatever they were computing.
+- **Improved binding and secondary-structure heads:** the five heads trained on structure-derived contacts (DNA, RNA, nucleotide, ligand and zinc binding) now learn from full-length proteins, and the secondary-structure head learns from DSSP assignments. Accuracy rose for all six, and binding predictions no longer depend on whether a domain is scored alone or inside its whole protein.
+- **Protein-level rules per head:** the minimum run of residues needed to call a protein positive is now set for each head from its validation split.
+- **Model attribution:** a `NOTICE` file credits the ESM C 600M model (MIT licence, Chan Zuckerberg Biohub) that BEER downloads for its AI predictions. The source code remains GPL v3.
+- **v3.1 prediction heads:** all 24 heads are trained with proteins that lack each feature as negatives. Each head's decision threshold is chosen on a validation split, and the AUROCs shown throughout BEER are measured on a held-out test split. Cached v3.0 weights are replaced automatically on first use.
+- **Protein-level calls:** every AI section states whether the protein carries the feature, using that head's calibrated threshold. Site heads list their predicted residues and region heads their predicted regions.
+- **Transmembrane segments:** membrane segments of at least 12 residues from the Viterbi topology are reported as transmembrane segments.
+- **Uncertainty for every head:** the MC-dropout uncertainty band is available for all 24 heads.
+- **Command line:** `beer --help` and `beer -h` print usage. Qt options such as `-platform` launch the GUI.
 - **Performance:** 19 of 24 AI prediction heads are now deferred — `analyze_sequence` completes in seconds; each head runs on demand via `AISectionWorker` when you open its section or click "AI Analysis".
 - **Robustness:** Truncation series analysis now runs in a background thread with a cancellable progress dialog, keeping the UI responsive for long sequences.
 - **Variant Effect Map:** ESMC inference for the variant heatmap runs off the main thread; a placeholder is shown immediately while the background worker computes.
@@ -441,11 +467,12 @@ If ESMC is not installed, disorder falls back to **metapredict** (Emenecker et a
 
 ## License
 
-GNU General Public License v3. See `LICENSE`.
+- **Source code:** GNU General Public License v3. See `LICENSE`.
+- **ESM C 600M:** MIT licence (Chan Zuckerberg Biohub), downloaded on first use from [biohub/ESMC-600M](https://huggingface.co/biohub/ESMC-600M). See `NOTICE`.
 
 ---
 
 ## Author
 
 Saumyak Mukherjee
-Theoretical Biophysics, Max Planck Institute of Biophysics, Frankfurt am Main, Germany
+Department of Chemical Sciences, Indian Institute of Science Education and Research, Berhampur, Odisha, India

@@ -1,0 +1,11 @@
+BEER — Biophysical Evaluation Engine for Residues
+
+BEER's AI predictions use the ESM C 600M protein language model, downloaded on first use from
+the Hugging Face repository biohub/ESMC-600M. That model is distributed under the MIT licence
+(Copyright Chan Zuckerberg Biohub, Inc.; https://github.com/Biohub/esm). BEER does not
+redistribute the model; it is fetched by the user's installation.
+
+The BEER prediction heads were trained on ESM C 600M embeddings and are distributed with BEER's
+releases.
+
+The BEER source code is licensed under the GNU General Public License v3 (see LICENSE).

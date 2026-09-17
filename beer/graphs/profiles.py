@@ -13,6 +13,7 @@ from beer.graphs._style import (
     _PROFILE_LINE, _FILL_ABOVE, _FILL_BELOW, _FILL_NEUTRAL,
 )
 from beer.constants import HYDROPHOBICITY_SCALES
+from beer.models.metrics import f1_threshold as head_f1_threshold
 
 # ZYGGREGATOR Z_agg^i threshold: one standard deviation above the random-sequence
 # mean, as published in Tartaglia et al. (2008) J. Mol. Biol. 380:425 and
@@ -238,33 +239,6 @@ def _bilstm_predicted_regions(scores_np, threshold: float = 0.5) -> list[tuple[i
     return regions
 
 
-_BILSTM_THRESHOLDS: dict[str, float] = {
-    "disorder":          0.63054,   # v3b CNN-BiLSTM
-    "signal_peptide":    0.77552,
-    "transmembrane":     0.81339,   # CRF head — no threshold_at_f1max; kept from v2
-    "intramembrane":     0.76351,
-    "coiled_coil":       0.55178,   # v3b improved model
-    "dna_binding":       0.76365,
-    "active_site":       0.86000,
-    "binding_site":      0.74051,
-    "phosphorylation":   0.81573,
-    "lcd":               0.67142,   # v3b CNN-BiLSTM
-    "glycosylation":     0.84581,
-    "ubiquitination":    0.81069,
-    "nucleotide_binding":0.76781,
-    "acetylation":       0.86891,
-    "methylation":       0.88184,   # v3b CNN-BiLSTM
-    "lipidation":        0.81459,
-    "disulfide":         0.85226,
-    "motif":             0.76468,   # v3b CNN-BiLSTM
-    "propeptide":        0.66717,   # v3b PosEnc-BiLSTM
-    "repeat":            0.52704,   # v3b CNN-BiLSTM
-    "rna_binding":       0.63172,   # v3b CNN-BiLSTM
-    "transit_peptide":   0.69661,
-    "zinc_finger":       0.62258,
-}
-
-
 def create_bilstm_profile_figure(
     feature: str,
     scores: "list[float]",
@@ -293,7 +267,7 @@ def create_bilstm_profile_figure(
     has_uniprot = bool(uniprot_regions)
     n  = len(scores)
     xs = list(range(1, n + 1))
-    thr = threshold if threshold is not None else _BILSTM_THRESHOLDS.get(feature, 0.5)
+    thr = threshold if threshold is not None else head_f1_threshold(feature)
 
     fig = Figure(figsize=(_adaptive_width(n), 4.5), dpi=120)
     fig.set_facecolor("#ffffff")
@@ -438,28 +412,29 @@ def create_shd_profile_figure(
 # ---------------------------------------------------------------------------
 
 # (data_key, label, color, threshold_at_f1max)
+# Thresholds come from beer.models.metrics, which mirrors the shipped weights.
 _AI_OVERVIEW_HEADS: list[tuple[str, str, str, float]] = [
-    ("disorder_scores",          "Disorder",           "#4361ee", 0.63054),   # v3b
-    ("sp_bilstm_profile",        "Signal Peptide",     "#f72585", 0.77552),
-    ("tm_bilstm_profile",        "Transmembrane",      "#34d399", 0.81339),
-    ("intramem_bilstm_profile",  "Intramembrane",      "#6ee7b7", 0.76351),
-    ("cc_bilstm_profile",        "Coiled-Coil",        "#fb923c", 0.55178),
-    ("dna_bilstm_profile",       "DNA-Binding",        "#60a5fa", 0.76365),
-    ("rnabind_bilstm_profile",   "RNA-Binding",        "#2dc653", 0.63172),   # v3b
-    ("act_bilstm_profile",       "Active Site",        "#f87171", 0.86000),
-    ("bnd_bilstm_profile",       "Binding Site",       "#a78bfa", 0.74051),
-    ("phos_bilstm_profile",      "Phosphorylation",    "#fbbf24", 0.81573),
-    ("lcd_bilstm_profile",       "Low-Complexity",     "#94a3b8", 0.67142),   # v3b
-    ("znf_bilstm_profile",       "Zinc Finger",        "#4ade80", 0.62258),
-    ("glyc_bilstm_profile",      "Glycosylation",      "#f9a8d4", 0.84581),
-    ("ubiq_bilstm_profile",      "Ubiquitination",     "#fb7185", 0.81069),
-    ("meth_bilstm_profile",      "Methylation",        "#a3e635", 0.88184),   # v3b
-    ("acet_bilstm_profile",      "Acetylation",        "#38bdf8", 0.86891),
-    ("lipid_bilstm_profile",     "Lipidation",         "#e879f9", 0.81459),
-    ("disulf_bilstm_profile",    "Disulfide Bond",     "#fde68a", 0.85226),
-    ("motif_bilstm_profile",     "Functional Motif",   "#c4b5fd", 0.76468),   # v3b
-    ("prop_bilstm_profile",      "Propeptide",         "#fdba74", 0.66717),   # v3b
-    ("rep_bilstm_profile",       "Repeat Region",      "#67e8f9", 0.52704),   # v3b
-    ("nucbind_bilstm_profile",   "Nucleotide-Binding", "#0ea5e9", 0.76781),
-    ("transit_bilstm_profile",   "Transit Peptide",    "#d946ef", 0.69661),
+    ("disorder_scores",          "Disorder",           "#4361ee", head_f1_threshold("disorder")),
+    ("sp_bilstm_profile",        "Signal Peptide",     "#f72585", head_f1_threshold("signal_peptide")),
+    ("tm_bilstm_profile",        "Transmembrane",      "#34d399", head_f1_threshold("transmembrane")),
+    ("intramem_bilstm_profile",  "Intramembrane",      "#6ee7b7", head_f1_threshold("intramembrane")),
+    ("cc_bilstm_profile",        "Coiled-Coil",        "#fb923c", head_f1_threshold("coiled_coil")),
+    ("dna_bilstm_profile",       "DNA-Binding",        "#60a5fa", head_f1_threshold("dna_binding")),
+    ("rnabind_bilstm_profile",   "RNA-Binding",        "#2dc653", head_f1_threshold("rna_binding")),
+    ("act_bilstm_profile",       "Active Site",        "#f87171", head_f1_threshold("active_site")),
+    ("bnd_bilstm_profile",       "Binding Site",       "#a78bfa", head_f1_threshold("binding_site")),
+    ("phos_bilstm_profile",      "Phosphorylation",    "#fbbf24", head_f1_threshold("phosphorylation")),
+    ("lcd_bilstm_profile",       "Low-Complexity",     "#94a3b8", head_f1_threshold("lcd")),
+    ("znf_bilstm_profile",       "Zinc Finger",        "#4ade80", head_f1_threshold("zinc_finger")),
+    ("glyc_bilstm_profile",      "Glycosylation",      "#f9a8d4", head_f1_threshold("glycosylation")),
+    ("ubiq_bilstm_profile",      "Ubiquitination",     "#fb7185", head_f1_threshold("ubiquitination")),
+    ("meth_bilstm_profile",      "Methylation",        "#a3e635", head_f1_threshold("methylation")),
+    ("acet_bilstm_profile",      "Acetylation",        "#38bdf8", head_f1_threshold("acetylation")),
+    ("lipid_bilstm_profile",     "Lipidation",         "#e879f9", head_f1_threshold("lipidation")),
+    ("disulf_bilstm_profile",    "Disulfide Bond",     "#fde68a", head_f1_threshold("disulfide")),
+    ("motif_bilstm_profile",     "Functional Motif",   "#c4b5fd", head_f1_threshold("motif")),
+    ("prop_bilstm_profile",      "Propeptide",         "#fdba74", head_f1_threshold("propeptide")),
+    ("rep_bilstm_profile",       "Repeat Region",      "#67e8f9", head_f1_threshold("repeat")),
+    ("nucbind_bilstm_profile",   "Nucleotide-Binding", "#0ea5e9", head_f1_threshold("nucleotide_binding")),
+    ("transit_bilstm_profile",   "Transit Peptide",    "#d946ef", head_f1_threshold("transit_peptide")),
 ]

@@ -164,11 +164,11 @@ def format_signal_report(
         sp_rows = (
             f"<tr><td><b>BiLSTM SP score (mean, pos 1&ndash;{n70})</b></td>"
             f"<td><b>{bilstm_sp_score:.3f}</b> &mdash; {bl_label}"
-            f" &nbsp;<em>(ESMC 600M, AUROC 0.9999)</em></td></tr>"
+            f" &nbsp;<em>(ESMC 600M, AUROC 0.9998)</em></td></tr>"
         )
         _sp_note = (
             "BiLSTM: ESMC 600M BiLSTM head trained on UniProt Swiss-Prot signal-peptide annotations "
-            "(AUROC 0.9999 on held-out test set); score shown is mean per-residue probability over "
+            "(AUROC 0.9998 on held-out test set); score shown is mean per-residue probability over "
             "N-terminal 70 residues. Threshold: score &ge; 0.50."
         )
         _sp_badge = method_badge("ESMC BiLSTM", "bilstm")
