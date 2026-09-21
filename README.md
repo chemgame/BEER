@@ -245,25 +245,25 @@ Computed on-demand when you click a section under **AI Predictions** in the side
 
 | Head | Notes |
 |------|-------|
-| **Disorder** | Trained on experimentally annotated disordered regions (DisProt, UniProt); requires ESMC — there is no classical or metapredict substitute |
+| **Disorder** | Trained on DisProt regions and UniProt disordered regions, most of which UniProt assigns with MobiDB-lite; requires ESMC — there is no classical or metapredict substitute |
 | **Signal Peptide** | AUROC 0.9997; classical Von Heijne D-score and AXA motif shown alongside; GPI anchor detection |
-| **Transmembrane** | BiLSTM-CRF with Viterbi topology decoding (outside → membrane → inside); transmembrane segments of ≥12 residues are reported; AUROC 0.9889, topology accuracy 0.930 |
+| **Transmembrane** | Trained on PDBTM membrane segments; BiLSTM-CRF with Viterbi topology decoding (outside → membrane → inside); transmembrane segments of ≥12 residues are reported; AUROC 0.9889, the predicted number of membrane segments matches the annotated number for 0.930 of test proteins |
 | **Intramembrane** | Re-entrant membrane loops |
-| **Coiled Coil** | |
+| **Coiled Coil** | Trained on UniProt coiled-coil regions, which UniProt assigns almost entirely by sequence analysis |
 | **DNA Binding** | Trained on BioLiP structure-derived protein-DNA contacts |
-| **RNA Binding** | Trained on BioLiP protein-RNA contacts |
+| **RNA Binding** | Trained on BioLiP protein-RNA contacts and UniProt RNA-binding regions |
 | **Active Site** | Trained on M-CSA mechanistically validated catalytic residues |
 | **Binding Site** | Trained on BioLiP small-molecule binding residues |
 | **Phosphorylation** | Trained on dbPTM experimental sites |
 | **Ubiquitination** | Trained on dbPTM |
 | **Methylation** | Trained on dbPTM |
 | **Acetylation** | Trained on dbPTM |
-| **Glycosylation** | Trained on GlyConnect site-resolved glycoproteomics data |
+| **Glycosylation** | Trained on UniProt glycosylation sites, most of which UniProt assigns by sequence analysis |
 | **Lipidation** | |
 | **Disulfide Bond** | |
 | **Zinc Finger** | Trained on BioLiP Zn-coordinating residues |
 | **Nucleotide Binding** | Trained on BioLiP (ATP/ADP/NAD/FAD/CoA/…) |
-| **Low Complexity** | |
+| **Low Complexity** | Trained on UniProt compositional-bias regions, which UniProt assigns by sequence analysis |
 | **Functional Motif** | |
 | **Propeptide** | |
 | **Repeat Region** | |
@@ -446,6 +446,8 @@ If ESMC is not installed, the AI Predictions heads — including the disorder pr
 - **Calibrated probabilities:** the AI heads now report probabilities on a calibrated scale. The scale is fitted to each head's own test data, which contain far more proteins with the feature than a typical proteome. Read a score as a ranking and compare it with the head's threshold. It is not the chance that a residue in your protein carries the feature. Each head's decision threshold moves with its scores, so every prediction BEER makes is unchanged, and the thresholds shown in the interface are lower than before. Two heads are unaffected: transmembrane, which decodes with a CRF, and secondary structure, which picks the highest of three classes.
 - **Offline mode and upload confirmation:** BEER now asks before sending a sequence to an outside server, and an offline switch blocks every connection.
 - **Measured error rates beside each call:** every protein-level call now states how often its rule called proteins with and without the feature on held-out test proteins.
+- **Signal peptide section follows the protein-level rule:** the Signal Peptide section of the report now uses the same rule as the protein-level call and gives the predicted cleavage position. Earlier it averaged the probability over the first 70 residues, which could label a short signal peptide as unlikely.
+- **Training sources stated correctly:** the Help table and each AI section now name the data each head was actually trained on, including where UniProt annotations are mostly assigned by sequence analysis.
 - **Hydropathy decoration corrected:** the SHD profile now follows the published definition of Zheng et al. (2020) and its hydropathy scale. Earlier SHD values are not comparable.
 - **Transmembrane report fix:** the Report tab could state "no transmembrane segment" for a membrane protein whose profile clearly showed membrane helices. The segments are now carried through reliably, including after applying settings, so the report and the profile agree.
 - **Worker shutdown fix:** cancelling an analysis or starting a new one while an AI prediction was still running could raise a `TypeError` while the prediction was being retired, and the results it was carrying were lost. Predictions are now retired cleanly whatever they were computing.

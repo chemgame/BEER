@@ -300,14 +300,14 @@ _HEAD_TRAINING_SOURCES: list[tuple[str, str, str]] = [
     ("zinc_finger",        "Zinc Finger",               "BioLiP Zn-coordinating residues"),
     ("methylation",        "Methylation",               "dbPTM"),
     ("transit_peptide",    "Transit Peptide",           "UniProt ft_transit"),
-    ("glycosylation",      "Glycosylation",             "GlyConnect site-resolved glycoproteomics"),
+    ("glycosylation",      "Glycosylation",             "UniProt ft_carbohyd (mostly sequence-analysis annotations)"),
     ("dna_binding",        "DNA-Binding",               "BioLiP (PDB-derived protein-DNA contacts)"),
-    ("disorder",           "Disorder",                  "DisProt + UniProt ft_region:disordered"),
+    ("disorder",           "Disorder",                  "DisProt + UniProt disordered regions (MobiDB-lite)"),
     ("lipidation",         "Lipidation",                "UniProt ft_lipid"),
     ("active_site",        "Active Site",               "M-CSA mechanistically validated catalytic residues"),
     ("acetylation",        "Acetylation",               "dbPTM"),
     ("propeptide",         "Propeptide",                "UniProt ft_propep"),
-    ("transmembrane",      "Transmembrane",             "UniProt ft_transmem (BiLSTM-CRF)"),
+    ("transmembrane",      "Transmembrane",             "PDBTM membrane segments (BiLSTM-CRF)"),
     ("ubiquitination",     "Ubiquitination",            "dbPTM"),
     ("intramembrane",      "Intramembrane",             "UniProt ft_intramem"),
     ("repeat",             "Repeat Region",             "UniProt ft_repeat"),
@@ -317,8 +317,8 @@ _HEAD_TRAINING_SOURCES: list[tuple[str, str, str]] = [
     ("motif",              "Functional Motif",          "UniProt ft_motif"),
     ("lcd",                "Low-Complexity",            "UniProt ft_compbias"),
     ("binding_site",       "Binding Site",              "BioLiP small-molecule binding residues"),
-    ("rna_binding",        "RNA Binding",               "BioLiP (PDB-derived protein-RNA contacts)"),
-    ("secondary_structure", "Secondary Structure (SS3)", "UniProt ft_helix / ft_strand (BiLSTM-CRF Q3)"),
+    ("rna_binding",        "RNA Binding",               "BioLiP protein-RNA contacts + UniProt RNA-binding regions"),
+    ("secondary_structure", "Secondary Structure (SS3)", "DSSP of solved structures (NetSurfP-2.0 set)"),
 ]
 
 #: Placeholder swapped for the generated table when the Help tab is built.
@@ -683,9 +683,9 @@ class ProteinAnalyzerGUI(QMainWindow):
         ),
         "Disorder Profile": (
             "Per-residue disorder probability from the BEER AI Predictions head (0 = ordered, 1 = disordered).\n\n"
-            "Architecture: ESMC 600M embeddings → 2-layer BiLSTM classifier (hidden=256) → sigmoid. "
-            "Trained on UniProt Swiss-Prot 'Disordered region' annotations (AUROC 0.9532 on held-out test set). "
-            "Threshold at F1-max ≈ 0.5 (dashed line). MC-Dropout (20 passes) provides ±1σ uncertainty band.\n\n"
+            "Architecture: ESM C 600M embeddings → multi-scale CNN → 2-layer BiLSTM → sigmoid. "
+            "Trained on DisProt regions and UniProt disordered regions, most of which UniProt assigns with MobiDB-lite. "
+            "The dashed line is the head's decision threshold. MC-Dropout (20 passes) provides ±1σ uncertainty band.\n\n"
             "Regions consistently above the threshold are predicted intrinsically disordered (IDRs)."
         ),
         "Isoelectric Focus": (
@@ -5079,7 +5079,7 @@ Choose the feature (Disorder, Signal Peptide, etc.) from the adjacent selector; 
 <h2>Secondary Structure</h2>
 <p>Per-residue secondary structure (Helix / Strand / Coil) is predicted by the SS3 AI head
 (BiLSTM-CRF Q3 decoder, Q3 accuracy 0.8267). Per-residue disorder probability is predicted by
-the Disorder AI head (BiLSTM, AUROC 0.9532). Both are shown in <b>Graphs → AI Predictions</b>.</p>
+the Disorder AI head (BiLSTM). Both are shown in <b>Graphs → AI Predictions</b>.</p>
 <h2>Repeat Motifs</h2>
 <ul>
   <li><b>RGG</b> — Arg-Gly-Gly; key driver in FUS, hnRNP family.</li>
@@ -5098,7 +5098,7 @@ Spacers = all others. Mean/min/max gaps between consecutive stickers (Mittag &am
             ("Transmembrane Segments", """
 <h1>Transmembrane Segment Prediction</h1>
 <p>Transmembrane topology in BEER v3.1 comes from an AI <b>BiLSTM-CRF</b> head trained on
-UniProt Swiss-Prot <tt>ft_transmem</tt> annotations, with soluble proteins as negatives. The CRF
+PDBTM membrane segments of solved structures, with soluble proteins as negatives. The CRF
 labels every residue outside, membrane or inside, and Viterbi decoding returns the most probable
 path, so segments always alternate sides. No external server is required.</p>
 <h2>What is reported</h2>
@@ -5241,7 +5241,7 @@ Each graph has a <b>Save Graph</b> button to save that graph individually.</p>
 <ul>
   <li><b>Hydrophobicity Profile</b> — Kyte-Doolittle sliding-window average (window set in Settings).</li>
   <li><b>Local Charge Profile</b> — sliding-window NCPR.</li>
-  <li><b>Disorder Profile</b> — AI per-residue disorder probability (ESMC → BiLSTM, AUROC 0.9532); fill = disordered above threshold.</li>
+  <li><b>Disorder Profile</b> — AI per-residue disorder probability (ESMC → BiLSTM); fill = disordered above threshold.</li>
   <li><b>Linear Sequence Map</b> — colour-coded overview of hydrophobicity and charge along the sequence.</li>
 </ul>
 <h2>Charge &amp; π-Interactions</h2>
@@ -5295,8 +5295,8 @@ The dashed boundary (Uversky 2000) separates compact/ordered proteins (above lin
 <pre>&lt;H&gt; = 2.785 × &lt;|R|&gt; + 0.446</pre>
 <p class="note">Reference: Uversky, Gillespie &amp; Fink (2000) <i>Proteins</i> 41, 415–427.</p>
 <h2>Coiled-Coil Profile</h2>
-<p>Per-residue coiled-coil probability from the AI BiLSTM head (AUROC 0.9803) trained on
-UniProt Swiss-Prot <tt>ft_coiled</tt> annotations. Available in <b>Graphs → AI Predictions → Coiled-Coil Profile</b>.</p>
+<p>Per-residue coiled-coil probability from the AI BiLSTM head trained on
+UniProt Swiss-Prot coiled-coil annotations, which UniProt assigns almost entirely by sequence analysis. Available in <b>Graphs → AI Predictions → Coiled-Coil Profile</b>.</p>
 <h2>Single-Residue Perturbation Map</h2>
 <p>Every residue is substituted in silico to all 20 amino acids. The heatmap colour encodes
 |ΔGRAVY| + |ΔNCPR| — the combined change in global hydrophobicity and net charge per residue.

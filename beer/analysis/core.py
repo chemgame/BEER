@@ -825,7 +825,7 @@ class AnalysisTools:
         tm_html_bilstm = _bilstm_head_html(
             "Transmembrane Segments — BiLSTM", "transmembrane",
             tm_bilstm_profile,
-            "UniProt Swiss-Prot 'Transmembrane' (ft_transmem) annotations",
+            "PDBTM membrane segments of solved structures, with soluble proteins as negatives",
             _TM_NOTE,
             "Transmembrane segments are the stretches the Viterbi path assigns to the membrane "
             "state; segments of at least 12 residues are reported.",
@@ -833,7 +833,7 @@ class AnalysisTools:
         cc_html_bilstm = _bilstm_head_html(
             "Coiled-Coil Regions — BiLSTM", "coiled_coil",
             cc_bilstm_profile,
-            "UniProt Swiss-Prot 'Coiled coil' (ft_coiled) annotations",
+            "UniProt Swiss-Prot 'Coiled coil' annotations, which UniProt assigns almost entirely by sequence analysis",
             _CC_NOTE,
             "Coiled coils are α-helical assemblies with heptad repeats (a-b-c-d-e-f-g)ₙ; "
             "positions a/d are typically hydrophobic (Lupas et al. 1991 Science 252:1162).",
@@ -841,7 +841,7 @@ class AnalysisTools:
         dna_html_bilstm = _bilstm_head_html(
             "DNA-Binding Regions — BiLSTM", "dna_binding",
             dna_bilstm_profile,
-            "UniProt Swiss-Prot 'DNA binding' (ft_dna_bind) annotations",
+            "BioLiP protein-DNA contacts in solved complexes",
             "",
             "Predicted residues contact DNA in the native structure. "
             "Common motifs: helix-turn-helix, zinc finger, leucine zipper.",
@@ -849,7 +849,7 @@ class AnalysisTools:
         act_html_bilstm = _bilstm_head_html(
             "Active Site Residues — BiLSTM", "active_site",
             act_bilstm_profile,
-            "UniProt Swiss-Prot 'Active site' (ft_act_site) annotations",
+            "M-CSA catalytic residues",
             "",
             "Catalytic residues directly participate in the enzymatic reaction. "
             "Single-residue annotations in UniProt; BiLSTM smooths to per-residue probability.",
@@ -857,7 +857,7 @@ class AnalysisTools:
         bnd_html_bilstm = _bilstm_head_html(
             "Binding Site Residues — BiLSTM", "binding_site",
             bnd_bilstm_profile,
-            "UniProt Swiss-Prot 'Binding site' (ft_binding) annotations",
+            "BioLiP small-molecule contacts in solved complexes",
             "",
             "Residues that contact small-molecule ligands, metal ions, or cofactors "
             "in the native structure.",
@@ -865,7 +865,7 @@ class AnalysisTools:
         phos_html_bilstm = _bilstm_head_html(
             "Phosphorylation Sites — BiLSTM", "phosphorylation",
             phos_bilstm_profile,
-            "UniProt Swiss-Prot phospho-Ser/Thr/Tyr (ft_mod_res) annotations",
+            "dbPTM phosphorylation sites",
             "Classical comparison: kinase consensus motifs (PKA, CK2, CDK) — see Phosphorylation section.",
             "Phosphorylation regulates activity, localisation, and interactions. "
             "Predicted S/T/Y residues with high scores are candidate phosphosites.",
@@ -873,7 +873,7 @@ class AnalysisTools:
         lcd_html_bilstm = _bilstm_head_html(
             "Low-Complexity / Compositionally Biased Regions — BiLSTM", "lcd",
             lcd_bilstm_profile,
-            "UniProt Swiss-Prot 'Compositionally biased' (ft_compbias) annotations",
+            "UniProt Swiss-Prot 'Compositional bias' annotations, which UniProt assigns by sequence analysis",
             "Classical comparison: sliding-window Shannon entropy (see Local Complexity tab).",
             "Low-complexity regions are enriched in a small subset of amino acids and are "
             "typically disordered; they drive liquid-liquid phase separation and stress-granule assembly.",
@@ -889,7 +889,7 @@ class AnalysisTools:
         znf_html_bilstm = _bilstm_head_html(
             "Zinc Finger Regions — BiLSTM", "zinc_finger",
             znf_bilstm_profile,
-            "UniProt Swiss-Prot 'Zinc finger' (ft_zn_fing) annotations",
+            "BioLiP zinc-contacting residues in solved structures",
             "",
             "Zinc fingers are small structural motifs coordinating Zn²⁺ via Cys/His residues; "
             "involved in DNA/RNA binding, protein–protein interactions, and ubiquitination (RING domains).",
@@ -897,7 +897,7 @@ class AnalysisTools:
         glyc_html_bilstm = _bilstm_head_html(
             "Glycosylation Sites — BiLSTM", "glycosylation",
             glyc_bilstm_profile,
-            "UniProt Swiss-Prot N/O-linked glycan (ft_carbohyd) annotations",
+            "UniProt Swiss-Prot glycosylation sites, most of which UniProt assigns by sequence analysis",
             "",
             "N-glycosylation occurs on Asn (NxS/T sequon); O-glycosylation on Ser/Thr. "
             "Glycans influence folding, stability, trafficking, and immune recognition.",
@@ -905,7 +905,7 @@ class AnalysisTools:
         ubiq_html_bilstm = _bilstm_head_html(
             "Ubiquitination Sites — BiLSTM", "ubiquitination",
             ubiq_bilstm_profile,
-            "UniProt Swiss-Prot 'Ubiquitin' ft_mod_res annotations",
+            "dbPTM ubiquitination sites",
             "",
             "Ubiquitination on Lys regulates proteasomal degradation, DNA repair, "
             "endocytosis, and NF-κB signalling. Poly-Ub chains via K48 target degradation; "
@@ -914,7 +914,7 @@ class AnalysisTools:
         meth_html_bilstm = _bilstm_head_html(
             "Methylation Sites — BiLSTM", "methylation",
             meth_bilstm_profile,
-            "UniProt Swiss-Prot 'Methyl' ft_mod_res annotations",
+            "dbPTM methylation sites",
             "",
             "Methylation of Lys/Arg is a key epigenetic mark on histones and regulates "
             "gene expression, RNA processing, and protein–protein interactions.",
@@ -922,7 +922,7 @@ class AnalysisTools:
         acet_html_bilstm = _bilstm_head_html(
             "Acetylation Sites — BiLSTM", "acetylation",
             acet_bilstm_profile,
-            "UniProt Swiss-Prot 'Acetyl' ft_mod_res annotations",
+            "dbPTM acetylation sites",
             "",
             "N-terminal acetylation occurs co-translationally on ~80% of human proteins. "
             "Lys acetylation (e.g., histones) competes with ubiquitination and regulates "
@@ -973,7 +973,7 @@ class AnalysisTools:
         rnabind_html_bilstm = _bilstm_head_html(
             "RNA-Binding Regions — BiLSTM", "rna_binding",
             rnabind_bilstm_profile,
-            "UniProt Swiss-Prot 'RNA binding' region (ft_region, description_filter='RNA-binding') annotations",
+            "BioLiP protein-RNA contacts in solved complexes and UniProt Swiss-Prot RNA-binding regions",
             "Classical comparison: catRAPID sliding-window score — see RNA Binding section.",
             "RNA-binding regions include RRM, KH, DEAD-box helicase, and intrinsically disordered "
             "low-complexity regions that engage RNA via non-canonical contacts.",
@@ -981,7 +981,7 @@ class AnalysisTools:
         nucbind_html_bilstm = _bilstm_head_html(
             "Nucleotide-Binding Sites — BiLSTM", "nucleotide_binding",
             nucbind_bilstm_profile,
-            "UniProt Swiss-Prot 'Nucleotide binding' site (ft_binding, nucleotide-filtered) annotations",
+            "BioLiP nucleotide contacts in solved complexes",
             "",
             "Nucleotide-binding sites coordinate ATP, GTP, NAD⁺, FAD, and related cofactors. "
             "Walker A/B (P-loop NTPases), Rossmann fold, and GHKL ATPase motifs are the most common architectures.",
@@ -990,7 +990,7 @@ class AnalysisTools:
             "Transit Peptides — BiLSTM", "transit_peptide",
             transit_bilstm_profile,
             "UniProt Swiss-Prot 'Transit peptide' (ft_transit) annotations",
-            "Classical comparison: TargetP / MitoFates N-terminal scoring.",
+            "",
             "Mitochondrial and chloroplast transit peptides are N-terminal targeting sequences "
             "cleaved upon import. They are typically rich in basic and hydroxylated residues "
             "and lack acidic residues (von Heijne 1986 EMBO J 5:1335).",
@@ -1042,9 +1042,9 @@ class AnalysisTools:
             <details><summary>Full SS3 string (H/E/C per residue)</summary>
             <pre style='font-size:0.75em;word-break:break-all;white-space:pre-wrap'>{_ss_str}</pre>
             </details>
-            <p class="note">BiLSTM: ESMC 600M (1152-dim, frozen) → 2-layer BiLSTM (hidden=256)
-            → Linear(512→3) → argmax. Classes: H=helix (α/3₁₀/π), E=β-strand, C=coil/loop/turn.
-            Trained on UniProt Swiss-Prot ft_helix + ft_strand annotations.
+            <p class="note">ESM C 600M embeddings (1152-dim, frozen) → multi-scale 1-D CNN → 2-layer
+            bidirectional LSTM (256 units per direction) → linear layer over three classes → most probable class. Classes: H=helix (α/3₁₀/π), E=β-strand, C=coil/loop/turn.
+            Trained on DSSP assignments of solved structures.
             Metric: Q3 accuracy (fraction of correctly classified residues).</p>
             """
         else:
@@ -1053,8 +1053,8 @@ class AnalysisTools:
             <div class='callout-warn'>
               <b style='color:#b45309'>⏳ Model training in progress</b>
               <p style='margin:6px 0 0'>The <b>secondary structure</b> BiLSTM head
-              (Helix / Strand / Coil) is currently being trained on UniProt Swiss-Prot
-              ft_helix + ft_strand annotations. This section will populate once
+              (Helix / Strand / Coil) is currently being trained on DSSP assignments
+              of solved structures. This section will populate once
               <tt>secondary_structure_head.npz</tt> is available.</p>
             </div>
             """

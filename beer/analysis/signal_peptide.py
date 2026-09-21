@@ -158,18 +158,25 @@ def format_signal_report(
 
     # ---- Signal peptide table ----
     if bilstm_scores is not None and len(bilstm_scores) >= 10:
+        from beer.analysis.calls import rule_text, signal_peptide_call
+        from beer.analysis.head_report import _rates_note
+        from beer.models.metrics import auroc, f1_threshold
+        called, end = signal_peptide_call(bilstm_scores)
         n70 = min(70, len(bilstm_scores))
-        bilstm_sp_score = sum(bilstm_scores[:n70]) / n70
-        bl_label = "likely SP" if bilstm_sp_score >= 0.5 else "unlikely SP"
+        peak = max(bilstm_scores[:n70])
+        call_str = (f"detected, predicted cleavage after residue {end}" if called
+                    else "not detected")
         sp_rows = (
-            f"<tr><td><b>BiLSTM SP score (mean, pos 1&ndash;{n70})</b></td>"
-            f"<td><b>{bilstm_sp_score:.3f}</b> &mdash; {bl_label}"
-            f" &nbsp;<em>(ESMC 600M, AUROC 0.9998)</em></td></tr>"
+            f"<tr><td><b>Signal peptide</b></td><td><b>{call_str}</b></td></tr>"
+            f"<tr><td>Highest probability, residues 1&ndash;{n70}</td><td>{peak:.3f}</td></tr>"
+            f"<tr><td>Threshold</td><td>{f1_threshold('signal_peptide'):.3f}</td></tr>"
         )
+        _auc = auroc("signal_peptide")
+        _auc_str = f" (residue-level AUROC {_auc:.4f} on held-out test proteins)" if _auc else ""
         _sp_note = (
-            "BiLSTM: ESMC 600M BiLSTM head trained on UniProt Swiss-Prot signal-peptide annotations "
-            "(AUROC 0.9998 on held-out test set); score shown is mean per-residue probability over "
-            "N-terminal 70 residues. Threshold: score &ge; 0.50."
+            "ESM C 600M BiLSTM head trained on UniProt Swiss-Prot signal-peptide annotations"
+            f"{_auc_str}. A signal peptide is reported for {rule_text('signal_peptide')}."
+            f"{_rates_note('signal_peptide')}"
         )
         _sp_badge = method_badge("ESMC BiLSTM", "bilstm")
         sp_html = (
