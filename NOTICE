@@ -6,6 +6,6 @@ the Hugging Face repository biohub/ESMC-600M. That model is distributed under th
 redistribute the model; it is fetched by the user's installation.
 
 The BEER prediction heads were trained on ESM C 600M embeddings and are distributed with BEER's
-releases.
+releases under the same GNU General Public License v3 as the source code.
 
 The BEER source code is licensed under the GNU General Public License v3 (see LICENSE).

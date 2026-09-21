@@ -474,7 +474,7 @@ If ESMC is not installed, the AI Predictions heads — including the disorder pr
 
 ## License
 
-- **Source code:** GNU General Public License v3. See `LICENSE`.
+- **Source code and prediction-head weights:** GNU General Public License v3. See `LICENSE`.
 - **ESM C 600M:** MIT licence (Chan Zuckerberg Biohub), downloaded on first use from [biohub/ESMC-600M](https://huggingface.co/biohub/ESMC-600M). See `NOTICE`.
 
 ---
