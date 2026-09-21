@@ -42,8 +42,9 @@ def calc_scd(seq: str) -> float:
     Returns
     -------
     float
-        SCD value.  Positive: same-sign charge clustering; negative: mixed
-        polyampholyte-like patterning (Sawle & Ghosh 2015).
+        SCD value.  Close to zero when opposite charges are well mixed.  Increasingly
+        negative as opposite charges segregate into blocks, which compacts the chain.
+        Positive when one charge sign dominates, which expands it (Sawle & Ghosh 2015).
 
     References
     ----------
@@ -94,33 +95,42 @@ def calc_scd_profile(seq: str, window: int = 20) -> list[float]:
 # SHD — Sequence Hydrophobicity Decoration
 # ---------------------------------------------------------------------------
 
-def calc_shd(seq: str, hydro_values: dict) -> float:
-    """Sequence Hydrophobicity Decoration — analogous to SCD but for hydrophobicity.
+#: Normalised hydropathy of the HPS model (Dignon et al. 2018), taken from the atomic-level scale of
+#: Kapcha & Rossky (J. Mol. Biol. 2014, 426, 484).  This is the scale Zheng et al. (2020) use to
+#: define SHD, so the values below must not be swapped for a user-selected hydrophobicity scale.
+HPS_KR_LAMBDA: dict[str, float] = {
+    "R": 0.0, "D": 0.378378, "N": 0.432432, "E": 0.459459, "K": 0.513514,
+    "H": 0.513514, "Q": 0.513514, "S": 0.594595, "C": 0.594595, "G": 0.648649,
+    "T": 0.675676, "A": 0.72973, "M": 0.837838, "Y": 0.864865, "V": 0.891892,
+    "W": 0.945946, "L": 0.972973, "I": 0.972973, "P": 1.0, "F": 1.0,
+}
 
-    SHD = (1/N) * Σ_{i<j} hᵢ · hⱼ · |i−j|^0.5
 
-    where hᵢ is the normalised hydrophobicity score of residue i.
-    Positive: hydrophobic and hydrophilic residues cluster in separate blocks.
-    Negative: alternating hydrophobic/hydrophilic pattern.
+def calc_shd(seq: str, hydro_values: dict | None = None) -> float:
+    """Sequence hydropathy decoration (Zheng et al., J. Phys. Chem. Lett. 2020, 11, 3408).
+
+    SHD = (1/N) * sum_{i<j} (lambda_i + lambda_j) * |i-j|^-1
+
+    lambda_i is the normalised hydropathy of residue i on the Kapcha-Rossky scale of the HPS
+    model (0 to 1).  SHD is never negative.  Larger values mean hydrophobic residues sit closer
+    together along the chain, which Zheng et al. relate to a more compact ensemble.
+    Residues without a value (X, B, Z, U) contribute zero.
     """
+    lam_table = HPS_KR_LAMBDA if hydro_values is None else hydro_values
     n = len(seq)
     if n < 2:
         return 0.0
-    h = [hydro_values.get(aa, 0.0) for aa in seq]
+    lam = [lam_table.get(aa, 0.0) for aa in seq]
     total = 0.0
-    for i in range(n):
-        hi = h[i]
-        if hi == 0.0:
-            continue
+    for i in range(n - 1):
+        li = lam[i]
         for j in range(i + 1, n):
-            hj = h[j]
-            if hj == 0.0:
-                continue
-            total += hi * hj * math.sqrt(j - i)
+            total += (li + lam[j]) / (j - i)
     return total / n
 
 
-def calc_shd_profile(seq: str, hydro_values: dict, window: int = 20) -> list[float]:
+def calc_shd_profile(seq: str, hydro_values: dict | None = None,
+                     window: int = 20) -> list[float]:
     """Sliding-window SHD profile.
 
     Returns one value per window start position (length = max(0, N - window + 1)).

@@ -28,6 +28,8 @@ _DEFAULTS: dict = {
     "colorblind_safe":     False,
     "esmc_model":          "esmc_600m",
     "recent_sequences":    [],
+    "offline_mode":        False,
+    "confirm_uploads":     True,
 }
 
 def load() -> dict:

@@ -102,3 +102,12 @@ def test_architecture_note_describes_the_network():
     assert "384" in metrics.architecture_note("binding_site")
     assert "CRF" in metrics.architecture_note("transmembrane")
     assert "positional" in metrics.architecture_note("propeptide")
+
+
+def test_protein_call_shows_measured_rates():
+    from beer.models.metrics import PROTEIN_CALL_RATES
+    for task, (tpr, fpr) in PROTEIN_CALL_RATES.items():
+        assert 0.0 <= tpr <= 1.0 and 0.0 <= fpr <= 1.0, task
+    from beer.analysis.head_report import head_findings_html
+    html = head_findings_html("disorder", [0.9] * 40 + [0.01] * 60, "M" * 100)
+    assert "held-out test proteins" in html and "% of proteins that do not" in html

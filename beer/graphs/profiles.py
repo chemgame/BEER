@@ -370,12 +370,11 @@ def create_shd_profile_figure(
     label_font: int = 14,
     tick_font: int = 12,
 ) -> Figure:
-    """Sliding-window SHD (Sequence Hydrophobicity Decoration) profile.
+    """Sliding-window sequence hydropathy decoration (SHD) profile (Zheng et al. 2020).
 
-    Analogous to SCD but based on hydrophobicity instead of charge.
-    SHD(window) = (1/W) * Σ_{i<j} hᵢ · hⱼ · |i−j|^0.5
-    Positive: hydrophobic and hydrophilic residues cluster (amphipathic blocks).
-    Negative: alternating hydrophobic/hydrophilic (mixed pattern).
+    SHD(window) = (1/W) * sum_{i<j} (lambda_i + lambda_j) * |i-j|^-1, with lambda the normalised
+    Kapcha-Rossky hydropathy of the HPS model.  Higher values mean hydrophobic residues sit closer
+    together.  *scale_name* is kept for call compatibility; SHD always uses its published scale.
     """
     seq_len = len(seq)
     n = len(shd_profile)
@@ -397,9 +396,9 @@ def create_shd_profile_figure(
     ax.axhline(0.0, color="#888", linestyle="--", linewidth=0.8)
 
     _pub_style_ax(ax,
-                  title="Hydrophobicity Decoration Profile",
+                  title="Hydropathy Decoration Profile",
                   xlabel="Residue Position",
-                  ylabel="Hydrophobicity Decoration (SHD)",
+                  ylabel="Hydropathy Decoration (SHD)",
                   grid=True, title_size=label_font,
                   label_size=label_font, tick_size=tick_font)
     ax.set_xlim(1, seq_len)

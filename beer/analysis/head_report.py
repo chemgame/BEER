@@ -7,7 +7,7 @@ everywhere.
 from __future__ import annotations
 
 from beer.analysis.calls import SITE_HEADS, protein_call, rule_text, runs_above, tm_segments
-from beer.models.metrics import f1_threshold, protein_auroc
+from beer.models.metrics import f1_threshold, protein_auroc, protein_call_rates
 
 #: analysis_data key → head task name
 DATA_KEY_TO_TASK: dict[str, str] = {
@@ -64,7 +64,17 @@ def _protein_line(task: str, called: bool | None) -> str:
                 f"AUROC {auc:.2f}); read the residue scores below instead.</p>")
     verdict = "predicted" if called else "not predicted"
     return (f"<p><b>Protein-level call: {verdict}.</b> "
-            f"<span class='note'>Rule: {rule_text(task)}.</span></p>")
+            f"<span class='note'>Rule: {rule_text(task)}.{_rates_note(task)}</span></p>")
+
+
+def _rates_note(task: str) -> str:
+    """How often the rule was right and wrong on held-out test proteins."""
+    rates = protein_call_rates(task)
+    if rates is None:
+        return ""
+    tpr, fpr = rates
+    return (f" On held-out test proteins this rule called {tpr * 100:.0f}% of proteins that carry "
+            f"the feature and {fpr * 100:.0f}% of proteins that do not.")
 
 
 def head_findings_html(task: str, scores: "list[float]", seq: str = "",
@@ -79,7 +89,7 @@ def head_findings_html(task: str, scores: "list[float]", seq: str = "",
         segments = tm_segments(tm_topology) if tm_topology else []
         rows = _span_rows(seq, segments)
         body = (f"<p><b>Protein-level call: {'transmembrane protein' if segments else 'no transmembrane segment'}"
-                f".</b></p>"
+                f".</b><span class='note'>{_rates_note('transmembrane')}</span></p>"
                 + (f"<table><tr><th>#</th><th>Segment</th><th>Length (aa)</th></tr>{rows}</table>"
                    if segments else ""))
         return (f"<table><tr><th>Property</th><th>Value</th></tr>"

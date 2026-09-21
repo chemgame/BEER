@@ -823,9 +823,17 @@ class ProteinAnalyzerGUI(QMainWindow):
             "Sequence Charge Decoration (SCD) per-residue contribution.\n\n"
             "SCD = (1/N) \u00b7 \u03a3\u1d62<\u2c7c \u03c3\u1d62\u03c3\u2c7c \u00b7 |i\u2212j|^0.5\n\n"
             "where \u03c3\u1d62 = +1 (K/R), \u22121 (D/E), 0 otherwise.\n\n"
-            "High positive SCD = alternating charges (compact polyampholyte). "
-            "High negative SCD = like-charge clusters (extended chain).\n"
+            "SCD near 0 = opposite charges well mixed. "
+            "Increasingly negative = opposite charges segregated into blocks (more compact). "
+            "Positive = one charge sign dominates (more expanded).\n"
             "Reference: Sawle & Ghosh, J. Chem. Phys. 143:085101, 2015."
+        ),
+        "SHD Profile": (
+            "Sequence Hydropathy Decoration (SHD) in a 20-residue sliding window.\n\n"
+            "SHD = (1/N) \u00b7 \u03a3\u1d62<\u2c7c (\u03bb\u1d62 + \u03bb\u2c7c) \u00b7 |i\u2212j|\u207b\u00b9\n\n"
+            "where \u03bb is the normalised Kapcha\u2013Rossky hydropathy (0 to 1) of the HPS model. "
+            "Higher SHD = hydrophobic residues closer together along the chain (more compact).\n"
+            "Reference: Zheng et al., J. Phys. Chem. Lett. 11:3408, 2020."
         ),
         "Truncation Series": (
             "Biophysical properties across progressive N- or C-terminal truncations.\n\n"
@@ -4886,6 +4894,28 @@ class ProteinAnalyzerGUI(QMainWindow):
         form4.addRow("", self.tooltips_checkbox)
         layout.addLayout(form4)
 
+        _section("Privacy and network")
+        form_net = QFormLayout()
+        form_net.setHorizontalSpacing(20)
+        form_net.setVerticalSpacing(8)
+        form_net.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self.offline_checkbox = QCheckBox("Offline mode (no internet connections)")
+        self.offline_checkbox.setChecked(bool(_config.get("offline_mode")))
+        self._set_tooltip(self.offline_checkbox,
+                          "Blocks every connection to outside servers: database retrieval, "
+                          "structure fetching and prediction, BLAST and weight downloads. "
+                          "All analyses and AI predictions still run, once the weights are cached. "
+                          "Takes full effect after BEER is restarted.")
+        form_net.addRow("", self.offline_checkbox)
+        self.confirm_uploads_checkbox = QCheckBox("Ask before sending a sequence to an outside server")
+        _cu = _config.get("confirm_uploads")
+        self.confirm_uploads_checkbox.setChecked(True if _cu is None else bool(_cu))
+        self._set_tooltip(self.confirm_uploads_checkbox,
+                          "BLAST and ESMFold2 structure prediction send the full sequence off this "
+                          "computer. Every other request sends only an accession or identifier.")
+        form_net.addRow("", self.confirm_uploads_checkbox)
+        layout.addLayout(form_net)
+
         # ── API Keys ──────────────────────────────────────────────────────────
         _api_lbl = QLabel("API Keys")
         _api_lbl.setObjectName("settings_section_lbl")
@@ -7291,6 +7321,37 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         label = "Dark" if is_dark else "Light"
         self.statusBar.showMessage(f"{label} theme activated", 2000)
 
+    def _network_permitted(self, service: str, sends_sequence: bool = False,
+                           quiet: bool = False) -> bool:
+        """Whether *service* may be contacted, asking first if it would receive the sequence."""
+        from beer.network import policy
+        if policy.offline():
+            if not quiet:
+                QMessageBox.information(
+                    self, "Offline mode",
+                    f"{service} needs an internet connection, and offline mode is on.\n\n"
+                    "Switch it off under Settings \u2192 Privacy and network to use this feature.")
+            return False
+        if sends_sequence and policy.confirm_uploads():
+            where = policy.SEQUENCE_UPLOADS.get(service, "an outside server")
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Question)
+            box.setWindowTitle("Send sequence?")
+            box.setText(f"{service} sends your full sequence to {where}.\n\n"
+                        "The sequence leaves this computer. Continue?")
+            box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            box.setDefaultButton(QMessageBox.StandardButton.No)
+            dont_ask = QCheckBox("Do not ask again")
+            box.setCheckBox(dont_ask)
+            answer = box.exec()
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+            if dont_ask.isChecked():
+                _config.set_value("confirm_uploads", False)
+                if hasattr(self, "confirm_uploads_checkbox"):
+                    self.confirm_uploads_checkbox.setChecked(False)
+        return True
+
     def apply_settings(self):
         self.default_window_size = self.window_size_input.value()
         self.default_pH          = self.ph_input.value()
@@ -7404,11 +7465,17 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             "esmc_model":           "esmc_600m",
             "hydro_scale":          self.hydro_scale,
             "biohub_api_key":       self.biohub_api_key_input.text().strip(),
+            "offline_mode":         self.offline_checkbox.isChecked(),
+            "confirm_uploads":      self.confirm_uploads_checkbox.isChecked(),
         })
+        from beer.network.policy import apply_to_environment
+        apply_to_environment()
         self.statusBar.showMessage("Settings applied and saved.", 5000)
 
     def reset_defaults(self):
         self.window_size_input.setValue(9)
+        self.offline_checkbox.setChecked(False)
+        self.confirm_uploads_checkbox.setChecked(True)
         self.hydro_scale_combo.setCurrentText("Kyte-Doolittle")
         self.pka_set_combo.setCurrentText(DEFAULT_PKA_SET)
         self.ph_input.setValue(7.4)
@@ -7433,6 +7500,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     # --- AlphaMissense ---
 
     def _run_alphafold_missense(self, uniprot_id: str):
+        if not self._network_permitted("AlphaMissense (AlphaFold DB)"):
+            return
         if not uniprot_id:
             QMessageBox.warning(self, "AlphaMissense",
                                 "No UniProt accession loaded.\n"
@@ -7953,6 +8022,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     # --- Accession fetch ---
 
     def fetch_accession(self):
+        if not self._network_permitted("UniProt / RCSB PDB"):
+            return
         acc = self.accession_input.text().strip()
         if not acc:
             QMessageBox.warning(self, "Fetch", "Enter a UniProt ID or PDB ID.")
@@ -8057,6 +8128,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
 
     def _fetch_and_show_protein_summary(self, acc: str, is_pdb: bool) -> None:
         """Start a background worker to fetch protein metadata; update UI via slot."""
+        if not self._network_permitted("UniProt summary", quiet=True):
+            return
         # Cancel any still-running summary fetch for a previous accession.
         if self._protein_summary_worker is not None and self._protein_summary_worker.isRunning():
             self._protein_summary_worker.quit()
@@ -8166,6 +8239,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     # --- AlphaFold ---
 
     def fetch_alphafold(self):
+        if not self._network_permitted("AlphaFold DB"):
+            return
         acc = self.current_accession
         if not acc:
             acc, ok = QInputDialog.getText(
@@ -8752,6 +8827,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
             )
             _mb.exec()
             return
+        if not self._network_permitted("ESMFold2 structure prediction", sends_sequence=True):
+            return
         self.predict_struct_btn.setEnabled(False)
         self._mark_chip_loading(self.predict_struct_btn)
         self.statusBar.showMessage("Predicting structure with ESMFold2…")
@@ -8816,6 +8893,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
     # --- Pfam ---
 
     def fetch_pfam(self):
+        if not self._network_permitted("InterPro / Pfam"):
+            return
         acc = self.current_accession
         if not acc:
             acc, ok = QInputDialog.getText(
@@ -8868,6 +8947,8 @@ transparency setting in a <tt>.beer</tt> JSON file.</p>
         seq = self.analysis_data["seq"]
         db  = self.blast_db_combo.currentText()
         n   = self.blast_hits_spin.value()
+        if not self._network_permitted("NCBI BLAST", sends_sequence=True):
+            return
         self.blast_run_btn.setEnabled(False)
         self.blast_stop_btn.setVisible(True)
         self.blast_table.setRowCount(0)
@@ -9800,6 +9881,8 @@ function setBackground(c) {
 
     def _comp_fetch_pdb(self) -> None:
         """Fetch the experimental PDB for the Fix PDB tab (independent of main structure viewer)."""
+        if not self._network_permitted("RCSB PDB"):
+            return
         pdb_id = self._comp_pdb_input.text().strip().upper()
         if not pdb_id or len(pdb_id) != 4:
             QMessageBox.warning(self, "Invalid PDB ID", "Enter a 4-character PDB ID (e.g. 1EMA).")
@@ -10017,6 +10100,8 @@ function setBackground(c) {
             self._comp_esm_btn.setEnabled(False)
 
     def _run_composite_build(self) -> None:
+        if not self._network_permitted("AlphaFold DB"):
+            return
         acc = self._comp_acc_input.text().strip()
         if not self._comp_exp_pdb_str or not acc:
             return
@@ -10112,6 +10197,8 @@ function setBackground(c) {
             return
 
         self._comp_set_build_btns_enabled(False)
+        if not self._network_permitted("ESMFold2 structure prediction", sends_sequence=True):
+            return
         self._comp_status_lbl.setText("Predicting full structure with ESMFold2…")
 
         self._composite_esm_worker = CompositeStructureESMFold2Worker(
@@ -10522,6 +10609,8 @@ function setBackground(c) {
     # ── ELM / DisProt / PhaSepDB callbacks ────────────────────────────────────
 
     def fetch_elm(self):
+        if not self._network_permitted("ELM"):
+            return
         if not _HAS_ELM:
             QMessageBox.information(self, "ELM",
                 "ELM module not available.\nInstall with: pip install beer-biophys")
@@ -10578,6 +10667,8 @@ function setBackground(c) {
         QMessageBox.warning(self, "ELM Error", msg)
 
     def fetch_disprot(self):
+        if not self._network_permitted("DisProt"):
+            return
         if not _HAS_DISPROT:
             QMessageBox.information(self, "DisProt",
                 "DisProt module not available.\nInstall with: pip install beer-biophys")
@@ -10636,6 +10727,8 @@ function setBackground(c) {
         QMessageBox.warning(self, "DisProt Error", msg)
 
     def fetch_phasepdb(self):
+        if not self._network_permitted("PhaSepDB"):
+            return
         if not _HAS_PHASEPDB:
             QMessageBox.information(self, "PhaSepDB",
                 "PhaSepDB module not available.\nInstall with: pip install beer-biophys")
@@ -10689,6 +10782,8 @@ function setBackground(c) {
     # ── MobiDB ────────────────────────────────────────────────────────────────
 
     def fetch_mobidb(self):
+        if not self._network_permitted("MobiDB"):
+            return
         acc = self.current_accession
         if not acc:
             QMessageBox.warning(self, "MobiDB", "Fetch a UniProt accession first.")
@@ -10751,6 +10846,8 @@ function setBackground(c) {
     # ── UniProt Feature Tracks (dual-track visualization) ─────────────────────
 
     def fetch_uniprot_features(self):
+        if not self._network_permitted("UniProt"):
+            return
         acc = self.current_accession
         if not acc:
             QMessageBox.warning(self, "UniProt Tracks",
@@ -10827,6 +10924,8 @@ function setBackground(c) {
 
     def find_uniprot_from_sequence(self):
         """Search UniProt for the current sequence and populate current_accession."""
+        if not self._network_permitted("UniProt"):
+            return
         if not self.analysis_data:
             return
         seq = self.analysis_data.get("seq", "")
@@ -10882,6 +10981,8 @@ function setBackground(c) {
     # ── UniProt Variants ───────────────────────────────────────────────────────
 
     def fetch_variants(self):
+        if not self._network_permitted("UniProt"):
+            return
         acc = self.current_accession
         if not acc:
             QMessageBox.warning(self, "Variants", "Fetch a UniProt accession first.")
@@ -10943,6 +11044,8 @@ function setBackground(c) {
     # ── IntAct ────────────────────────────────────────────────────────────────
 
     def fetch_intact(self):
+        if not self._network_permitted("IntAct (EBI)"):
+            return
         acc = self.current_accession
         if not acc:
             QMessageBox.warning(self, "IntAct", "Fetch a UniProt accession first.")

@@ -1070,7 +1070,7 @@ class AnalysisTools:
         scd_profile_data = calc_scd_profile(seq, window=20)
         scd_blocks       = calc_pos_neg_block_lengths(seq)
         scd_html         = format_scd_report(seq, _accent)
-        shd_profile_data = calc_shd_profile(seq, _scale_vals, window=20)
+        shd_profile_data = calc_shd_profile(seq, window=20)
 
         # --- Tandem repeats + PolyX ---
         polyx_stretches = calc_polyx_stretches(seq, min_length=4)

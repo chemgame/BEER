@@ -126,7 +126,9 @@ beer
 4. Click any section under **AI Predictions** to compute that BiLSTM head on demand
 5. Go to the **Graphs** tab and click any graph name; right-click a graph to save it as PNG/SVG/PDF or export its data
 
-Internet is only needed for external fetches (UniProt, AlphaFold, Pfam, ELM, DisProt, PhaSepDB, BLAST). All local analysis runs offline.
+Internet is only needed for external fetches (UniProt, AlphaFold, Pfam, ELM, DisProt, PhaSepDB, BLAST) and for the one-time download of the model weights. All analyses and AI predictions run on your computer.
+
+**Privacy and network.** Two actions send your full sequence to an outside server: **BLAST** (NCBI) and **Predict Structure** (ESMFold2 via the Biohub Forge service). BEER asks before either one runs. Every other request sends only an accession or identifier. Under **Settings → Privacy and network**, *Offline mode* blocks every connection, including weight downloads, so switch it on only once the weights are cached. You can also turn off the upload confirmation there.
 
 ### CLI (headless) mode
 
@@ -441,7 +443,10 @@ If ESMC is not installed, the AI Predictions heads — including the disorder pr
 
 ## Recent changes
 
-- **Calibrated probabilities:** the AI heads now report probabilities on a calibrated scale, so a residue scored 0.8 is positive about eighty per cent of the time. Each head's decision threshold moves with it, so every prediction BEER makes is unchanged. Thresholds shown in the interface are lower than before as a result. Two heads are unaffected: transmembrane, which decodes with a CRF, and secondary structure, which picks the highest of three classes.
+- **Calibrated probabilities:** the AI heads now report probabilities on a calibrated scale. The scale is fitted to each head's own test data, which contain far more proteins with the feature than a typical proteome. Read a score as a ranking and compare it with the head's threshold. It is not the chance that a residue in your protein carries the feature. Each head's decision threshold moves with its scores, so every prediction BEER makes is unchanged, and the thresholds shown in the interface are lower than before. Two heads are unaffected: transmembrane, which decodes with a CRF, and secondary structure, which picks the highest of three classes.
+- **Offline mode and upload confirmation:** BEER now asks before sending a sequence to an outside server, and an offline switch blocks every connection.
+- **Measured error rates beside each call:** every protein-level call now states how often its rule called proteins with and without the feature on held-out test proteins.
+- **Hydropathy decoration corrected:** the SHD profile now follows the published definition of Zheng et al. (2020) and its hydropathy scale. Earlier SHD values are not comparable.
 - **Transmembrane report fix:** the Report tab could state "no transmembrane segment" for a membrane protein whose profile clearly showed membrane helices. The segments are now carried through reliably, including after applying settings, so the report and the profile agree.
 - **Worker shutdown fix:** cancelling an analysis or starting a new one while an AI prediction was still running could raise a `TypeError` while the prediction was being retired, and the results it was carrying were lost. Predictions are now retired cleanly whatever they were computing.
 - **Improved binding and secondary-structure heads:** the five heads trained on structure-derived contacts (DNA, RNA, nucleotide, ligand and zinc binding) now learn from full-length proteins, and the secondary-structure head learns from DSSP assignments. Accuracy rose for all six, and binding predictions no longer depend on whether a domain is scored alone or inside its whole protein.

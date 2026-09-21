@@ -298,6 +298,8 @@ def _is_qt_option(arg: str) -> bool:
 
 
 def main() -> None:
+    from beer.network.policy import apply_to_environment
+    apply_to_environment()
     _harden_native_runtime()   # must precede any torch/esm import
     _setup_logging()
     _log = logging.getLogger("beer.app")

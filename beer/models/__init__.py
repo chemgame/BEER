@@ -76,6 +76,11 @@ def _download(name: str, meta: dict) -> pathlib.Path | None:
     url = meta.get("url")
     if not url:
         return None
+    from beer.network.policy import offline
+    if offline():
+        _log.error("Offline mode is on, so %s cannot be downloaded. Switch it off in Settings "
+                   "or place the weights in BEER_MODELS_DIR.", name)
+        return None
     import urllib.request
     cache_dir = _user_cache_dir()
     try:
