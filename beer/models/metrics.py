@@ -89,35 +89,61 @@ PROTEIN_AUROC: dict[str, float] = {
     "zinc_finger":         0.9186,
 }
 
+#: Protein-level AUROC on the validation split, scored the same way.  This, and not the test
+#: value, decides whether a head makes a protein-level call at all.
+PROTEIN_AUROC_VAL: dict[str, float] = {
+    "acetylation":        0.7948,
+    "active_site":        0.9688,
+    "binding_site":       0.9013,
+    "coiled_coil":        0.9199,
+    "disorder":           0.8571,
+    "disulfide":          0.9735,
+    "dna_binding":        0.9109,
+    "glycosylation":      0.9598,
+    "intramembrane":      0.9703,
+    "lcd":                0.9720,
+    "lipidation":         0.8279,
+    "methylation":        0.8524,
+    "motif":              0.7130,
+    "nucleotide_binding": 0.9552,
+    "phosphorylation":    0.8119,
+    "propeptide":         0.9130,
+    "repeat":             0.9721,
+    "rna_binding":        0.9742,
+    "signal_peptide":     0.9997,
+    "transit_peptide":    0.9967,
+    "ubiquitination":     0.6934,
+    "zinc_finger":        0.8994,
+}
+
 #: Protein-level true- and false-positive rates of the call rule each head actually uses, measured
 #: once on its held-out test proteins: the fraction of proteins carrying the feature that the rule
 #: calls, and the fraction of proteins lacking it that the rule calls anyway.  The test sets hold
 #: far more feature-carrying proteins than a proteome does, so a positive call on an arbitrary
 #: protein is less reliable than the true-positive rate alone suggests.
 PROTEIN_CALL_RATES: dict[str, tuple[float, float]] = {
-    "acetylation":         (0.7570, 0.3315),
-    "active_site":         (0.9615, 0.1658),
-    "binding_site":        (0.9444, 0.3810),
-    "coiled_coil":         (0.9286, 0.1875),
-    "disorder":            (0.7606, 0.1864),
-    "disulfide":           (0.9637, 0.2161),
-    "dna_binding":         (0.8878, 0.1362),
-    "glycosylation":       (0.8881, 0.0310),
-    "intramembrane":       (0.9569, 0.0514),
-    "lcd":                 (0.9261, 0.2178),
-    "lipidation":          (0.4378, 0.2112),
-    "methylation":         (0.3167, 0.1209),
-    "motif":               (0.7138, 0.4159),
-    "nucleotide_binding":  (0.9826, 0.1758),
-    "phosphorylation":     (0.8481, 0.4286),
-    "propeptide":          (0.6846, 0.2115),
-    "repeat":              (0.9252, 0.0556),
-    "rna_binding":         (0.9394, 0.0780),
-    "signal_peptide":      (0.9792, 0.0132),
-    "transit_peptide":     (0.9872, 0.0366),
-    "transmembrane":       (0.9728, 0.0048),
-    "ubiquitination":      (0.9234, 0.6027),
-    "zinc_finger":         (0.8494, 0.1421),
+    "acetylation":        (0.7570, 0.3315),
+    "active_site":        (0.9615, 0.1658),
+    "binding_site":       (0.9399, 0.3810),
+    "coiled_coil":        (0.9286, 0.1875),
+    "disorder":           (0.7606, 0.1864),
+    "disulfide":          (0.9637, 0.2161),
+    "dna_binding":        (0.8878, 0.1362),
+    "glycosylation":      (0.8881, 0.0310),
+    "intramembrane":      (0.9569, 0.0514),
+    "lcd":                (0.9261, 0.2178),
+    "lipidation":         (0.4378, 0.2112),
+    "methylation":        (0.3167, 0.1209),
+    "motif":              (0.7138, 0.4159),
+    "nucleotide_binding": (0.9814, 0.1758),
+    "phosphorylation":    (0.8481, 0.4286),
+    "propeptide":         (0.6846, 0.2115),
+    "repeat":             (0.9252, 0.0556),
+    "rna_binding":        (0.9278, 0.0780),
+    "signal_peptide":     (0.9792, 0.0132),
+    "transit_peptide":    (0.9872, 0.0366),
+    "ubiquitination":     (0.9234, 0.6027),
+    "zinc_finger":        (0.8452, 0.1421),
 }
 
 #: task → (architecture, LSTM hidden size per direction), as stored in the .npz files.
@@ -205,6 +231,11 @@ def auprc(task: str) -> float | None:
 def protein_call_rates(task: str) -> tuple[float, float] | None:
     """(true-positive rate, false-positive rate) of *task*'s protein-level rule on test proteins."""
     return PROTEIN_CALL_RATES.get(_resolve(task))
+
+
+def protein_auroc_val(task: str) -> float | None:
+    """Protein-level validation AUROC for *task*, the value the call gate uses."""
+    return PROTEIN_AUROC_VAL.get(_resolve(task))
 
 
 def protein_auroc(task: str) -> float | None:

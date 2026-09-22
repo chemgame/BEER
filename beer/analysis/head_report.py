@@ -7,7 +7,7 @@ everywhere.
 from __future__ import annotations
 
 from beer.analysis.calls import SITE_HEADS, protein_call, rule_text, runs_above, tm_segments
-from beer.models.metrics import f1_threshold, protein_auroc, protein_call_rates
+from beer.models.metrics import f1_threshold, protein_auroc, protein_auroc_val, protein_call_rates
 
 #: analysis_data key → head task name
 DATA_KEY_TO_TASK: dict[str, str] = {
@@ -58,8 +58,8 @@ def _span_rows(seq: str, spans: list[tuple[int, int]]) -> str:
 
 def _protein_line(task: str, called: bool | None) -> str:
     if called is None:
-        auc = protein_auroc(task)
-        return ("<p><b>Protein-level call:</b> not made. On the v3.1 test proteins this head "
+        auc = protein_auroc_val(task)
+        return ("<p><b>Protein-level call:</b> not made. On its validation proteins this head "
                 "separates proteins with and without the feature only weakly (protein-level "
                 f"AUROC {auc:.2f}); read the residue scores below instead.</p>")
     verdict = "predicted" if called else "not predicted"
@@ -105,7 +105,7 @@ def head_findings_html(task: str, scores: "list[float]", seq: str = "",
              f"({len(above) / n * 100:.1f}%)</td></tr></table>")
 
     call = protein_call(task, scores)
-    protein = _protein_line(task, call.called) if (call.called is not None or protein_auroc(task)) else ""
+    protein = _protein_line(task, call.called) if (call.called is not None or protein_auroc_val(task)) else ""
 
     if task in SITE_HEADS:
         top = sorted(above, key=lambda p: -scores[p - 1])[:MAX_SITES_LISTED]

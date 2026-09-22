@@ -25,6 +25,7 @@ def test_every_thresholded_head_has_a_rule_and_a_protein_auroc():
     for task in THRESHOLDED:
         assert task in calls.PROTEIN_RULES or task == "signal_peptide", task
         assert metrics.protein_auroc(task) is not None, task
+        assert metrics.protein_auroc_val(task) is not None, task
 
 
 def test_site_heads_are_thresholded_heads():
@@ -60,7 +61,7 @@ def test_transit_peptide_must_be_n_terminal():
 
 
 def test_weak_heads_make_no_protein_call():
-    weak = [t for t in THRESHOLDED if metrics.protein_auroc(t) < calls.MIN_PROTEIN_AUROC]
+    weak = [t for t in THRESHOLDED if metrics.protein_auroc_val(t) < calls.MIN_PROTEIN_AUROC]
     assert weak, "expected at least one weak head in the table"
     for task in weak:
         call = calls.protein_call(task, _profile((30, 60)))

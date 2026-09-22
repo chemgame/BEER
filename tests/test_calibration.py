@@ -60,9 +60,9 @@ def test_threshold_is_derived_not_stored(task):
     assert calibration.calibrated_threshold(task, raw) == pytest.approx(direct)
 
 
-@pytest.mark.parametrize("task", ["repeat", "transmembrane", "secondary_structure"])
+@pytest.mark.parametrize("task", ["transmembrane", "secondary_structure"])
 def test_uncalibrated_heads_are_untouched(task):
-    """repeat did not improve; the two Viterbi-decoded heads are excluded by construction."""
+    """The two Viterbi-decoded heads are excluded by construction."""
     assert not calibration.is_calibrated(task)
     raw = [0.01, 0.25, 0.5, 0.75, 0.99]
     assert calibration.apply(task, raw) == raw

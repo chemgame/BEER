@@ -241,7 +241,7 @@ Computed on-demand when you click a section under **AI Predictions** in the side
 - A transmembrane protein is reported when the Viterbi-decoded topology contains at least one transmembrane segment of 12 or more residues.
   - The minimum was chosen on the validation split: UniProt's annotations include β-barrel strands and 13–17-residue helices.
   - Very hydrophobic amphipathic helices in soluble proteins can occasionally decode as short segments.
-- Heads that separate proteins with and without the feature only weakly (protein-level AUROC below 0.80 on the test split) make no protein-level call and show their residue scores only.
+- Heads that separate proteins with and without the feature only weakly (protein-level AUROC below 0.80 on the validation split: acetylation, ubiquitination and functional motifs) make no protein-level call and show their residue scores only.
 
 | Head | Notes |
 |------|-------|
@@ -443,9 +443,10 @@ If ESMC is not installed, the AI Predictions heads — including the disorder pr
 
 ## Recent changes
 
-- **Calibrated probabilities:** the AI heads now report probabilities on a calibrated scale. The scale is fitted to each head's own test data, which contain far more proteins with the feature than a typical proteome. Read a score as a ranking and compare it with the head's threshold. It is not the chance that a residue in your protein carries the feature. Each head's decision threshold moves with its scores, so every prediction BEER makes is unchanged, and the thresholds shown in the interface are lower than before. Two heads are unaffected: transmembrane, which decodes with a CRF, and secondary structure, which picks the highest of three classes.
+- **Calibrated probabilities:** the AI heads now report probabilities on a calibrated scale. The scale is fitted to each head's validation data, which contain far more proteins with the feature than a typical proteome. Read a score as a ranking and compare it with the head's threshold. It is not the chance that a residue in your protein carries the feature. Each head's decision threshold moves with its scores, so every prediction BEER makes is unchanged, and the thresholds shown in the interface are lower than before. Two heads are unaffected: transmembrane, which decodes with a CRF, and secondary structure, which picks the highest of three classes.
 - **Offline mode and upload confirmation:** BEER now asks before sending a sequence to an outside server, and an offline switch blocks every connection.
 - **Measured error rates beside each call:** every protein-level call now states how often its rule called proteins with and without the feature on held-out test proteins.
+- **Protein-level calls for more heads:** whether a head makes a protein-level call is now decided on its validation data. Phosphorylation, methylation and lipidation now make calls. Their measured error rates, shown beside each call, are weaker than for the other heads. The repeat head now also reports calibrated probabilities.
 - **New disorder head:** the disorder predictor is retrained on experimental labels only (DisProt disordered regions, with residues seen in PDB structures as ordered). It is more accurate on independent disorder benchmarks. A protein is now reported as having a disordered region when at least 10 consecutive residues are above the threshold.
 - **Signal and transit peptides:** the report now notes that the signal-peptide and transit-peptide heads often both fire on the same N-terminus.
 - **Signal peptide section follows the protein-level rule:** the Signal Peptide section of the report now uses the same rule as the protein-level call and gives the predicted cleavage position. Earlier it averaged the probability over the first 70 residues, which could label a short signal peptide as unlikely.

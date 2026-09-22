@@ -12,8 +12,8 @@ therefore unchanged to the last digit, and because each head's decision threshol
 through the same function, every call BEER makes is identical to before. Only the number shown
 to the user changes.
 
-A head keeps its map only if the calibration error measured on the test split actually improved.
-The repeat head did not improve and is deliberately absent, so it reports raw probabilities.
+Every thresholded head has a map. Whether a map helps was judged on the validation split alone,
+by fitting it on one half and scoring it on the other, and it helped for all 22 heads.
 
 Two heads are excluded by construction. The transmembrane head decodes with a CRF, where
 rescaling the emissions against the transition scores would move the Viterbi path and change the
@@ -24,8 +24,7 @@ Only the two fitted coefficients are stored. The calibrated threshold is derived
 from the head's own threshold whenever it is asked for, so the two can never disagree. Storing it
 as a third number is what allowed them to drift once already.
 
-This table is generated from the fitting run, not written by hand. Source values live in
-data/benchmarks/calibration_platt.json, produced by scripts/fit_calibration.py.
+This table is generated from the fitting run on the full validation split, not written by hand.
 """
 from __future__ import annotations
 
@@ -33,27 +32,28 @@ import math
 
 #: task -> (a, b) of the fitted Platt map. Heads absent from this table are not calibrated.
 PLATT: dict[str, tuple[float, float]] = {
-    "acetylation":         (2.543208, -5.575222),
-    "active_site":         (2.534832, -5.00519),
-    "binding_site":        (2.323393, -2.959409),
-    "coiled_coil":         (2.189034, -1.613947),
-    "disorder":            (2.071457, -1.715412),
-    "disulfide":           (2.001454, -3.294155),
-    "dna_binding":         (2.267873, -3.232535),
-    "glycosylation":       (2.295331, -4.087752),
-    "intramembrane":       (1.631915, -2.677799),
-    "lcd":                 (1.791741, -1.567413),
-    "lipidation":          (2.537197, -6.575697),
-    "methylation":         (1.847171, -5.311877),
-    "motif":               (2.089562, -4.165324),
-    "nucleotide_binding":  (0.620531, -0.888675),
-    "phosphorylation":     (2.335535, -4.892683),
-    "propeptide":          (3.697062, -2.310771),
-    "rna_binding":         (1.688688, -1.546082),
-    "signal_peptide":      (2.852116, -3.060202),
-    "transit_peptide":     (2.299682, -2.012147),
-    "ubiquitination":      (1.388266, -4.831482),
-    "zinc_finger":         (2.865729, -4.468654),
+    "acetylation":        (2.398889, -5.443673),
+    "active_site":        (2.466133, -4.908169),
+    "binding_site":       (2.380925, -2.952080),
+    "coiled_coil":        (2.164472, -1.568401),
+    "disorder":           (2.071457, -1.715412),
+    "disulfide":          (1.972934, -3.312016),
+    "dna_binding":        (2.288768, -3.252406),
+    "glycosylation":      (2.217385, -3.971966),
+    "intramembrane":      (1.630952, -2.675041),
+    "lcd":                (1.654834, -1.489530),
+    "lipidation":         (2.555071, -6.693884),
+    "methylation":        (1.851033, -5.247563),
+    "motif":              (2.079278, -3.989837),
+    "nucleotide_binding": (0.628539, -0.973822),
+    "phosphorylation":    (2.355268, -4.893051),
+    "propeptide":         (3.640716, -2.446070),
+    "repeat":             (0.868249, -0.338762),
+    "rna_binding":        (1.703737, -1.499341),
+    "signal_peptide":     (2.962842, -3.239683),
+    "transit_peptide":    (2.340948, -2.072095),
+    "ubiquitination":     (1.401118, -4.842862),
+    "zinc_finger":        (2.880222, -4.536060),
 }
 
 _EPS = 1e-6

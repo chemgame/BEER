@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from beer.models.metrics import f1_threshold, protein_auroc
+from beer.models.metrics import f1_threshold, protein_auroc_val
 
 # A signal peptide starts at the N-terminus; allow the first residues to sit below the
 # threshold (initiator Met, n-region) before the above-threshold run begins.
@@ -111,8 +111,8 @@ PROTEIN_RULES: dict[str, ProteinRule] = {
     "zinc_finger":        ProteinRule(1),
 }
 
-# Below this protein-level AUROC (v3.1 test split) a head separates proteins with and
-# without the feature too weakly for a yes/no statement; only its residue scores are shown.
+# Below this protein-level AUROC, measured on the validation split, a head separates proteins
+# with and without the feature too weakly for a yes/no statement; only its residue scores are shown.
 MIN_PROTEIN_AUROC = 0.80
 
 
@@ -161,6 +161,6 @@ def protein_call(task: str, profile: "list[float] | None") -> ProteinCall:
         return ProteinCall(None, [])
     spans = [(s, e) for s, e in runs_above(profile, f1_threshold(task))
              if e - s + 1 >= rule.min_run and (rule.max_start is None or s <= rule.max_start)]
-    if (protein_auroc(task) or 0.0) < MIN_PROTEIN_AUROC:
+    if (protein_auroc_val(task) or 0.0) < MIN_PROTEIN_AUROC:
         return ProteinCall(None, spans)
     return ProteinCall(bool(spans), spans)
