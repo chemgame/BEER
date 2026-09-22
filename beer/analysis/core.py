@@ -525,7 +525,10 @@ class AnalysisTools:
                 f"<tr><td>Disordered fraction (score &gt; {_dthr:.2f})</td>"
                 f"<td>{disordered_frac:.3f} ({disordered_frac*100:.1f}%)</td></tr>"
             )
-            _idr_regions = _contiguous_regions(disorder_scores, _dthr)
+            from beer.analysis.calls import PROTEIN_RULES as _PR
+            _min_idr = _PR["disorder"].min_run
+            _idr_regions = [(s, e) for s, e in _contiguous_regions(disorder_scores, _dthr)
+                            if e - s + 1 >= _min_idr]
             if _idr_regions:
                 _idr_rows = "".join(
                     f"<tr><td>IDR {k}</td><td>{s}–{e}</td><td>{e-s+1}</td></tr>"
@@ -535,11 +538,12 @@ class AnalysisTools:
                     "<h3 style='margin:10px 0 4px'>Predicted Intrinsically Disordered Regions</h3>"
                     "<table><tr><th>#</th><th>Residues</th><th>Length</th></tr>"
                     f"{_idr_rows}</table>"
-                    f"<p class='note'>{len(_idr_regions)} IDR(s) predicted at threshold {_dthr:.2f}.</p>"
+                    f"<p class='note'>{len(_idr_regions)} IDR(s) of at least {_min_idr} residues "
+                    f"predicted at threshold {_dthr:.2f}.</p>"
                 )
             else:
-                _idr_table = ("<p class='note'>No contiguous disordered regions predicted "
-                              f"(threshold {_dthr:.2f}).</p>")
+                _idr_table = (f"<p class='note'>No disordered region of at least {_min_idr} residues "
+                              f"predicted (threshold {_dthr:.2f}).</p>")
             _disorder_note = "AI disorder head: " + architecture_note("disorder")
             disorder_html = _style + f"""
             <h2>Disorder &amp; Flexibility {method_badge("ESMC BiLSTM", "bilstm")}</h2>
@@ -990,7 +994,8 @@ class AnalysisTools:
             "Transit Peptides — BiLSTM", "transit_peptide",
             transit_bilstm_profile,
             "UniProt Swiss-Prot 'Transit peptide' (ft_transit) annotations",
-            "",
+            "The transit-peptide and signal-peptide heads often both fire on the same N-terminus, "
+            "so a call by either is best read as evidence of an N-terminal targeting sequence.",
             "Mitochondrial and chloroplast transit peptides are N-terminal targeting sequences "
             "cleaved upon import. They are typically rich in basic and hydroxylated residues "
             "and lack acidic residues (von Heijne 1986 EMBO J 5:1335).",

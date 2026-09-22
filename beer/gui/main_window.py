@@ -302,7 +302,7 @@ _HEAD_TRAINING_SOURCES: list[tuple[str, str, str]] = [
     ("transit_peptide",    "Transit Peptide",           "UniProt ft_transit"),
     ("glycosylation",      "Glycosylation",             "UniProt ft_carbohyd (mostly sequence-analysis annotations)"),
     ("dna_binding",        "DNA-Binding",               "BioLiP (PDB-derived protein-DNA contacts)"),
-    ("disorder",           "Disorder",                  "DisProt + UniProt disordered regions (MobiDB-lite)"),
+    ("disorder",           "Disorder",                  "DisProt regions; PDB-observed residues as order"),
     ("lipidation",         "Lipidation",                "UniProt ft_lipid"),
     ("active_site",        "Active Site",               "M-CSA mechanistically validated catalytic residues"),
     ("acetylation",        "Acetylation",               "dbPTM"),
@@ -684,7 +684,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         "Disorder Profile": (
             "Per-residue disorder probability from the BEER AI Predictions head (0 = ordered, 1 = disordered).\n\n"
             "Architecture: ESM C 600M embeddings → multi-scale CNN → 2-layer BiLSTM → sigmoid. "
-            "Trained on DisProt regions and UniProt disordered regions, most of which UniProt assigns with MobiDB-lite. "
+            "Trained on DisProt disordered regions, with residues observed in PDB structures as ordered. "
             "The dashed line is the head's decision threshold. MC-Dropout (20 passes) provides ±1σ uncertainty band.\n\n"
             "Regions consistently above the threshold are predicted intrinsically disordered (IDRs)."
         ),

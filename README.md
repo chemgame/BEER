@@ -245,7 +245,7 @@ Computed on-demand when you click a section under **AI Predictions** in the side
 
 | Head | Notes |
 |------|-------|
-| **Disorder** | Trained on DisProt regions and UniProt disordered regions, most of which UniProt assigns with MobiDB-lite; requires ESMC — there is no classical or metapredict substitute |
+| **Disorder** | Trained on experimental labels only: DisProt disordered regions, with residues observed in PDB structures as ordered; requires ESMC — there is no classical or metapredict substitute |
 | **Signal Peptide** | AUROC 0.9997; classical Von Heijne D-score and AXA motif shown alongside; GPI anchor detection |
 | **Transmembrane** | Trained on PDBTM membrane segments; BiLSTM-CRF with Viterbi topology decoding (outside → membrane → inside); transmembrane segments of ≥12 residues are reported; AUROC 0.9889, the predicted number of membrane segments matches the annotated number for 0.930 of test proteins |
 | **Intramembrane** | Re-entrant membrane loops |
@@ -267,7 +267,7 @@ Computed on-demand when you click a section under **AI Predictions** in the side
 | **Functional Motif** | |
 | **Propeptide** | |
 | **Repeat Region** | |
-| **Transit Peptide** | |
+| **Transit Peptide** | The transit-peptide and signal-peptide heads often both fire on the same N-terminus; treat a call by either as evidence of an N-terminal targeting sequence |
 | **SS3: α-Helix** | Per-residue softmax probability that a residue is in an α-helix; output of the Q3 secondary structure head |
 | **SS3: β-Strand** | Per-residue softmax probability of β-strand (sheet) assignment |
 | **SS3: Coil/Loop** | Per-residue softmax probability of coil/loop assignment; the three SS3 profiles sum to 1.0 at every position |
@@ -446,6 +446,8 @@ If ESMC is not installed, the AI Predictions heads — including the disorder pr
 - **Calibrated probabilities:** the AI heads now report probabilities on a calibrated scale. The scale is fitted to each head's own test data, which contain far more proteins with the feature than a typical proteome. Read a score as a ranking and compare it with the head's threshold. It is not the chance that a residue in your protein carries the feature. Each head's decision threshold moves with its scores, so every prediction BEER makes is unchanged, and the thresholds shown in the interface are lower than before. Two heads are unaffected: transmembrane, which decodes with a CRF, and secondary structure, which picks the highest of three classes.
 - **Offline mode and upload confirmation:** BEER now asks before sending a sequence to an outside server, and an offline switch blocks every connection.
 - **Measured error rates beside each call:** every protein-level call now states how often its rule called proteins with and without the feature on held-out test proteins.
+- **New disorder head:** the disorder predictor is retrained on experimental labels only (DisProt disordered regions, with residues seen in PDB structures as ordered). It is more accurate on independent disorder benchmarks. A protein is now reported as having a disordered region when at least 10 consecutive residues are above the threshold.
+- **Signal and transit peptides:** the report now notes that the signal-peptide and transit-peptide heads often both fire on the same N-terminus.
 - **Signal peptide section follows the protein-level rule:** the Signal Peptide section of the report now uses the same rule as the protein-level call and gives the predicted cleavage position. Earlier it averaged the probability over the first 70 residues, which could label a short signal peptide as unlikely.
 - **Training sources stated correctly:** the Help table and each AI section now name the data each head was actually trained on, including where UniProt annotations are mostly assigned by sequence analysis.
 - **Hydropathy decoration corrected:** the SHD profile now follows the published definition of Zheng et al. (2020) and its hydropathy scale. Earlier SHD values are not comparable.

@@ -177,6 +177,8 @@ def format_signal_report(
             "ESM C 600M BiLSTM head trained on UniProt Swiss-Prot signal-peptide annotations"
             f"{_auc_str}. A signal peptide is reported for {rule_text('signal_peptide')}."
             f"{_rates_note('signal_peptide')}"
+            " The signal-peptide and transit-peptide heads often both fire on the same N-terminus,"
+            " so a call by either is best read as evidence of an N-terminal targeting sequence."
         )
         _sp_badge = method_badge("ESMC BiLSTM", "bilstm")
         sp_html = (

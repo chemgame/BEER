@@ -37,7 +37,7 @@ PLATT: dict[str, tuple[float, float]] = {
     "active_site":         (2.534832, -5.00519),
     "binding_site":        (2.323393, -2.959409),
     "coiled_coil":         (2.189034, -1.613947),
-    "disorder":            (2.739265, -1.62805),
+    "disorder":            (2.071457, -1.715412),
     "disulfide":           (2.001454, -3.294155),
     "dna_binding":         (2.267873, -3.232535),
     "glycosylation":       (2.295331, -4.087752),

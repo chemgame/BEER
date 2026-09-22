@@ -92,7 +92,7 @@ PROTEIN_RULES: dict[str, ProteinRule] = {
     "active_site":        ProteinRule(1),
     "binding_site":       ProteinRule(1),
     "coiled_coil":        ProteinRule(8),
-    "disorder":           ProteinRule(3),
+    "disorder":           ProteinRule(10),
     "disulfide":          ProteinRule(1),
     "dna_binding":        ProteinRule(2),
     "glycosylation":      ProteinRule(1),

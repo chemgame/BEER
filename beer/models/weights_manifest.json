@@ -26,8 +26,8 @@
       "url": "https://github.com/chemgame/BEER/releases/download/v3.1.0/coiled_coil_head.npz"
     },
     "disorder_head.npz": {
-      "sha256": "d965bcac080e1fd00ac143a61e2b45329da11991413edc17c55bb0014553c0a8",
-      "bytes": 26832986,
+      "sha256": "bdb4a0cefaa55a75190cb36dc51375a99c610bf9852223962a1668f017da88f2",
+      "bytes": 26832458,
       "url": "https://github.com/chemgame/BEER/releases/download/v3.1.0/disorder_head.npz"
     },
     "disulfide_head.npz": {
