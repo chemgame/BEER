@@ -1,6 +1,8 @@
 """Embedder factory and availability flag."""
 from __future__ import annotations
 
+import beer  # noqa: F401  (quietens the ESM C kernel notices before esm is imported)
+
 try:
     from esm.models.esmc import ESMC as _ESMC  # noqa: F401
     ESMC_AVAILABLE = True
