@@ -635,13 +635,26 @@ class ProteinAnalyzerGUI(QMainWindow):
     # --- Layout helpers ---
 
     def _clear_layout(self, layout):
-        for i in reversed(range(layout.count())):
-            item = layout.itemAt(i)
-            w = item.widget() if item else None
-            if w:
+        """Empty *layout*, handing every widget to Qt for deletion.
+
+        The widgets are taken out of the layout and deleted through the event
+        loop. Detaching them instead would pass ownership to Python, and a
+        later garbage collection could destroy a canvas or a toolbar while Qt
+        was still using it, which surfaced as stray attribute errors when the
+        next graph was drawn.
+        """
+        while layout.count():
+            item = layout.takeAt(0)
+            if item is None:
+                break
+            w = item.widget()
+            if w is not None:
                 if isinstance(w, FigureCanvas):
                     plt.close(w.figure)
                 w.setParent(None)
+                w.deleteLater()
+            elif item.layout() is not None:
+                self._clear_layout(item.layout())
 
     @staticmethod
     def _clear_layout_deep(layout) -> None:
@@ -970,6 +983,25 @@ class ProteinAnalyzerGUI(QMainWindow):
             except Exception:
                 pass
 
+    def _make_graph_toolbar(self, canvas):
+        """The matplotlib navigation toolbar for *canvas*, or a plain save bar.
+
+        Building the navigation toolbar occasionally fails inside Qt. The graph
+        itself is what matters, so a failure costs the pan and zoom buttons and
+        leaves a toolbar that can still save the figure.
+        """
+        import logging as _log
+        from PySide6.QtWidgets import QToolBar as _QTB
+        try:
+            return NavigationToolbar2QT(canvas, self)
+        except Exception as exc:
+            _log.getLogger("beer.graphs").warning(
+                "Navigation toolbar unavailable, falling back to a save button: %s", exc)
+            bar = _QTB(self)
+            act = bar.addAction("Save figure\u2026")
+            act.triggered.connect(lambda _=False, c=canvas: self._save_canvas_figure(c))
+            return bar
+
     def _replace_graph(self, title: str, fig):
         """Swap graph canvas in the named tab, preserving uncertainty checkbox state."""
         import matplotlib.pyplot as _plt
@@ -1005,7 +1037,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         canvas.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         canvas.customContextMenuRequested.connect(
             lambda pos, c=canvas: self._graph_context_menu(c, pos))
-        toolbar = NavigationToolbar2QT(canvas, self)
+        toolbar = self._make_graph_toolbar(canvas)
         from PySide6.QtCore import QSize as _QSize
         toolbar.setIconSize(_QSize(20, 20))
         is_dark = hasattr(self, "theme_toggle") and self.theme_toggle.isChecked()
@@ -1316,7 +1348,7 @@ class ProteinAnalyzerGUI(QMainWindow):
         canvas.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         canvas.customContextMenuRequested.connect(
             lambda pos, c=canvas: self._graph_context_menu(c, pos))
-        toolbar = NavigationToolbar2QT(canvas, self)
+        toolbar = self._make_graph_toolbar(canvas)
         toolbar.setIconSize(_QSize(20, 20))
         self._tint_toolbar_icons_dark(toolbar)
         right_vb.addWidget(toolbar)
@@ -1720,17 +1752,22 @@ class ProteinAnalyzerGUI(QMainWindow):
             QApplication.clipboard().setImage(qimg)
             self.statusBar.showMessage("Figure copied to clipboard.", 2000)
         elif action == save_act:
-            ext  = self.default_graph_format.lower()
-            fn, _ = QFileDialog.getSaveFileName(
-                self, "Save Figure", "",
-                f"{self.default_graph_format} Files (*.{ext})")
-            if fn:
-                if not fn.lower().endswith(f".{ext}"):
-                    fn += f".{ext}"
-                with self._figure_export_light(canvas.figure):
-                    canvas.figure.savefig(fn, format=ext, dpi=300, bbox_inches="tight",
-                                          metadata=figure_metadata(ext))
-                self.statusBar.showMessage(f"Saved to {os.path.basename(fn)}", 2000)
+            self._save_canvas_figure(canvas)
+
+    def _save_canvas_figure(self, canvas) -> None:
+        """Ask for a filename and write *canvas*'s figure to it."""
+        ext = self.default_graph_format.lower()
+        fn, _ = QFileDialog.getSaveFileName(
+            self, "Save Figure", "",
+            f"{self.default_graph_format} Files (*.{ext})")
+        if not fn:
+            return
+        if not fn.lower().endswith(f".{ext}"):
+            fn += f".{ext}"
+        with self._figure_export_light(canvas.figure):
+            canvas.figure.savefig(fn, format=ext, dpi=300, bbox_inches="tight",
+                                  metadata=figure_metadata(ext))
+        self.statusBar.showMessage(f"Saved to {os.path.basename(fn)}", 2000)
 
     def _find_canvas(self, vb) -> FigureCanvas | None:
         for i in range(vb.count()):
