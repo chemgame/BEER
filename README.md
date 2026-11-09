@@ -460,6 +460,7 @@ If ESMC is not installed, the AI Predictions heads — including the disorder pr
 - **Protein-level rules per head:** the minimum run of residues needed to call a protein positive is now set for each head from its validation split.
 - **Model attribution:** a `NOTICE` file credits the ESM C 600M model (MIT licence, Chan Zuckerberg Biohub) that BEER downloads for its AI predictions. The source code remains GPL v3.
 - **v3.1 prediction heads:** all 24 heads are trained with proteins that lack each feature as negatives. Each head's decision threshold is chosen on a validation split, and the AUROCs shown throughout BEER are measured on a held-out test split. Cached v3.0 weights are replaced automatically on first use.
+- **v3.2 weights:** head weights now download from the v3.2.0 release. A cached disorder head from v3.1 is replaced automatically on first use.
 - **Protein-level calls:** every AI section states whether the protein carries the feature, using that head's calibrated threshold. Site heads list their predicted residues and region heads their predicted regions.
 - **Transmembrane segments:** membrane segments of at least 12 residues from the Viterbi topology are reported as transmembrane segments.
 - **Uncertainty for every head:** the MC-dropout uncertainty band is available for all 24 heads.

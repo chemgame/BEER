@@ -1,4 +1,4 @@
-"""Canonical evaluation metrics for the shipped v3.1.0 prediction heads.
+"""Canonical evaluation metrics for the shipped v3.2.0 prediction heads.
 
 Single source of truth for every AUROC, AUPRC and F1-maximising threshold that
 BEER displays — the profile figures, the report sparklines, the structure-tab

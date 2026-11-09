@@ -93,7 +93,7 @@ def _download(name: str, meta: dict) -> pathlib.Path | None:
     mb = meta.get("bytes", 0) / 1048576
     _log.info("Downloading %s (%.0f MB) from %s", name, mb, url)
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "BEER/3.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "BEER/3.2"})
         with urllib.request.urlopen(req, timeout=120) as resp, open(tmp, "wb") as out:
             while True:
                 chunk = resp.read(1 << 20)
