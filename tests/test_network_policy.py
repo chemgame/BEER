@@ -59,3 +59,8 @@ def test_gui_gate(monkeypatch, qtbot=None):
     assert not shown
     _settings(monkeypatch, offline_mode=False, confirm_uploads=True)
     assert _Stub()._network_permitted("DisProt") is True
+
+
+def test_structure_prediction_requests_an_esmfold2_model():
+    from beer.network.workers import ESMFOLD2_MODEL
+    assert ESMFOLD2_MODEL.startswith("esmfold2")

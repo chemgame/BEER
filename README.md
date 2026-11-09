@@ -475,6 +475,7 @@ If ESMC is not installed, the AI Predictions heads — including the disorder pr
 - **Sidebar grouping:** the left navigation is now grouped into four labelled clusters (Analysis · Structure · Compare/Evolve · System) with Settings/Help at the bottom; keyboard shortcuts are unchanged.
 - **Structure overlay colours:** Hiding one model in an AlphaFold + ESMFold2 overlay now restores full colour control to the visible structure (colour changes apply immediately); the fixed blue/orange lock returns only when both models are shown again.
 - **Multi-chain PDB handling:** Fetching or importing a multi-chain PDB/mmCIF now keeps the full assembly in the 3D viewer when you switch chains — selecting a chain updates the per-chain profiles (pLDDT, distance map, Ramachandran, SASA) without collapsing the structure or removing the chain-visibility controls. Per-chain analysis for the Multichain table and chain selector now runs classical-only, so all chains populate immediately instead of waiting on a full ESMC pass per chain (AI heads are still computed on demand per chain).
+- **Structure prediction:** *Predict Structure* and *Fix with ESMFold2* fold with the ESMFold2 model (`esmfold2-2026-05`) on the Biohub Forge service.
 - **Long-sequence AI notice:** the 24 AI heads were trained on sequences truncated to 1024 residues. Running an AI head on a longer protein now shows a one-time notice that predictions beyond residue 1024 are extrapolation; the sequence is still scored end-to-end and classical analyses are unaffected.
 
 ## License

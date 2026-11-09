@@ -21,6 +21,11 @@ from beer.network._http import (
 )
 
 
+#: Folding model requested from the Biohub Forge service. The faster
+#: "esmfold2-fast-2026-05" variant is available under the same interface.
+ESMFOLD2_MODEL = "esmfold2-2026-05"
+
+
 def _safe_int(value, default: int = 0) -> int:
     """Convert *value* to int, returning *default* on failure."""
     try:
@@ -404,7 +409,7 @@ class ESMFold2Worker(QThread):
             client = SequenceStructureForgeInferenceClient(
                 token=self.api_token,
                 url="https://biohub.ai",
-                model="esm3-open-2024-03",
+                model=ESMFOLD2_MODEL,
             )
             result = client.fold(self.sequence)
             if isinstance(result, ESMProteinError):
@@ -1477,7 +1482,7 @@ class CompositeStructureESMFold2Worker(QThread):
             client = SequenceStructureForgeInferenceClient(
                 token=self.api_token,
                 url="https://biohub.ai",
-                model="esm3-open-2024-03",
+                model=ESMFOLD2_MODEL,
             )
             result = client.fold(self.full_seq)
             if isinstance(result, ESMProteinError):
