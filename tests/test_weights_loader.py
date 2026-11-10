@@ -34,11 +34,17 @@ def test_verify_rejects_wrong_size(tmp_path):
     assert m._verify(f, {"bytes": 5}) is True
 
 
-def test_resolve_prefers_existing_verified_file(monkeypatch):
+def test_resolve_prefers_existing_verified_file(monkeypatch, tmp_path):
     # A bogus download must never be reached when a valid local copy exists.
+    import hashlib
+    f = tmp_path / "disorder_head.npz"
+    f.write_bytes(b"weights")
+    meta = {"sha256": hashlib.sha256(b"weights").hexdigest(), "bytes": 7}
+    monkeypatch.setenv("BEER_MODELS_DIR", str(tmp_path))
+    monkeypatch.setattr(m, "_load_manifest", lambda: {"disorder_head.npz": meta})
     monkeypatch.setattr(m, "_download", lambda *a, **k: (_ for _ in ()).throw(
         AssertionError("download should not be called when a valid copy exists")))
-    assert m._resolve("disorder_head.npz") is not None
+    assert m._resolve("disorder_head.npz") == f
 
 
 def test_env_override_takes_priority(monkeypatch, tmp_path):

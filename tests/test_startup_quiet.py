@@ -2,6 +2,8 @@
 import subprocess
 import sys
 
+import pytest
+
 
 def _run(env_extra):
     import os
@@ -20,6 +22,7 @@ def test_import_is_quiet_by_default():
 
 
 def test_notices_can_be_switched_back_on():
+    pytest.importorskip("esm")  # the notices come from ESM C
     out = _run({"BEER_LOG_ESM": "1"})
     assert out.returncode == 0, out.stderr
     assert "Transformer Engine is not installed" in out.stderr

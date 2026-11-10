@@ -62,5 +62,6 @@ def test_gui_gate(monkeypatch, qtbot=None):
 
 
 def test_structure_prediction_requests_an_esmfold2_model():
+    pytest.importorskip("PySide6")
     from beer.network.workers import ESMFOLD2_MODEL
     assert ESMFOLD2_MODEL.startswith("esmfold2")
